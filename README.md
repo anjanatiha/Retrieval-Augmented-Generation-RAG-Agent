@@ -20,3 +20,9 @@ For final query:
 <pre>
 python demo.py
 </pre>
+
+
+For Demo App:
+<pre>
+python rag_app.py
+</pre>
