@@ -1,4 +1,4 @@
-# demo_simple_rag
+# Retrieval-Augmented Generation (RAG)
 
 Source: https://huggingface.co/blog/ngxson/make-your-own-rag
 
