@@ -50,6 +50,26 @@ streamlit run rag_app.py
 </pre>
 
 
+Step 1 — Install Python 3.11 via Homebrew
+bashbrew install python@3.11
+Step 2 — Verify It Installed
+bashpython3.11 --version
+Should show Python 3.11.x
+Step 3 — Create Fresh Clean Venv
+bashdeactivate
+cd ~/Desktop/rag
+python3.11 -m venv rag_env_311
+source rag_env_311/bin/activate
+Step 4 — Install Everything Fresh
+bashpip install ollama rank_bm25 streamlit chromadb
+Step 5 — Run
+bash# Terminal chatbot
+python3 rag_app.py
+
+# Streamlit UI
+streamlit run rag_app.py
+
+
 
 Agent Tools Available
 ToolWhat It Doesrag_search(query)Searches your documentscalculator(expression)Evaluates mathsummarise(text)Summarises long textfinish(answer)Returns final answer
