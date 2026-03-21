@@ -6,6 +6,9 @@ Let's install the ollama package:
 <pre>
 pip install ollama
 </pre>
+
+if pip does not work use brew
+
 After installed, open a terminal and run the following command to download the required models:
 
 <pre>
