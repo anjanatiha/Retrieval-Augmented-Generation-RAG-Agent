@@ -1,0 +1,20 @@
+[
+  {
+    "timestamp": "2026-03-20T23:27:03.737623",
+    "query": "are you a cat",
+    "query_type": "factual",
+    "chunks_used": 3,
+    "top_similarity": 0.862,
+    "avg_similarity": 0.8637,
+    "response_length": 365
+  },
+  {
+    "timestamp": "2026-03-20T23:35:33.645937",
+    "query": "are you a cat",
+    "query_type": "comparison",
+    "chunks_used": 3,
+    "top_similarity": 0.736,
+    "avg_similarity": 0.7537,
+    "response_length": 525
+  }
+]
