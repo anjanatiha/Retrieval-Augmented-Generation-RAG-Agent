@@ -38,17 +38,17 @@ ollama pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF
 <pre>
   
 # Normal chatbot loop
-python3 rag_app5.py
+python3 rag_app6.py
 
 # Agent mode (terminal)
-python3 rag_app5.py --agent
+python3 rag_app6.py --agent
 
 # Benchmark
-python3 rag_app5.py --benchmark
+python3 rag_app6.py --benchmark
 
 # Streamlit UI (includes both chat + agent mode toggle)
-<!-- streamlit run rag_app5.py -->
-python3 -m streamlit run rag_app5.py
+<!-- streamlit run rag_app6.py -->
+python3 -m streamlit run rag_app6.py
 </pre>
 
 
