@@ -2,40 +2,35 @@
 
 Source: https://huggingface.co/blog/ngxson/make-your-own-rag
 
-Step 1 — Install Python 3.11 via Homebrew
+## Step 1 — Install Python 3.11 via Homebrew
 <pre>
 brew install python@3.11 
 </pre>
 
-Step 2 — Verify It Installed
+## Step 2 — Verify It Installed
 <pre>
-
 python3.11 --version
-  
 </pre>
-Step 3 — Create Fresh Clean Venv
+
+# Step 3 — Create Fresh Clean Venv
 <pre>
-
-
 deactivate
 cd ~/Desktop/rag
 python3.11 -m venv rag_env_311
-source rag_env_311/bin/activate
-  
+source rag_env_311/bin/activate  
 </pre>
 
-Step 4 — Install Everything Fresh
+# Step 4 — Install Everything Fresh
 <pre>
-
 pip install ollama rank_bm25 streamlit chromadb
-  
 </pre>
 
+# Load models
 <pre>
 ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
 ollama pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF
 </pre>
-</pre>
+
 <pre>
 # Terminal chatbot
 python3 rag_app.py
@@ -47,7 +42,7 @@ streamlit run rag_app.py
 
 Four Ways To Run
 <pre>
-bash# Normal chatbot loop
+# Normal chatbot loop
 python3 rag_app.py
 
 # Agent mode (terminal)
