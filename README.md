@@ -47,8 +47,8 @@ python3 rag_app5.py --agent
 python3 rag_app5.py --benchmark
 
 # Streamlit UI (includes both chat + agent mode toggle)
-streamlit run rag_app5.py
-  
+<!-- streamlit run rag_app5.py -->
+python3 -m streamlit run rag_app.py
 </pre>
 
 
