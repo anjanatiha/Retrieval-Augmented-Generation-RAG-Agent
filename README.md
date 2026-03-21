@@ -31,7 +31,11 @@ pip install ollama rank_bm25 streamlit chromadb
   
 </pre>
 
-
+<pre>
+ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
+ollama pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF
+</pre>
+</pre>
 <pre>
 # Terminal chatbot
 python3 rag_app.py
