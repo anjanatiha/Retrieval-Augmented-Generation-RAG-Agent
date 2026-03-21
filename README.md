@@ -25,4 +25,9 @@ python demo.py
 For Demo App:
 <pre>
 python rag_app.py
+# Normal chatbot
+python3 rag_app.py
+
+# Benchmarking mode
+python3 rag_app.py --benchmark
 </pre>
