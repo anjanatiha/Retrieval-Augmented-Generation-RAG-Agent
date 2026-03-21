@@ -12,7 +12,7 @@ brew install python@3.11
 python3.11 --version
 </pre>
 
-# Step 3 — Create Fresh Clean Venv
+## Step 3 — Create Fresh Clean Venv
 <pre>
 deactivate
 cd ~/Desktop/rag
@@ -20,12 +20,12 @@ python3.11 -m venv rag_env_311
 source rag_env_311/bin/activate  
 </pre>
 
-# Step 4 — Install Everything Fresh
+## Step 4 — Install Everything Fresh
 <pre>
 pip install ollama rank_bm25 streamlit chromadb
 </pre>
 
-# Load models
+## Load models
 <pre>
 ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
 ollama pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF
@@ -40,8 +40,9 @@ streamlit run rag_app.py
 </pre>
 
 
-Four Ways To Run
+## Four Ways To Run
 <pre>
+  
 # Normal chatbot loop
 python3 rag_app.py
 
@@ -53,31 +54,10 @@ python3 rag_app.py --benchmark
 
 # Streamlit UI (includes both chat + agent mode toggle)
 streamlit run rag_app.py
-
-</pre>
-
-<pre>
-ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
-ollama pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF
-</pre>
-
-For final query:
-<pre>
-python demo.py
+  
 </pre>
 
 
-Four ways to run
-<pre>
-  # Normal chatbot loop
-python3 rag_app.py
 
-# Agent mode (terminal)
-python3 rag_app.py --agent
 
-# Benchmark
-python3 rag_app.py --benchmark
 
-# Streamlit UI (includes both chat + agent mode toggle)
-streamlit run rag_app.py
-</pre>
