@@ -1,6 +1,6 @@
 # Retrieval-Augmented Generation (RAG) Agent
 
-A production-grade, fully local RAG chatbot and agent built incrementally with an advanced retrieval pipeline. Supports **PDF and TXT documents**, including structured/tabular formats like resumes, with hybrid search, LLM reranking, agentic tool calling, benchmarking, and a Streamlit UI — all running **100% on-device** with no API keys required.
+A production-grade, fully local RAG chatbot and agent built incrementally with an advanced retrieval pipeline. Supports **PDF, TXT, DOCX, XLSX, PPTX, CSV, Markdown, and HTML documents**, including structured/tabular formats like resumes, with hybrid search, LLM reranking, agentic tool calling, benchmarking, and a Streamlit UI — all running **100% on-device** with no API keys required.
 
 ---
 
@@ -8,49 +8,64 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 
 | # | Feature | Details |
 |---|---------|---------|
-| 1 | **Sliding window chunking** | Configurable chunk size + overlap for TXT; sentence-based chunking for PDF pages |
-| 2 | **PDF support** | Extracts and chunks text page-by-page from `.pdf` files via PyMuPDF |
-| 3 | **Structured document retrieval** | Accurately retrieves from tabular/structured documents like resumes and tables — a known hard problem for basic RAG systems |
-| 4 | **Persistent vector DB** | ChromaDB with cosine similarity; embeddings survive restarts — no re-embedding on reload |
-| 5 | **Hybrid search** | BM25 (lexical) + dense vector (semantic) retrieval combined for higher recall |
-| 6 | **Query expansion** | Multi-query support to improve retrieval coverage |
-| 7 | **LLM reranker** | Secondary LLM pass scores and reranks retrieved chunks by relevance (1–10 scale) |
-| 8 | **Query classification** | Auto-classifies queries as factual / comparison / general and adjusts retrieval depth |
-| 9 | **Confidence / hallucination filter** | Similarity threshold check flags low-confidence answers before they reach the user |
-| 10 | **Source citation** | Every answer cites its source document and line/page number |
-| 11 | **Conversation memory** | Full multi-turn memory across the session |
-| 12 | **Logging & analytics** | Every query logged to `rag_logs.json` with similarity scores, query type, and response length |
-| 13 | **Streaming with typing indicator** | Token-level streaming with animated typing indicator in terminal |
-| 14 | **Benchmarking** | Automated eval suite with faithfulness, answer relevancy, keyword recall, and context relevance scores — with before/after run comparison |
-| 15 | **Agent with tool calling** | Agentic mode with `rag_search`, `calculator`, `summarise`, and `finish` tools; robust tool-call parsing and auto-finish logic |
-| 16 | **Streamlit UI** | Dark-themed web UI with chat + agent mode toggle, live pipeline sidebar (pre/post rerank chunks, confidence badges, session stats) |
+| 1 | **Sliding window chunking** | Configurable chunk size + overlap for TXT/MD; sentence-based chunking for PDF/HTML pages; paragraph-based for DOCX; row-based for XLSX/CSV; slide-based for PPTX |
+| 2 | **Multi-format document support** | PDF, TXT, DOCX, XLSX, XLS, PPTX, CSV, Markdown, HTML — each with a dedicated chunker and type-aware metadata |
+| 3 | **Structured document retrieval** | Accurately retrieves from tabular/structured documents like resumes, spreadsheets, and tables — a known hard problem for basic RAG systems |
+| 4 | **Smart misplaced file detection** | Files dropped into the wrong subfolder are auto-detected by extension, processed correctly, and flagged with a `[MISPLACED]` notice |
+| 5 | **Persistent vector DB** | ChromaDB with cosine similarity; embeddings survive restarts — no re-embedding on reload |
+| 6 | **Hybrid search** | BM25 (lexical) + dense vector (semantic) retrieval combined for higher recall |
+| 7 | **Query expansion** | Multi-query support to improve retrieval coverage |
+| 8 | **LLM reranker** | Secondary LLM pass scores and reranks retrieved chunks by relevance (1–10 scale) |
+| 9 | **Query classification** | Auto-classifies queries as factual / comparison / general and adjusts retrieval depth |
+| 10 | **Confidence / hallucination filter** | Similarity threshold check flags low-confidence answers before they reach the user |
+| 11 | **Source citation** | Every answer cites its source document with type-aware location labels (line, page, row, slide) |
+| 12 | **Conversation memory** | Full multi-turn memory across the session |
+| 13 | **Logging & analytics** | Every query logged to `rag_logs.json` with similarity scores, query type, and response length |
+| 14 | **Streaming with typing indicator** | Token-level streaming with animated typing indicator in terminal |
+| 15 | **Benchmarking** | Automated eval suite with faithfulness, answer relevancy, keyword recall, and context relevance scores — with before/after run comparison |
+| 16 | **Agent with tool calling** | Agentic mode with `rag_search`, `calculator`, `summarise`, and `finish` tools; robust tool-call parsing and auto-finish logic |
+| 17 | **Streamlit UI** | Dark-themed web UI with chat + agent mode toggle, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
 
 ---
 
-## Structured Document & PDF Retrieval
+## Structured Document & Multi-Format Retrieval
 
 One of the most technically challenging aspects of this system is **accurate retrieval from structured and tabular documents** — a problem where standard RAG pipelines typically fail.
 
-Most basic RAG systems flatten all content into plain text, destroying the relational structure of tables, resumes, and multi-column layouts in the process. This system addresses that through:
+Most basic RAG systems flatten all content into plain text, destroying the relational structure of tables, resumes, spreadsheets, and multi-column layouts in the process. This system addresses that through:
 
-- **Page-level isolation** — PDF text is extracted page by page, preserving document structure
+- **Page-level isolation** — PDF and HTML text is extracted page/section by section, preserving document structure
 - **Sentence-aware chunking** — Pages are split into sentence-based windows rather than fixed character counts, keeping semantic units intact
-- **Source + page metadata** — Every chunk stores its source filename and page number, enabling precise citation (e.g. `[resume.pdf p2]`)
+- **Row-level chunking for spreadsheets** — Each XLSX/CSV row becomes a `key=value` pair chunk, preserving column context across retrieval
+- **Slide-level chunking for presentations** — Each PPTX slide's text shapes are extracted and chunked together
+- **Markdown stripping** — MD files are cleaned of syntax markers before chunking for cleaner embeddings
+- **Source + location metadata** — Every chunk stores its source filename and a type-aware location label (e.g. `[resume.pdf p2]`, `[data.xlsx row14]`, `[deck.pptx slide3]`)
 - **LLM reranking** — A secondary LLM pass re-scores retrieved chunks by relevance to the query, correcting for embedding-level misses that commonly occur in structured content
 
-This makes the system capable of accurately answering queries like *"What is the candidate's GPA?"* or *"Where did they work in 2021?"* from a resume PDF — queries that would produce incorrect or hallucinated answers in a naive RAG setup.
+This makes the system capable of accurately answering queries like *"What is the candidate's GPA?"* or *"What was Q3 revenue in the spreadsheet?"* — queries that would produce incorrect or hallucinated answers in a naive RAG setup.
 
 ---
 
 ## Architecture
 
 ```
-Documents (PDF / TXT)
+Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
         │
         ▼
-  Chunking Layer
-  ├── TXT: sliding window (line-based)
-  └── PDF: page extraction → sentence-based chunks (PyMuPDF)
+  Smart File Scanner
+  ├── Scans all subfolders under ./docs/
+  ├── Detects real file type by extension (not by folder)
+  └── Flags misplaced files with [MISPLACED] notice; processes anyway
+        │
+        ▼
+  Chunking Layer (type-aware dispatch)
+  ├── TXT / MD:  sliding window (line-based; MD syntax stripped)
+  ├── PDF:       page extraction → sentence-based chunks (PyMuPDF)
+  ├── DOCX:      paragraph-based chunks (python-docx)
+  ├── XLSX/XLS:  row → key=value pair chunks (openpyxl / xlrd)
+  ├── CSV:       row → key=value pair chunks (stdlib csv)
+  ├── PPTX:      slide text shape extraction (python-pptx)
+  └── HTML:      tag-stripped → sentence-based chunks (BeautifulSoup)
         │
         ▼
   ChromaDB (persistent vector store)
@@ -66,7 +81,7 @@ Documents (PDF / TXT)
         │
         ▼
   Response Generation
-  ├── Context injection with source citations
+  ├── Context injection with type-aware source citations
   ├── Conversation memory (multi-turn)
   ├── Streaming output
   └── Logging
@@ -89,13 +104,22 @@ All models run **locally via Ollama** — no internet connection or API key need
 
 ```
 project/
-├── docs/               ← drop .txt files here (auto-created)
-├── pdfs/               ← drop .pdf files here (auto-created)
-├── chroma_db/          ← persistent vector store (auto-created)
-├── rag_app11.py        ← main application
-├── rag_logs.json       ← interaction logs (auto-generated)
+├── docs/                   ← root documents folder (auto-created)
+│   ├── pdfs/               ← drop .pdf files here
+│   ├── txts/               ← drop .txt files here
+│   ├── docx/               ← drop .docx / .doc files here
+│   ├── xlsx/               ← drop .xlsx / .xls files here
+│   ├── pptx/               ← drop .pptx / .ppt files here
+│   ├── csv/                ← drop .csv files here
+│   ├── md/                 ← drop .md / .markdown files here
+│   └── html/               ← drop .html / .htm files here
+├── chroma_db/              ← persistent vector store (auto-created)
+├── rag_app12.py            ← main application
+├── rag_logs.json           ← interaction logs (auto-generated)
 └── benchmark_results.json  ← benchmark history (auto-generated)
 ```
+
+> **Tip:** All subfolders are created automatically on first run. You can drop a file into any subfolder — the smart file scanner will detect the correct type by extension and process it accordingly, printing a `[MISPLACED]` notice if the folder doesn't match.
 
 ---
 
@@ -119,7 +143,16 @@ source rag_env_311/bin/activate
 ### Step 3 — Install Dependencies
 
 ```bash
-pip install ollama rank_bm25 streamlit chromadb pymupdf
+# Core
+pip install ollama rank_bm25 streamlit chromadb
+
+# Document format support
+pip install pymupdf           # PDF
+pip install python-docx       # DOCX
+pip install openpyxl xlrd     # XLSX / XLS
+pip install python-pptx       # PPTX
+pip install beautifulsoup4    # HTML
+# CSV and Markdown require no extra packages
 ```
 
 ### Step 4 — Pull Models via Ollama
@@ -133,21 +166,36 @@ ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
 
 ## Usage
 
-Drop your `.txt` files into `./docs/` and/or `.pdf` files into `./pdfs/`, then choose a run mode:
+Drop your documents into the appropriate subfolder under `./docs/`, then choose a run mode:
 
 ```bash
 # Standard chatbot (terminal)
-python3 rag_app11.py
+python3 rag_app12.py
 
 # Agent mode — uses tool calling (terminal)
-python3 rag_app11.py --agent
+python3 rag_app12.py --agent
 
 # Benchmark evaluation
-python3 rag_app11.py --benchmark
+python3 rag_app12.py --benchmark
 
 # Streamlit web UI (chat + agent toggle)
-streamlit run rag_app11.py
+streamlit run rag_app12.py
 ```
+
+---
+
+## Supported File Types
+
+| Extension(s) | Type | Chunking Strategy | Library |
+|---|---|---|---|
+| `.pdf` | PDF | Sentence-based per page | `pymupdf` |
+| `.txt` | Plain text | Sliding window (line-based) | stdlib |
+| `.docx`, `.doc` | Word document | Paragraph groups | `python-docx` |
+| `.xlsx`, `.xls` | Spreadsheet | Row → key=value pairs | `openpyxl`, `xlrd` |
+| `.csv` | CSV | Row → key=value pairs | stdlib |
+| `.pptx`, `.ppt` | Presentation | Text shapes per slide | `python-pptx` |
+| `.md`, `.markdown` | Markdown | Line-based (syntax stripped) | stdlib |
+| `.html`, `.htm` | HTML | Sentence-based (tags stripped) | `beautifulsoup4` |
 
 ---
 
@@ -188,18 +236,19 @@ The web UI features:
 - Chat and Agent mode toggle
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores
 - Confidence and query-type badges
-- Session stats (query count, conversation turns, chunk count)
+- Document type breakdown (chunk counts per type: PDF, DOCX, XLSX, etc.)
+- Session stats (query count, conversation turns, total chunk count)
 - Clear chat button
 
 ---
 
 ## Built With
 
-`Python` · `Ollama` · `ChromaDB` · `rank_bm25` · `PyMuPDF` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
+`Python` · `Ollama` · `ChromaDB` · `rank_bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `python-pptx` · `BeautifulSoup4` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
 
 ---
 
 ## Based On
 
 Started from: https://huggingface.co/blog/ngxson/make-your-own-rag  
-Significantly enhanced with: hybrid search, LLM reranking, PDF/structured document support, agent tool calling, benchmarking, persistent vector DB, conversation memory, and Streamlit UI.
+Significantly enhanced with: hybrid search, LLM reranking, multi-format document support (PDF, DOCX, XLSX, PPTX, CSV, MD, HTML), smart misplaced file detection, agent tool calling, benchmarking, persistent vector DB, conversation memory, and Streamlit UI.
