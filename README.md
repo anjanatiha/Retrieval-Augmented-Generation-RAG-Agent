@@ -114,7 +114,7 @@ project/
 │   ├── md/                 ← drop .md / .markdown files here
 │   └── html/               ← drop .html / .htm files here
 ├── chroma_db/              ← persistent vector store (auto-created)
-├── rag_app12.py            ← main application
+├── rag_app.py            ← main application
 ├── rag_logs.json           ← interaction logs (auto-generated)
 └── benchmark_results.json  ← benchmark history (auto-generated)
 ```
@@ -170,16 +170,16 @@ Drop your documents into the appropriate subfolder under `./docs/`, then choose 
 
 ```bash
 # Standard chatbot (terminal)
-python3 rag_app12.py
+python3 rag_app.py
 
 # Agent mode — uses tool calling (terminal)
-python3 rag_app12.py --agent
+python3 rag_app.py --agent
 
 # Benchmark evaluation
-python3 rag_app12.py --benchmark
+python3 rag_app.py --benchmark
 
 # Streamlit web UI (chat + agent toggle)
-streamlit run rag_app12.py
+streamlit run rag_app.py
 ```
 
 ---
