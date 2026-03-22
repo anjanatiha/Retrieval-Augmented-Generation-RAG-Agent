@@ -34,7 +34,7 @@ from chromadb.config import Settings
 # CONFIGURATION
 # ============================================================
 EMBEDDING_MODEL      = 'hf.co/CompendiumLabs/bge-base-en-v1.5-gguf'
-LANGUAGE_MODEL       = 'hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF'
+LANGUAGE_MODEL       = 'hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF'
 DATA_FOLDER          = '.'
 CHROMA_DIR           = './chroma_db'
 CHROMA_COLLECTION    = 'rag_docs'
@@ -176,12 +176,29 @@ def hybrid_retrieve(queries, collection, chunks, bm25_index, top_n=TOP_RETRIEVE,
 # ============================================================
 def rerank(query, chunks, top_n=TOP_RERANK):
     """
-    Reranking by cosine similarity only.
-    LLM reranker disabled — 1B model too weak to reliably judge relevance.
-    Upgrade to a 3B+ model to re-enable LLM reranking.
+    LLM reranker — scores each chunk for relevance to the query using the language model.
+    Enabled with 3B+ model for reliable relevance judgement.
     """
-    sorted_chunks = sorted(chunks, key=lambda x: x[1], reverse=True)
-    return [(entry, sim, sim * 10) for entry, sim in sorted_chunks[:top_n]]
+    scored = []
+    for entry, sim in chunks:
+        prompt = (
+            f"On a scale of 1-10, how relevant is the following text to the query?\n"
+            f"Query: {query}\nText: {entry['text']}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
+        try:
+            resp = ollama.chat(
+                model=LANGUAGE_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0}
+            )
+            raw = resp['message']['content'].strip()
+            llm_score = float(re.search(r'\d+', raw).group()) / 10.0
+        except Exception:
+            llm_score = sim  # fallback to cosine similarity
+        scored.append((entry, sim, llm_score))
+    scored.sort(key=lambda x: x[2], reverse=True)
+    return scored[:top_n]
 
 # ============================================================
 # 7. QUERY CLASSIFICATION
