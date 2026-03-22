@@ -2,7 +2,7 @@
 
 Source: https://huggingface.co/blog/ngxson/make-your-own-rag
 
-Enhanced Rag and turned it into agent. Added benchmarking. Built with Claude vibe coding.
+Enhanced Rag and turned it into agent. Added benchmarking. Built with Claude.
 
 ### Step 1 — Install Python 3.11 via Homebrew
 <pre>
