@@ -1,10 +1,5 @@
-# Virtual environments
+# Virtual environment
 rag_env_311/
-ragdoll_env/
-venv/
-env/
-.venv/
-*_env/
 
 # ChromaDB — vector store, rebuilds automatically on first run
 chroma_db/
@@ -18,14 +13,11 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.pyw
-.Python
 
 # Distribution / packaging
 dist/
 build/
 *.egg-info/
-*.egg
 
 # Model weights — too large for GitHub
 *.gguf
@@ -47,11 +39,9 @@ build/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
 
 # Environment variables
 .env
-.env.local
 
 # Document uploads — don't commit personal documents
 docs/pdfs/
