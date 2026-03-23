@@ -1,0 +1,16 @@
+# Core RAG pipeline
+ollama
+rank_bm25
+chromadb
+
+# Web UI
+streamlit
+
+# Document format support
+pymupdf           # PDF (.pdf)
+python-docx       # Word (.docx, .doc)
+openpyxl          # Excel (.xlsx)
+xlrd              # Excel legacy (.xls)
+python-pptx       # PowerPoint (.pptx, .ppt)
+beautifulsoup4    # HTML (.html, .htm)
+# CSV and Markdown use Python stdlib — no extra packages needed
