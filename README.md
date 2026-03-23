@@ -4,6 +4,8 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 
 **Live demo:** [ragdoll on Hugging Face Spaces](https://huggingface.co/spaces/anjanatiha2024/ragdoll) — upload any document and try it in your browser, no setup needed.
 
+![App Screenshot](assets/screenshot.png)
+
 ---
 
 ## Features
