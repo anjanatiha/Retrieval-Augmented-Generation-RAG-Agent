@@ -2,7 +2,7 @@
 
 A production-grade, fully local RAG chatbot and agent built incrementally with an advanced retrieval pipeline. Supports **PDF, TXT, DOCX, XLSX, PPTX, CSV, Markdown, and HTML documents**, including structured/tabular formats like resumes, with hybrid search, LLM reranking, agentic tool calling, benchmarking, and a Streamlit UI — all running **100% on-device** with no API keys required.
 
-**Live demo:** [ragdoll on Hugging Face Spaces](https://huggingface.co/spaces/yourusername/ragdoll) — upload any document and try it in your browser, no setup needed.
+**Live demo:** [ragdoll on Hugging Face Spaces](https://huggingface.co/spaces/anjanatiha2024/ragdoll) — upload any document and try it in your browser, no setup needed.
 
 ---
 
