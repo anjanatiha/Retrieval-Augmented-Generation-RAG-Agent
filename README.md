@@ -160,6 +160,7 @@ pip install beautifulsoup4    # HTML
 ```bash
 ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
 ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
+ollama pull llama3.2:3b
 ```
 
 ---
