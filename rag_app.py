@@ -1391,7 +1391,7 @@ def run_streamlit(collection, chunks, bm25_index):
     col_main, col_side = st.columns([3,1])
 
     with col_main:
-        st.markdown('<div class="rag-title">// RAG Chatbot</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rag-title">RAG Chatbot</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="rag-sub">chunking · hybrid search · reranking · agent · '
             'PDF · TXT · DOCX · XLSX · PPTX · CSV · MD · HTML · URL</div>',
