@@ -523,10 +523,12 @@ def chunk_all_documents():
 def chunk_url(url):
     """
     Fetches a URL and routes it to the correct chunker based on:
-    1. File extension in the URL (e.g. .pdf, .docx, .csv)
-    2. Content-Type header from the response
+    1. Content-Type header from the response  (most reliable)
+    2. File extension in the URL path         (fallback)
     3. Falls back to HTML chunker for plain webpages
 
+    Handles: special characters, query strings, redirects,
+    atypical URLs, and all supported file types.
     Supports: PDF, DOCX, XLSX, CSV, PPTX, TXT, MD, HTML
     """
     try:
@@ -535,43 +537,88 @@ def chunk_url(url):
         print("  [WARNING] requests not installed. pip install requests")
         return []
 
+    url = url.strip()
     print(f"\n  Fetching URL: {url}")
     try:
-        resp = requests.get(url, timeout=15, headers={
-            'User-Agent': 'Mozilla/5.0 (compatible; RAGBot/1.0)'
-        })
+        resp = requests.get(url, timeout=30, headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/120.0.0.0 Safari/537.36'
+        }, allow_redirects=True, stream=True)
         resp.raise_for_status()
+        # Read full content now (stream=True lets us check headers first)
+        content = resp.content
+        text    = None  # will decode lazily if needed
     except Exception as e:
         print(f"  [ERROR] Could not fetch URL: {e}")
         return []
 
-    # Detect type from URL extension first, then Content-Type header
-    parsed_path = urlparse(url).path.lower()
-    ext         = os.path.splitext(parsed_path)[1]
-    dtype       = EXT_TO_TYPE.get(ext)
+    # ── Type detection ──────────────────────────────────────────
+    # Priority 1: Content-Type header (most reliable for any URL)
+    content_type = resp.headers.get('Content-Type', '').lower().split(';')[0].strip()
+    dtype = None
 
+    CONTENT_TYPE_MAP = {
+        'application/pdf':                                          'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+        'application/msword':                                       'docx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+        'application/vnd.ms-excel':                                 'xlsx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+        'application/vnd.ms-powerpoint':                            'pptx',
+        'text/csv':                                                 'csv',
+        'text/plain':                                               'txt',
+        'text/markdown':                                            'md',
+        'text/html':                                                'html',
+        'application/xhtml+xml':                                    'html',
+    }
+    dtype = CONTENT_TYPE_MAP.get(content_type)
+
+    # Fuzzy fallback for non-standard content-type values
     if dtype is None:
-        content_type = resp.headers.get('Content-Type', '').lower()
-        if 'pdf'        in content_type: dtype = 'pdf'
-        elif 'word'     in content_type: dtype = 'docx'
-        elif 'excel'    in content_type or 'spreadsheet' in content_type: dtype = 'xlsx'
-        elif 'csv'      in content_type: dtype = 'csv'
+        if 'pdf'          in content_type: dtype = 'pdf'
+        elif 'word'       in content_type: dtype = 'docx'
+        elif 'excel'      in content_type or 'spreadsheet' in content_type: dtype = 'xlsx'
         elif 'powerpoint' in content_type or 'presentation' in content_type: dtype = 'pptx'
-        elif 'text/plain' in content_type: dtype = 'txt'
-        else: dtype = 'html'  # default — treat as webpage
+        elif 'csv'        in content_type: dtype = 'csv'
 
-    # Use URL hostname + path as the source label
-    source_name = urlparse(url).netloc + urlparse(url).path
+    # Priority 2: file extension in the URL path (ignores query strings)
+    if dtype is None:
+        from urllib.parse import urlparse
+        parsed_path = urlparse(url).path.lower()
+        # Strip query params and fragments that may be embedded in path
+        clean_path  = re.sub(r'[?#].*$', '', parsed_path)
+        ext         = os.path.splitext(clean_path)[1]
+        dtype       = EXT_TO_TYPE.get(ext)
+
+    # Priority 3: sniff first bytes for PDF magic number
+    if dtype is None and content[:4] == b'%PDF':
+        dtype = 'pdf'
+
+    # Priority 4: default to HTML
+    if dtype is None:
+        dtype = 'html'
+
+    # ── Source label ─────────────────────────────────────────────
+    # Clean URL for display — strip auth info, truncate if long
+    from urllib.parse import urlparse
+    parsed      = urlparse(url)
+    source_name = (parsed.netloc + parsed.path).rstrip('/')
+    if parsed.query:
+        source_name += '?' + parsed.query[:20] + ('...' if len(parsed.query) > 20 else '')
     if len(source_name) > 60:
         source_name = source_name[:57] + '...'
+    if not source_name:
+        source_name = url[:60]
 
-    print(f"  Detected type: {dtype.upper()}")
+    print(f"  Detected type: {dtype.upper()} (content-type: {content_type})")
 
-    # For binary formats — write to temp file and use existing chunkers
+    # ── Dispatch to chunker ───────────────────────────────────────
+    # Binary formats — write to temp file and use existing chunkers
     if dtype in ('pdf', 'docx', 'xlsx', 'pptx', 'xls'):
         suffix = {'pdf':'.pdf','docx':'.docx','xlsx':'.xlsx','pptx':'.pptx','xls':'.xls'}[dtype]
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(resp.content)
+            tmp.write(content)
             tmp_path = tmp.name
         try:
             file_info = {
@@ -582,43 +629,54 @@ def chunk_url(url):
             }
             chunks = _dispatch_chunker(file_info)
         finally:
-            os.unlink(tmp_path)
+            try: os.unlink(tmp_path)
+            except: pass
+        if not chunks:
+            print(f"  [WARNING] No chunks extracted from {dtype.upper()} at URL. "
+                  f"File may be empty, password-protected, or corrupt.")
         return chunks
 
-    # For text formats — write text content to temp file
+    # Text formats
+    try:
+        text = content.decode(resp.encoding or 'utf-8', errors='replace')
+    except Exception:
+        text = content.decode('utf-8', errors='replace')
+
     if dtype == 'csv':
         with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w',
                                          encoding='utf-8', errors='replace') as tmp:
-            tmp.write(resp.text)
+            tmp.write(text)
             tmp_path = tmp.name
         try:
             chunks = _chunk_csv(tmp_path, source_name)
         finally:
-            os.unlink(tmp_path)
+            try: os.unlink(tmp_path)
+            except: pass
         return chunks
 
     if dtype == 'txt':
-        lines = [l.strip() for l in resp.text.splitlines() if l.strip()]
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
         return [{'text': l, 'source': source_name, 'start_line': i+1,
                  'end_line': i+1, 'type': 'txt'} for i, l in enumerate(lines)]
 
     if dtype == 'md':
         with tempfile.NamedTemporaryFile(delete=False, suffix='.md', mode='w',
                                           encoding='utf-8', errors='replace') as tmp:
-            tmp.write(resp.text)
+            tmp.write(text)
             tmp_path = tmp.name
         try:
             chunks = _chunk_md(tmp_path, source_name)
         finally:
-            os.unlink(tmp_path)
+            try: os.unlink(tmp_path)
+            except: pass
         return chunks
 
-    # HTML / webpage — use BeautifulSoup to strip tags then chunk
+    # HTML / webpage
     try:
         from bs4 import BeautifulSoup
-        text  = BeautifulSoup(resp.text, 'html.parser').get_text(separator=' ', strip=True)
+        text = BeautifulSoup(text, 'html.parser').get_text(separator=' ', strip=True)
     except ImportError:
-        text  = re.sub(r'<[^>]+>', ' ', resp.text)  # fallback: regex strip
+        text = re.sub(r'<[^>]+>', ' ', text)
 
     sents  = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
     chunks = []
@@ -627,8 +685,17 @@ def chunk_url(url):
         if window:
             chunks.append({'text': ' '.join(window), 'source': source_name,
                            'start_line': i+1, 'end_line': i+len(window), 'type': 'html'})
-    print(f"  [URL/{dtype.upper()}] '{source_name}': {len(chunks)} chunks")
+
     return chunks
+
+# ============================================================
+# 2. PERSISTENT VECTOR DB — ChromaDB
+# ============================================================
+def _truncate_for_embedding(text, max_words=300):
+    """Truncate to 300 words to stay within bge-base-en 512 token limit."""
+    words = text.split()
+    return ' '.join(words[:max_words]) if len(words) > max_words else text
+
 def get_chroma_collection():
     client = chromadb.PersistentClient(path=CHROMA_DIR)
     return client.get_or_create_collection(
@@ -656,7 +723,9 @@ def build_or_load_chroma(chunks):
         texts  = [c['text'] for c in batch]
         metas  = [{'source': c['source'], 'start_line': c['start_line'],
                    'end_line': c['end_line'], 'type': c.get('type', 'txt')} for c in batch]
-        embeds = [ollama.embed(model=EMBEDDING_MODEL, input=t)['embeddings'][0] for t in texts]
+        embeds = [ollama.embed(model=EMBEDDING_MODEL,
+                               input=_truncate_for_embedding(t))['embeddings'][0]
+                  for t in texts]
         collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
         print(f"  Stored {min(i+batch_size, len(chunks))}/{len(chunks)}", end='\r')
 
