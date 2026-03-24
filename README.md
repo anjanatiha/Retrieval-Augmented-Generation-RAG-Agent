@@ -268,6 +268,10 @@ Results are saved to `benchmark_results.json` with run-over-run comparison so yo
 
 ## Streamlit UI
 
+**Previous UI:**
+
+![Streamlit Interface](assets/streamlit_rag.png)
+
 **Chat view** — native chat bubbles, file upload, URL ingestion, and clear button:
 
 ![Streamlit Chat](assets/streamlit_rag_before.png)
