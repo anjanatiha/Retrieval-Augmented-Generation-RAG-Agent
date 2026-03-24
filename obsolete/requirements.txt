@@ -6,14 +6,11 @@ chromadb
 # Web UI
 streamlit
 
-# URL ingestion
-requests
-
 # Document format support
 pymupdf           # PDF (.pdf)
 python-docx       # Word (.docx, .doc)
 openpyxl          # Excel (.xlsx)
 xlrd              # Excel legacy (.xls)
 python-pptx       # PowerPoint (.pptx, .ppt)
-beautifulsoup4    # HTML (.html, .htm) + URL webpage parsing
+beautifulsoup4    # HTML (.html, .htm)
 # CSV and Markdown use Python stdlib — no extra packages needed

@@ -20,7 +20,7 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 | 6 | **Persistent vector DB** | ChromaDB with cosine similarity; embeddings survive restarts — no re-embedding on reload |
 | 7 | **Hybrid search** | BM25 (lexical) + dense vector (semantic) retrieval combined for higher recall |
 | 8 | **Query expansion** | LLM-generated query rewrites using synonyms and acronyms to improve retrieval coverage |
-| 9 | **Document type-aware LLM reranker** | Secondary LLM pass scores retrieved chunks using prompts tailored per document type — spreadsheet rows, slides, PDF pages, DOCX paragraphs, webpages and Markdown sections each get type-specific relevance framing for more accurate scoring |
+| 9 | **LLM reranker** | Secondary LLM pass scores and reranks retrieved chunks by relevance (1–10 scale) |
 | 10 | **Query classification** | Auto-classifies queries as factual / comparison / general and adjusts retrieval depth |
 | 11 | **Confidence / hallucination filter** | Similarity threshold check flags low-confidence answers before they reach the user |
 | 12 | **Source citation** | Every answer cites its source document with type-aware location labels (line, page, row, slide) |
@@ -29,8 +29,7 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 | 15 | **Streaming with typing indicator** | Token-level streaming with animated typing indicator in terminal |
 | 16 | **Benchmarking** | Automated eval suite with faithfulness, answer relevancy, keyword recall, and context relevance scores — with before/after run comparison |
 | 17 | **Agent with tool calling** | Agentic mode with `rag_search`, `calculator`, `summarise`, and `finish` tools; robust tool-call parsing and auto-finish logic |
-| 18 | **Streamlit UI** | Dark-themed web UI with chat + agent mode toggle, URL ingestion panel, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
-| 19 | **URL ingestion** | Paste any public URL — webpage, PDF, DOCX, XLSX, CSV, PPTX — and it is fetched, auto-detected by type, chunked through the correct chunker, and added to the index alongside local files |
+| 18 | **Streamlit UI** | Dark-themed web UI with chat + agent mode toggle, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
 
 ---
 
@@ -47,7 +46,7 @@ Most basic RAG systems flatten all content into plain text, destroying the relat
 - **Markdown stripping** — MD files are cleaned of syntax markers before chunking for cleaner embeddings
 - **Chunk truncation** — All chunks are truncated to 300 words before embedding, preventing `input length exceeds context length` errors on dense documents
 - **Source + location metadata** — Every chunk stores its source filename and a type-aware location label (e.g. `[resume.pdf p2]`, `[data.xlsx row14]`, `[deck.pptx slide3]`)
-- **Document type-aware reranking** — the reranker uses a different prompt per document type. Spreadsheet rows (`key=value` pairs), slide bullets, PDF page extracts, and webpage text each get framing suited to their structure — a generic prompt underscores structured data because it reads as data rather than natural language
+- **LLM reranking** — A secondary LLM pass re-scores retrieved chunks by relevance to the query, correcting for embedding-level misses that commonly occur in structured content
 
 This makes the system capable of accurately answering queries like *"What is the candidate's GPA?"* or *"What was Q3 revenue in the spreadsheet?"* — queries that would produce incorrect or hallucinated answers in a naive RAG setup.
 
@@ -57,14 +56,12 @@ This makes the system capable of accurately answering queries like *"What is the
 
 ```
 Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
-+ URLs  (any public webpage or document link)
         │
         ▼
-  Smart File Scanner + URL Fetcher
+  Smart File Scanner
   ├── Scans all subfolders under ./docs/
   ├── Detects real file type by extension (not by folder)
-  ├── Flags misplaced files with [MISPLACED] notice; processes anyway
-  └── URL fetcher detects type by extension or Content-Type header
+  └── Flags misplaced files with [MISPLACED] notice; processes anyway
         │
         ▼
   Chunking Layer (type-aware dispatch)
@@ -74,7 +71,7 @@ Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
   ├── XLSX/XLS:  row → key=value pair chunks (openpyxl / xlrd)
   ├── CSV:       row → key=value pair chunks (stdlib csv)
   ├── PPTX:      slide text shape extraction (python-pptx)
-  └── HTML/URL:  tag-stripped → sentence-based chunks (BeautifulSoup)
+  └── HTML:      tag-stripped → sentence-based chunks (BeautifulSoup)
         │
         ▼
   Truncation (300 words max per chunk → within 512 token limit)
@@ -89,7 +86,7 @@ Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
   ├── Query expansion (LLM-generated rewrites)
   ├── Hybrid retrieval (BM25 + dense vector, top-N)
   ├── Confidence filter (similarity threshold)
-  └── Document type-aware LLM reranker (top-K)
+  └── LLM reranker (top-K)
         │
         ▼
   Response Generation
@@ -249,32 +246,17 @@ Results are saved to `benchmark_results.json` with run-over-run comparison so yo
 The web UI features:
 - Dark terminal-aesthetic theme
 - Chat and Agent mode toggle
-- **URL ingestion panel** — paste any public URL to fetch and index it alongside local files
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores
 - Confidence and query-type badges
 - Document type breakdown (chunk counts per type: PDF, DOCX, XLSX, etc.)
-- Session stats (query count, conversation turns, total chunk count, URL chunk count)
+- Session stats (query count, conversation turns, total chunk count)
 - Clear chat button
-
----
-
-## URL Ingestion
-
-The system can fetch and index any publicly accessible URL alongside local documents:
-
-- **Webpages** — HTML tags stripped with BeautifulSoup, chunked as sentences
-- **Remote PDFs** — fetched and chunked page by page (PyMuPDF)
-- **Remote DOCX / XLSX / CSV / PPTX** — downloaded to a temp file and processed through the same type-aware chunkers as local files
-- **Type detection** — URL file extension checked first, then Content-Type response header as fallback
-- **Source labelling** — URL hostname + path used as source label (e.g. `[careers.company.com/job L1]`)
-
-**Example use case:** load a resume PDF locally + paste a job description URL → ask *"Does the candidate meet the requirements for this role?"*
 
 ---
 
 ## Built With
 
-`Python` · `Ollama` · `ChromaDB` · `rank_bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `python-pptx` · `BeautifulSoup4` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
+`Python` · `Ollama` · `ChromaDB` · `rank_bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `python-pptx` · `BeautifulSoup4` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
 
 ---
 
@@ -329,7 +311,7 @@ Most basic RAG systems flatten all content into plain text, destroying the relat
 - **Slide-level chunking for presentations** — Each PPTX slide's text shapes are extracted and chunked together
 - **Markdown stripping** — MD files are cleaned of syntax markers before chunking for cleaner embeddings
 - **Source + location metadata** — Every chunk stores its source filename and a type-aware location label (e.g. `[resume.pdf p2]`, `[data.xlsx row14]`, `[deck.pptx slide3]`)
-- **Document type-aware reranking** — the reranker uses a different prompt per document type. Spreadsheet rows (`key=value` pairs), slide bullets, PDF page extracts, and webpage text each get framing suited to their structure — a generic prompt underscores structured data because it reads as data rather than natural language
+- **LLM reranking** — A secondary LLM pass re-scores retrieved chunks by relevance to the query, correcting for embedding-level misses that commonly occur in structured content
 
 This makes the system capable of accurately answering queries like *"What is the candidate's GPA?"* or *"What was Q3 revenue in the spreadsheet?"* — queries that would produce incorrect or hallucinated answers in a naive RAG setup.
 
@@ -339,14 +321,12 @@ This makes the system capable of accurately answering queries like *"What is the
 
 ```
 Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
-+ URLs  (any public webpage or document link)
         │
         ▼
-  Smart File Scanner + URL Fetcher
+  Smart File Scanner
   ├── Scans all subfolders under ./docs/
   ├── Detects real file type by extension (not by folder)
-  ├── Flags misplaced files with [MISPLACED] notice; processes anyway
-  └── URL fetcher detects type by extension or Content-Type header
+  └── Flags misplaced files with [MISPLACED] notice; processes anyway
         │
         ▼
   Chunking Layer (type-aware dispatch)
@@ -356,7 +336,7 @@ Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
   ├── XLSX/XLS:  row → key=value pair chunks (openpyxl / xlrd)
   ├── CSV:       row → key=value pair chunks (stdlib csv)
   ├── PPTX:      slide text shape extraction (python-pptx)
-  └── HTML/URL:  tag-stripped → sentence-based chunks (BeautifulSoup)
+  └── HTML:      tag-stripped → sentence-based chunks (BeautifulSoup)
         │
         ▼
   ChromaDB (persistent vector store)
@@ -368,7 +348,7 @@ Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
   ├── Query expansion (multi-query)
   ├── Hybrid retrieval (BM25 + dense vector, top-N)
   ├── Confidence filter (similarity threshold)
-  └── Document type-aware LLM reranker (top-K)
+  └── LLM reranker (top-K)
         │
         ▼
   Response Generation
@@ -535,25 +515,24 @@ Results are saved to `benchmark_results.json` with run-over-run comparison so yo
 The web UI features:
 - Dark terminal-aesthetic theme
 - Chat and Agent mode toggle
-- **URL ingestion panel** — paste any public URL to fetch and index it alongside local files
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores
 - Confidence and query-type badges
 - Document type breakdown (chunk counts per type: PDF, DOCX, XLSX, etc.)
-- Session stats (query count, conversation turns, total chunk count, URL chunk count)
+- Session stats (query count, conversation turns, total chunk count)
 - Clear chat button
 
 ---
 
 ## Built With
 
-`Python` · `Ollama` · `ChromaDB` · `rank_bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `python-pptx` · `BeautifulSoup4` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
+`Python` · `Ollama` · `ChromaDB` · `rank_bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `python-pptx` · `BeautifulSoup4` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
 
 ---
 
 ## Based On
 
 Started from: https://huggingface.co/blog/ngxson/make-your-own-rag  
-Significantly enhanced with: hybrid search, document type-aware LLM reranking, multi-format document support (PDF, DOCX, XLSX, PPTX, CSV, MD, HTML), URL ingestion, smart misplaced file detection, agent tool calling, benchmarking, persistent vector DB, conversation memory, and Streamlit UI.
+Significantly enhanced with: hybrid search, LLM reranking, multi-format document support (PDF, DOCX, XLSX, PPTX, CSV, MD, HTML), smart misplaced file detection, agent tool calling, benchmarking, persistent vector DB, conversation memory, and Streamlit UI.
 
 ---
 

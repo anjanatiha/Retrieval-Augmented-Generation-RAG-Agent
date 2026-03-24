@@ -57,8 +57,9 @@ Required packages (install as needed):
   # CSV and MD are stdlib / no extra deps
 """
 
-import ollama, json, os, sys, re, time, argparse
+import ollama, json, os, sys, re, time, argparse, tempfile
 from datetime import datetime
+from urllib.parse import urlparse
 from rank_bm25 import BM25Okapi
 import chromadb
 from chromadb.config import Settings
@@ -517,8 +518,117 @@ def chunk_all_documents():
     return all_chunks
 
 # ============================================================
-# 2. PERSISTENT VECTOR DB — ChromaDB
+# 1d. URL INGESTION — fetch any public URL and chunk it
 # ============================================================
+def chunk_url(url):
+    """
+    Fetches a URL and routes it to the correct chunker based on:
+    1. File extension in the URL (e.g. .pdf, .docx, .csv)
+    2. Content-Type header from the response
+    3. Falls back to HTML chunker for plain webpages
+
+    Supports: PDF, DOCX, XLSX, CSV, PPTX, TXT, MD, HTML
+    """
+    try:
+        import requests
+    except ImportError:
+        print("  [WARNING] requests not installed. pip install requests")
+        return []
+
+    print(f"\n  Fetching URL: {url}")
+    try:
+        resp = requests.get(url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; RAGBot/1.0)'
+        })
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"  [ERROR] Could not fetch URL: {e}")
+        return []
+
+    # Detect type from URL extension first, then Content-Type header
+    parsed_path = urlparse(url).path.lower()
+    ext         = os.path.splitext(parsed_path)[1]
+    dtype       = EXT_TO_TYPE.get(ext)
+
+    if dtype is None:
+        content_type = resp.headers.get('Content-Type', '').lower()
+        if 'pdf'        in content_type: dtype = 'pdf'
+        elif 'word'     in content_type: dtype = 'docx'
+        elif 'excel'    in content_type or 'spreadsheet' in content_type: dtype = 'xlsx'
+        elif 'csv'      in content_type: dtype = 'csv'
+        elif 'powerpoint' in content_type or 'presentation' in content_type: dtype = 'pptx'
+        elif 'text/plain' in content_type: dtype = 'txt'
+        else: dtype = 'html'  # default — treat as webpage
+
+    # Use URL hostname + path as the source label
+    source_name = urlparse(url).netloc + urlparse(url).path
+    if len(source_name) > 60:
+        source_name = source_name[:57] + '...'
+
+    print(f"  Detected type: {dtype.upper()}")
+
+    # For binary formats — write to temp file and use existing chunkers
+    if dtype in ('pdf', 'docx', 'xlsx', 'pptx', 'xls'):
+        suffix = {'pdf':'.pdf','docx':'.docx','xlsx':'.xlsx','pptx':'.pptx','xls':'.xls'}[dtype]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(resp.content)
+            tmp_path = tmp.name
+        try:
+            file_info = {
+                'filepath':      tmp_path,
+                'filename':      source_name,
+                'detected_type': dtype,
+                'is_misplaced':  False,
+            }
+            chunks = _dispatch_chunker(file_info)
+        finally:
+            os.unlink(tmp_path)
+        return chunks
+
+    # For text formats — write text content to temp file
+    if dtype == 'csv':
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w',
+                                         encoding='utf-8', errors='replace') as tmp:
+            tmp.write(resp.text)
+            tmp_path = tmp.name
+        try:
+            chunks = _chunk_csv(tmp_path, source_name)
+        finally:
+            os.unlink(tmp_path)
+        return chunks
+
+    if dtype == 'txt':
+        lines = [l.strip() for l in resp.text.splitlines() if l.strip()]
+        return [{'text': l, 'source': source_name, 'start_line': i+1,
+                 'end_line': i+1, 'type': 'txt'} for i, l in enumerate(lines)]
+
+    if dtype == 'md':
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.md', mode='w',
+                                          encoding='utf-8', errors='replace') as tmp:
+            tmp.write(resp.text)
+            tmp_path = tmp.name
+        try:
+            chunks = _chunk_md(tmp_path, source_name)
+        finally:
+            os.unlink(tmp_path)
+        return chunks
+
+    # HTML / webpage — use BeautifulSoup to strip tags then chunk
+    try:
+        from bs4 import BeautifulSoup
+        text  = BeautifulSoup(resp.text, 'html.parser').get_text(separator=' ', strip=True)
+    except ImportError:
+        text  = re.sub(r'<[^>]+>', ' ', resp.text)  # fallback: regex strip
+
+    sents  = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+    chunks = []
+    for i in range(0, len(sents), HTML_CHUNK_SENTENCES):
+        window = sents[i: i + HTML_CHUNK_SENTENCES]
+        if window:
+            chunks.append({'text': ' '.join(window), 'source': source_name,
+                           'start_line': i+1, 'end_line': i+len(window), 'type': 'html'})
+    print(f"  [URL/{dtype.upper()}] '{source_name}': {len(chunks)} chunks")
+    return chunks
 def get_chroma_collection():
     client = chromadb.PersistentClient(path=CHROMA_DIR)
     return client.get_or_create_collection(
@@ -640,16 +750,72 @@ def hybrid_retrieve(queries, collection, chunks, bm25_index, top_n=TOP_RETRIEVE,
     return sorted(fused.values(), key=lambda x: x[1], reverse=True)[:top_n]
 
 # ============================================================
-# 6. LLM RERANKER
+# 6. LLM RERANKER — document type-aware
 # ============================================================
+def _rerank_prompt(query, entry):
+    """
+    Returns a reranking prompt tailored to the document type.
+    Each type gets framing that helps the LLM evaluate relevance correctly —
+    e.g. spreadsheet rows look like key=value pairs which a generic prompt
+    may score low simply because they are not fluent prose.
+    """
+    text     = entry['text']
+    doc_type = entry.get('type', 'txt')
+
+    if doc_type in ('xlsx', 'csv'):
+        return (
+            f"A user is searching for: {query}\n"
+            f"Does this spreadsheet row contain relevant information to answer the query?\n"
+            f"Row data: {text}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
+    elif doc_type == 'pptx':
+        return (
+            f"A user is searching for: {query}\n"
+            f"Does this presentation slide contain relevant information to answer the query?\n"
+            f"Slide text: {text}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
+    elif doc_type == 'pdf':
+        return (
+            f"A user is searching for: {query}\n"
+            f"Does this PDF page extract contain relevant information to answer the query?\n"
+            f"Page text: {text}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
+    elif doc_type == 'docx':
+        return (
+            f"A user is searching for: {query}\n"
+            f"Does this document paragraph contain relevant information to answer the query?\n"
+            f"Paragraph: {text}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
+    elif doc_type == 'html':
+        return (
+            f"A user is searching for: {query}\n"
+            f"Does this webpage content contain relevant information to answer the query?\n"
+            f"Content: {text}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
+    elif doc_type == 'md':
+        return (
+            f"A user is searching for: {query}\n"
+            f"Does this markdown document section contain relevant information to answer the query?\n"
+            f"Section: {text}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
+    else:
+        # txt and any other type — generic prompt
+        return (
+            f"On a scale of 1-10, how relevant is the following text to the query?\n"
+            f"Query: {query}\nText: {text}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
+
 def rerank(query, chunks, top_n=TOP_RERANK):
     scored = []
     for entry, sim in chunks:
-        prompt = (
-            f"On a scale of 1-10, how relevant is the following text to the query?\n"
-            f"Query: {query}\nText: {entry['text']}\n"
-            f"Reply with a single integer from 1 to 10 and nothing else."
-        )
+        prompt = _rerank_prompt(query, entry)
         try:
             resp = ollama.chat(
                 model=LANGUAGE_MODEL,
@@ -1149,7 +1315,7 @@ def run_streamlit(collection, chunks, bm25_index):
     </style>
     """, unsafe_allow_html=True)
 
-    for k,v in [('conv',[]),('display',[]),('total',0),('last',None),('mode','chat')]:
+    for k,v in [('conv',[]),('display',[]),('total',0),('last',None),('mode','chat'),('url_chunks',[])]:
         if k not in st.session_state: st.session_state[k] = v
 
     col_main, col_side = st.columns([3,1])
@@ -1158,13 +1324,42 @@ def run_streamlit(collection, chunks, bm25_index):
         st.markdown('<div class="rag-title">// RAG Chatbot</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="rag-sub">chunking · hybrid search · reranking · agent · '
-            'PDF · TXT · DOCX · XLSX · PPTX · CSV · MD · HTML</div>',
+            'PDF · TXT · DOCX · XLSX · PPTX · CSV · MD · HTML · URL</div>',
             unsafe_allow_html=True
         )
 
         mode = st.radio("Mode:", ["Chat", "Agent"], horizontal=True,
                         index=0 if st.session_state.mode=='chat' else 1)
         st.session_state.mode = mode.lower()
+
+        # ── URL ingestion ──
+        with st.expander("Add a URL to knowledge base", expanded=False):
+            with st.form('url_form', clear_on_submit=True):
+                url_input   = st.text_input("URL:", placeholder="https://example.com/page or https://example.com/file.pdf")
+                url_submit  = st.form_submit_button("Fetch & index →")
+            if url_submit and url_input.strip():
+                with st.spinner(f"Fetching {url_input.strip()}..."):
+                    new_chunks = chunk_url(url_input.strip())
+                if new_chunks:
+                    st.session_state.url_chunks.extend(new_chunks)
+                    # Rebuild BM25 and ChromaDB with new chunks
+                    all_chunks = chunks + st.session_state.url_chunks
+                    collection.delete(ids=collection.get()['ids']) if collection.count() > 0 else None
+                    batch_size = 50
+                    for i in range(0, len(all_chunks), batch_size):
+                        batch  = all_chunks[i: i + batch_size]
+                        ids    = [f"chunk_{i+j}" for j in range(len(batch))]
+                        texts  = [c['text'] for c in batch]
+                        metas  = [{'source': c['source'], 'start_line': c['start_line'],
+                                   'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
+                        embeds = [ollama.embed(model=EMBEDDING_MODEL,
+                                               input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
+                        collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
+                    bm25_index = build_bm25_index(all_chunks)
+                    st.success(f"Added {len(new_chunks)} chunks from URL. Total chunks: {collection.count()}")
+                else:
+                    st.error("Could not fetch or parse the URL. Check it's publicly accessible.")
+
         st.markdown("---")
 
         for msg in st.session_state.display:
@@ -1241,7 +1436,8 @@ def run_streamlit(collection, chunks, bm25_index):
         st.markdown("**Session**")
         st.markdown(f'<div class="stat">Queries <span class="sv">{st.session_state.total}</span></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="stat">Memory <span class="sv">{len(st.session_state.conv)//2} turns</span></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="stat">Chunks <span class="sv">{len(chunks)}</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="stat">Chunks <span class="sv">{len(chunks) + len(st.session_state.url_chunks)}</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="stat">URL chunks <span class="sv">{len(st.session_state.url_chunks)}</span></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="stat">Mode <span class="sv">{st.session_state.mode}</span></div>', unsafe_allow_html=True)
         st.markdown("---")
 
@@ -1258,6 +1454,7 @@ def run_streamlit(collection, chunks, bm25_index):
         if st.button("Clear Chat"):
             st.session_state.conv=[]; st.session_state.display=[]
             st.session_state.last=None; st.session_state.total=0
+            st.session_state.url_chunks=[]
             st.rerun()
 
 # ============================================================
