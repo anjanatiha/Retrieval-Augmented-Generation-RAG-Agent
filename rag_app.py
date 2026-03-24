@@ -1365,10 +1365,6 @@ def run_streamlit(collection, chunks, bm25_index):
     .stApp{background:#ffffff}
     .rag-title{font-family:'IBM Plex Mono',monospace;font-size:2rem;font-weight:600;color:#1565a0;letter-spacing:-.02em}
     .rag-sub{font-family:'IBM Plex Mono',monospace;font-size:.75rem;color:#7aafc8;margin-bottom:1.5rem}
-    .msg-user{background:#e3f0f9;border-left:3px solid #1565a0;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0}
-    .msg-bot{background:#f4f9fc;border-left:3px solid #4a9fc4;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0;line-height:1.6}
-    .msg-agent{background:#e8f5e8;border-left:3px solid #2e7d32;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0}
-    .msg-label{font-family:'IBM Plex Mono',monospace;font-size:.65rem;color:#7aafc8;margin-bottom:.2rem;text-transform:uppercase;letter-spacing:.1em}
     .chunk{background:#ffffff;border:1px solid #b3d4e8;border-radius:6px;padding:.5rem .7rem;margin:.25rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#4a8fa8}
     .cs{color:#1565a0;font-weight:600}.src{color:#4a9fc4}
     .step{background:#e8f5e8;border:1px solid #aed4bb;border-radius:6px;padding:.5rem .7rem;margin:.2rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#2e7d32}
@@ -1377,16 +1373,22 @@ def run_streamlit(collection, chunks, bm25_index):
     .b-ok{background:#daeaf4;color:#1565a0}.b-warn{background:#fff8e1;color:#f57f17}
     .stat{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:#7aafc8;padding:.25rem 0;border-bottom:1px solid #daeaf4;display:flex;justify-content:space-between}
     .sv{color:#1565a0;font-weight:600}
-    .stTextInput>div>div>input{background:#f4f9fc!important;border:1px solid #b3d4e8!important;color:#0d2b45!important;font-family:'IBM Plex Mono',monospace!important;border-radius:6px!important}
     .stButton>button{background:#1565a0!important;color:#ffffff!important;font-family:'IBM Plex Mono',monospace!important;font-weight:600!important;border:none!important;border-radius:6px!important}
     [data-testid="stSidebar"]{background:#f4f9fc!important;border-right:1px solid #b3d4e8!important}
     hr{border-color:#daeaf4!important}
     .stRadio>div{background:#f4f9fc;border-radius:6px;padding:.3rem .5rem}
+    /* chat bubbles */
+    [data-testid="stChatMessage"]{background:#f4f9fc;border-radius:10px;margin:.3rem 0}
+    [data-testid="stChatMessageContent"] p{margin:0;line-height:1.6}
+    .stChatInputContainer textarea{font-family:'IBM Plex Mono',monospace!important;background:#f4f9fc!important;border:1px solid #b3d4e8!important;color:#0d2b45!important}
     </style>
     """, unsafe_allow_html=True)
 
-    for k,v in [('conv',[]),('display',[]),('total',0),('last',None),('mode','chat'),('url_chunks',[])]:
+    for k,v in [('conv',[]),('display',[]),('total',0),('last',None),('mode','chat'),('url_chunks',[]),('bm25_index',None),('url_msg',None)]:
         if k not in st.session_state: st.session_state[k] = v
+
+    # Use the session-state BM25 if updated after URL ingestion, else the initial one
+    active_bm25 = st.session_state.bm25_index if st.session_state.bm25_index is not None else bm25_index
 
     col_main, col_side = st.columns([3,1])
 
@@ -1412,60 +1414,126 @@ def run_streamlit(collection, chunks, bm25_index):
                     new_chunks = chunk_url(url_input.strip())
                 if new_chunks:
                     st.session_state.url_chunks.extend(new_chunks)
-                    # Rebuild BM25 and ChromaDB with new chunks
-                    all_chunks = chunks + st.session_state.url_chunks
-                    collection.delete(ids=collection.get()['ids']) if collection.count() > 0 else None
+                    # Append only the new chunks to ChromaDB (no deletion)
+                    offset = collection.count()
                     batch_size = 50
-                    for i in range(0, len(all_chunks), batch_size):
-                        batch  = all_chunks[i: i + batch_size]
-                        ids    = [f"chunk_{i+j}" for j in range(len(batch))]
+                    for i in range(0, len(new_chunks), batch_size):
+                        batch  = new_chunks[i: i + batch_size]
+                        ids    = [f"url_chunk_{offset + i + j}" for j in range(len(batch))]
                         texts  = [c['text'] for c in batch]
                         metas  = [{'source': c['source'], 'start_line': c['start_line'],
                                    'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
                         embeds = [ollama.embed(model=EMBEDDING_MODEL,
                                                input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
                         collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
-                    bm25_index = build_bm25_index(all_chunks)
-                    st.success(f"Added {len(new_chunks)} chunks from URL. Total chunks: {collection.count()}")
+                    # Rebuild BM25 with all chunks and persist in session state
+                    all_chunks = chunks + st.session_state.url_chunks
+                    st.session_state.bm25_index = build_bm25_index(all_chunks)
+                    active_bm25 = st.session_state.bm25_index
+                    st.session_state.url_msg = ('ok', f"Added {len(new_chunks)} chunks. Total in knowledge base: {collection.count()}")
                 else:
-                    st.error("Could not fetch or parse the URL. Check it's publicly accessible.")
+                    st.session_state.url_msg = ('err', "Could not fetch or parse the URL. Check it's publicly accessible.")
+                st.rerun()
 
-        st.markdown("---")
+            if st.session_state.url_msg:
+                kind, msg = st.session_state.url_msg
+                if kind == 'ok':
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
+        # ── Chat message history ──
         for msg in st.session_state.display:
-            css = {'user':'msg-user','assistant':'msg-bot','agent':'msg-agent'}.get(msg['role'],'msg-bot')
-            lbl = msg['role']
-            st.markdown(f'<div class="{css}"><div class="msg-label">{lbl}</div>{msg["content"]}</div>',
-                        unsafe_allow_html=True)
+            avatar = "🧑" if msg['role'] == 'user' else ("🤖" if msg['role'] == 'agent' else "💬")
+            with st.chat_message(msg['role'], avatar=avatar):
+                st.markdown(msg['content'], unsafe_allow_html=True)
 
-        st.markdown("---")
-        with st.form('chat', clear_on_submit=True):
-            placeholder = "Ask a question..." if st.session_state.mode == 'chat' else "Give the agent a task..."
-            user_input = st.text_input("Input:", placeholder=placeholder, label_visibility='collapsed')
-            submitted  = st.form_submit_button("Send →")
+        # ── Clear button below chat ──
+        if st.session_state.display:
+            _, btn_col = st.columns([6, 1])
+            with btn_col:
+                if st.button("🗑 Clear", use_container_width=True):
+                    st.session_state.conv = []
+                    st.session_state.display = []
+                    st.session_state.last = None
+                    st.session_state.total = 0
+                    st.rerun()
 
-        if submitted and user_input.strip():
-            st.session_state.display.append({'role':'user','content': user_input})
-            if st.session_state.mode == 'agent':
-                with st.spinner("Agent thinking..."):
-                    res = run_agent(user_input, collection, chunks, bm25_index, streamlit_mode=True)
-                steps_html = ''.join(
-                    f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"][:50]}...) → {s["result"][:80]}...</div>'
-                    if len(s["arg"])>50 else
-                    f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"]}) → {s["result"][:80]}</div>'
-                    for s in res['steps']
-                )
-                content = f"{steps_html}<br/><strong>Answer:</strong> {res['answer']}"
-                st.session_state.display.append({'role':'agent','content': content})
-                st.session_state.last = {'type':'agent','data': res}
-            else:
-                with st.spinner("Thinking..."):
-                    res = run_pipeline(user_input, collection, chunks, bm25_index,
-                                       st.session_state.conv, streamlit_mode=True)
-                st.session_state.display.append({'role':'assistant','content': res['response']})
-                st.session_state.last = {'type':'chat','data': res}
-            st.session_state.total += 1
-            st.rerun()
+    # ── Chat input at page level (prevents disappearing inside columns) ──
+    placeholder = "Ask a question..." if st.session_state.mode == 'chat' else "Give the agent a task..."
+    user_input = st.chat_input(placeholder)
+
+    if user_input and user_input.strip():
+        st.session_state.url_msg = None  # clear any URL status on new message
+        st.session_state.display.append({'role':'user','content': user_input})
+        if st.session_state.mode == 'agent':
+            bar = st.progress(0, text="Agent starting...")
+            bar.progress(30, text="Agent: searching knowledge base...")
+            res = run_agent(user_input, collection, chunks, active_bm25, streamlit_mode=True)
+            bar.progress(100, text="Agent: done!")
+            bar.empty()
+            steps_html = ''.join(
+                f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"][:50]}...) → {s["result"][:80]}...</div>'
+                if len(s["arg"])>50 else
+                f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"]}) → {s["result"][:80]}</div>'
+                for s in res['steps']
+            )
+            content = f"{steps_html}<br/><strong>Answer:</strong> {res['answer']}"
+            st.session_state.display.append({'role':'agent','content': content})
+            st.session_state.last = {'type':'agent','data': res}
+        else:
+            bar = st.progress(0, text="Classifying query...")
+            qtype    = classify_query(user_input)
+            top_n    = smart_top_n(qtype)
+            queries  = expand_query(user_input)
+
+            bar.progress(25, text="Retrieving documents...")
+            retrieved = hybrid_retrieve(queries, collection, chunks, active_bm25, top_n=top_n)
+            is_confident, best_score = check_confidence(retrieved)
+
+            bar.progress(55, text="Reranking results...")
+            reranked = rerank(user_input, retrieved, top_n=TOP_RERANK)
+
+            bar.progress(75, text="Generating answer...")
+            context_lines = []
+            for e, _, _ in reranked:
+                label = _source_label(e)
+                context_lines.append(f" - [{e['source']} {label}] {e['text']}")
+            context = '\n'.join(context_lines)
+            instruction_prompt = (
+                "You are a helpful chatbot.\n"
+                "Use only the following context to answer the question.\n"
+                "Do not make up new information.\n"
+                "Cite sources at the end of your answer.\n\n"
+                f"{context}"
+            )
+            st.session_state.conv.append({'role': 'user', 'content': user_input})
+            stream = ollama.chat(
+                model=LANGUAGE_MODEL,
+                messages=[{'role': 'system', 'content': instruction_prompt}, *st.session_state.conv],
+                stream=True,
+            )
+            full_response = ''.join(c['message']['content'] for c in stream)
+            st.session_state.conv.append({'role': 'assistant', 'content': full_response})
+            sim_scores = [s for _, s, _ in reranked]
+            log_interaction(user_input, qtype, len(reranked), sim_scores, full_response)
+
+            bar.progress(100, text="Done!")
+            bar.empty()
+
+            res = {
+                'response':     full_response,
+                'query_type':   qtype,
+                'queries':      queries,
+                'is_confident': is_confident,
+                'best_score':   best_score,
+                'retrieved':    retrieved,
+                'reranked':     reranked,
+            }
+            st.session_state.display.append({'role':'assistant','content': res['response']})
+            st.session_state.last = {'type':'chat','data': res}
+        st.session_state.total += 1
+        st.rerun()
 
     with col_side:
         st.markdown("### Pipeline")
