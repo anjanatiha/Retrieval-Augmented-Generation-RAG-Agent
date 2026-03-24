@@ -201,6 +201,8 @@ streamlit run rag_app.py
 
 ## Supported File Types
 
+### Local files — drop into `./docs/` subfolders
+
 | Extension(s) | Type | Chunking Strategy | Library |
 |---|---|---|---|
 | `.pdf` | PDF | Sentence-based per page | `pymupdf` |
@@ -211,6 +213,23 @@ streamlit run rag_app.py
 | `.pptx`, `.ppt` | Presentation | Text shapes per slide | `python-pptx` |
 | `.md`, `.markdown` | Markdown | Line-based (syntax stripped) | stdlib |
 | `.html`, `.htm` | HTML | Sentence-based (tags stripped) | `beautifulsoup4` |
+
+### Remote URLs — paste in the Streamlit UI
+
+Any public URL is also supported. Type is detected by file extension in the URL first, then Content-Type response header:
+
+| URL type | Example | Handled by |
+|---|---|---|
+| Webpage | `https://example.com/about` | BeautifulSoup HTML chunker |
+| Remote PDF | `https://example.com/report.pdf` | PyMuPDF chunker |
+| Remote DOCX | `https://example.com/resume.docx` | python-docx chunker |
+| Remote XLSX | `https://example.com/data.xlsx` | openpyxl chunker |
+| Remote CSV | `https://example.com/data.csv` | csv chunker |
+| Remote PPTX | `https://example.com/deck.pptx` | python-pptx chunker |
+
+Source label uses the URL hostname + path (e.g. `[careers.company.com/job L1]`).
+
+**Example:** load a resume PDF locally + paste a job description URL → ask *"Does the candidate meet the requirements for this role?"*
 
 ---
 
@@ -255,20 +274,6 @@ The web UI features:
 - Document type breakdown (chunk counts per type: PDF, DOCX, XLSX, etc.)
 - Session stats (query count, conversation turns, total chunk count, URL chunk count)
 - Clear chat button
-
----
-
-## URL Ingestion
-
-The system can fetch and index any publicly accessible URL alongside local documents:
-
-- **Webpages** — HTML tags stripped with BeautifulSoup, chunked as sentences
-- **Remote PDFs** — fetched and chunked page by page
-- **Remote DOCX / XLSX / CSV / PPTX** — downloaded to a temp file and processed through the same type-aware chunkers as local files
-- **Type detection** — URL file extension checked first, then Content-Type response header as fallback
-- **Source labelling** — URL hostname + path used as source label (e.g. `[careers.company.com/job L1]`)
-
-**Example:** load a resume PDF locally + paste a job description URL → ask *"Does the candidate meet the requirements?"*
 
 ---
 
