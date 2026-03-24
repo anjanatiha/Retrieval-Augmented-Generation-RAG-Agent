@@ -266,7 +266,7 @@ Results are saved to `benchmark_results.json` with run-over-run comparison so yo
 ## Streamlit UI
 
 The web UI features:
-- Dark terminal-aesthetic theme
+- Ocean Blue theme — white background with deep navy and light blue accents
 - Chat and Agent mode toggle
 - **URL ingestion panel** — paste any public URL to fetch and index it alongside local files
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores
