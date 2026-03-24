@@ -4,7 +4,13 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 
 **Live demo:** [ragdoll on Hugging Face Spaces](https://huggingface.co/spaces/anjanatiha2024/ragdoll) — upload any document and try it in your browser, no setup needed.
 
-![App Screenshot](assets/screenshot.png)
+![Hugging Face Demo](assets/huggingface_ragdoll.png)
+
+---
+
+## Streamlit UI (local)
+
+![Streamlit Interface](assets/streamlit_rag.png)
 
 ---
 
@@ -265,8 +271,10 @@ Results are saved to `benchmark_results.json` with run-over-run comparison so yo
 
 ## Streamlit UI
 
+![Streamlit Interface](assets/streamlit_rag.png)
+
 The web UI features:
-- Ocean Blue theme — white background with deep navy and light blue accents
+- Dark terminal-aesthetic theme
 - Chat and Agent mode toggle
 - **URL ingestion panel** — paste any public URL to fetch and index it alongside local files
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores
