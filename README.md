@@ -29,8 +29,11 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 | 15 | **Streaming with typing indicator** | Token-level streaming with animated typing indicator in terminal |
 | 16 | **Benchmarking** | Automated eval suite with faithfulness, answer relevancy, keyword recall, and context relevance scores — with before/after run comparison |
 | 17 | **Agent with tool calling** | Agentic mode with `rag_search`, `calculator`, `summarise`, and `finish` tools; robust tool-call parsing and auto-finish logic |
-| 18 | **Streamlit UI** | Ocean Blue web UI with chat + agent mode toggle, URL ingestion panel, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
+| 18 | **Streamlit UI** | Ocean Blue web UI with native chat bubbles, agent mode toggle, URL ingestion panel, file upload panel, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
 | 19 | **URL ingestion** | Paste any public URL — webpage, PDF, DOCX, XLSX, CSV, PPTX — and it is fetched, auto-detected by type, chunked through the correct chunker, and added to the index alongside local files |
+| 20 | **File upload ingestion** | Upload any supported file directly through the UI — chunked, embedded, and added to the live knowledge base without restarting |
+| 21 | **Step-by-step progress bar** | Real-time progress bar showing each retrieval stage: classify → retrieve → rerank → generate |
+| 22 | **Native chat interface** | Messages rendered with `st.chat_message` bubbles and persistent `st.chat_input` at the bottom; clear button appears below conversation |
 
 ---
 
@@ -265,17 +268,27 @@ Results are saved to `benchmark_results.json` with run-over-run comparison so yo
 
 ## Streamlit UI
 
-![Streamlit Interface](assets/streamlit_rag.png)
+**Chat view** — native chat bubbles, file upload, URL ingestion, and clear button:
+
+![Streamlit Chat](assets/streamlit_rag_before.png)
+
+**Pipeline panel** — post-query sidebar showing reranked chunks, confidence scores, and session stats:
+
+![Streamlit Pipeline](assets/streamlit_rag_after.png)
 
 The web UI features:
 - Ocean Blue theme — white background with deep navy and light blue accents
+- Native `st.chat_message` bubbles with user / assistant / agent avatars
+- Persistent `st.chat_input` bar always visible at the bottom of the page
 - Chat and Agent mode toggle
 - **URL ingestion panel** — paste any public URL to fetch and index it alongside local files
+- **File upload panel** — upload PDF, TXT, DOCX, XLSX, PPTX, CSV, MD, or HTML directly through the UI
+- **Step-by-step progress bar** — shows classify → retrieve → rerank → generate stages in real time
+- **🗑 Clear button** — appears below conversation to wipe chat history and memory
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores
 - Confidence and query-type badges
 - Document type breakdown (chunk counts per type: PDF, DOCX, XLSX, etc.)
 - Session stats (query count, conversation turns, total chunk count, URL chunk count)
-- Clear chat button
 
 ---
 
