@@ -1361,26 +1361,27 @@ def run_streamlit(collection, chunks, bm25_index):
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap');
-    html,body,[class*="css"]{font-family:'IBM Plex Sans',sans-serif;background:#0d0d0d;color:#e8e8e8}
-    .stApp{background:#0d0d0d}
-    .rag-title{font-family:'IBM Plex Mono',monospace;font-size:2rem;font-weight:600;color:#f0c040;letter-spacing:-.02em}
-    .rag-sub{font-family:'IBM Plex Mono',monospace;font-size:.75rem;color:#444;margin-bottom:1.5rem}
-    .msg-user{background:#1a1a1a;border-left:3px solid #f0c040;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0}
-    .msg-bot{background:#141414;border-left:3px solid #3a9ad9;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0;line-height:1.6}
-    .msg-agent{background:#0f1a0f;border-left:3px solid #4caf50;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0}
-    .msg-label{font-family:'IBM Plex Mono',monospace;font-size:.65rem;color:#444;margin-bottom:.2rem;text-transform:uppercase;letter-spacing:.1em}
-    .chunk{background:#111;border:1px solid #1e1e1e;border-radius:6px;padding:.5rem .7rem;margin:.25rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#888}
-    .cs{color:#f0c040;font-weight:600}.src{color:#3a9ad9}
-    .step{background:#0a1a0a;border:1px solid #1a2a1a;border-radius:6px;padding:.5rem .7rem;margin:.2rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#4caf50}
+    html,body,[class*="css"]{font-family:'IBM Plex Sans',sans-serif;background:#ffffff;color:#0d2b45}
+    .stApp{background:#ffffff}
+    .rag-title{font-family:'IBM Plex Mono',monospace;font-size:2rem;font-weight:600;color:#1565a0;letter-spacing:-.02em}
+    .rag-sub{font-family:'IBM Plex Mono',monospace;font-size:.75rem;color:#7aafc8;margin-bottom:1.5rem}
+    .msg-user{background:#e3f0f9;border-left:3px solid #1565a0;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0}
+    .msg-bot{background:#f4f9fc;border-left:3px solid #4a9fc4;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0;line-height:1.6}
+    .msg-agent{background:#e8f5e8;border-left:3px solid #2e7d32;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0}
+    .msg-label{font-family:'IBM Plex Mono',monospace;font-size:.65rem;color:#7aafc8;margin-bottom:.2rem;text-transform:uppercase;letter-spacing:.1em}
+    .chunk{background:#ffffff;border:1px solid #b3d4e8;border-radius:6px;padding:.5rem .7rem;margin:.25rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#4a8fa8}
+    .cs{color:#1565a0;font-weight:600}.src{color:#4a9fc4}
+    .step{background:#e8f5e8;border:1px solid #aed4bb;border-radius:6px;padding:.5rem .7rem;margin:.2rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#2e7d32}
     .badge{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:.65rem;padding:.15rem .4rem;border-radius:3px;margin:.1rem}
-    .b-fact{background:#1a3a1a;color:#4caf50}.b-comp{background:#1a2a3a;color:#3a9ad9}.b-gen{background:#2a1a2a;color:#ce93d8}
-    .b-ok{background:#1a3a1a;color:#4caf50}.b-warn{background:#3a2a00;color:#f0c040}
-    .stat{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:#444;padding:.25rem 0;border-bottom:1px solid #151515;display:flex;justify-content:space-between}
-    .sv{color:#f0c040}
-    .stTextInput>div>div>input{background:#1a1a1a!important;border:1px solid #2a2a2a!important;color:#e8e8e8!important;font-family:'IBM Plex Mono',monospace!important;border-radius:6px!important}
-    .stButton>button{background:#f0c040!important;color:#0d0d0d!important;font-family:'IBM Plex Mono',monospace!important;font-weight:600!important;border:none!important;border-radius:6px!important}
-    [data-testid="stSidebar"]{background:#0a0a0a!important;border-right:1px solid #151515}
-    hr{border-color:#1a1a1a!important}
+    .b-fact{background:#daeaf4;color:#1565a0}.b-comp{background:#e3f0f9;color:#0d47a1}.b-gen{background:#ede7f6;color:#512da8}
+    .b-ok{background:#daeaf4;color:#1565a0}.b-warn{background:#fff8e1;color:#f57f17}
+    .stat{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:#7aafc8;padding:.25rem 0;border-bottom:1px solid #daeaf4;display:flex;justify-content:space-between}
+    .sv{color:#1565a0;font-weight:600}
+    .stTextInput>div>div>input{background:#f4f9fc!important;border:1px solid #b3d4e8!important;color:#0d2b45!important;font-family:'IBM Plex Mono',monospace!important;border-radius:6px!important}
+    .stButton>button{background:#1565a0!important;color:#ffffff!important;font-family:'IBM Plex Mono',monospace!important;font-weight:600!important;border:none!important;border-radius:6px!important}
+    [data-testid="stSidebar"]{background:#f4f9fc!important;border-right:1px solid #b3d4e8!important}
+    hr{border-color:#daeaf4!important}
+    .stRadio>div{background:#f4f9fc;border-radius:6px;padding:.3rem .5rem}
     </style>
     """, unsafe_allow_html=True)
 
@@ -1529,12 +1530,8 @@ def run_streamlit(collection, chunks, bm25_index):
 # ============================================================
 # ENTRY POINT
 # ============================================================
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='RAG Chatbot')
-    parser.add_argument('--benchmark', action='store_true', help='Run benchmark')
-    parser.add_argument('--agent',     action='store_true', help='Agent mode in terminal')
-    args = parser.parse_args()
-
+def _initialize():
+    """Load documents, build index, return (collection, chunks, bm25)."""
     print("="*60)
     print("  Initializing RAG Pipeline")
     print("="*60)
@@ -1542,14 +1539,33 @@ if __name__ == '__main__':
     for t, folder in DOC_FOLDERS.items():
         print(f"    {t.upper():<8} → {folder}/")
     print(f"  Vector DB:  ChromaDB (persistent @ {CHROMA_DIR})")
-    print(f"  Reranker:   LLM-based")
+    print(f"  Reranker:   LLM-based (document type-aware)")
     print(f"  Smart mis-placed file detection: ENABLED")
     print("="*60 + "\n")
-
     ensure_folders()
     chunks     = chunk_all_documents()
     collection = build_or_load_chroma(chunks)
     bm25       = build_bm25_index(chunks)
+    return collection, chunks, bm25
+
+# ── Streamlit mode — detected when run via `streamlit run rag_app.py` ──
+try:
+    import streamlit as st
+    # If streamlit is already imported and running, __name__ won't be __main__
+    if st.runtime.exists():
+        collection, chunks, bm25 = _initialize()
+        run_streamlit(collection, chunks, bm25)
+except Exception:
+    pass
+
+# ── Terminal / CLI mode ──
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='RAG Chatbot')
+    parser.add_argument('--benchmark', action='store_true', help='Run benchmark')
+    parser.add_argument('--agent',     action='store_true', help='Agent mode in terminal')
+    args = parser.parse_args()
+
+    collection, chunks, bm25 = _initialize()
 
     if args.benchmark:
         run_benchmark(collection, chunks, bm25)
