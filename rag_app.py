@@ -1442,6 +1442,53 @@ def run_streamlit(collection, chunks, bm25_index):
                 else:
                     st.error(msg)
 
+        # ── File upload ingestion ──
+        with st.expander("Upload a file to knowledge base", expanded=False):
+            uploaded = st.file_uploader(
+                "Supported: PDF, TXT, DOCX, XLSX, PPTX, CSV, MD, HTML",
+                type=["pdf","txt","docx","doc","xlsx","xls","pptx","ppt","csv","md","markdown","html","htm"],
+                key="file_uploader"
+            )
+            if uploaded:
+                if st.button("Index file →", key="file_index_btn"):
+                    ext = os.path.splitext(uploaded.name)[1].lower()
+                    dtype = EXT_TO_TYPE.get(ext, 'txt')
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                        tmp.write(uploaded.read())
+                        tmp_path = tmp.name
+                    with st.spinner(f"Processing {uploaded.name}..."):
+                        file_info = {
+                            'filepath':      tmp_path,
+                            'filename':      uploaded.name,
+                            'detected_type': dtype,
+                            'is_misplaced':  False,
+                        }
+                        new_chunks = _dispatch_chunker(file_info)
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
+                    if new_chunks:
+                        st.session_state.url_chunks.extend(new_chunks)
+                        offset = collection.count()
+                        batch_size = 50
+                        for i in range(0, len(new_chunks), batch_size):
+                            batch  = new_chunks[i: i + batch_size]
+                            ids    = [f"file_chunk_{offset + i + j}" for j in range(len(batch))]
+                            texts  = [c['text'] for c in batch]
+                            metas  = [{'source': c['source'], 'start_line': c['start_line'],
+                                       'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
+                            embeds = [ollama.embed(model=EMBEDDING_MODEL,
+                                                   input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
+                            collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
+                        all_chunks = chunks + st.session_state.url_chunks
+                        st.session_state.bm25_index = build_bm25_index(all_chunks)
+                        active_bm25 = st.session_state.bm25_index
+                        st.session_state.url_msg = ('ok', f"Indexed '{uploaded.name}' — {len(new_chunks)} chunks added. Total: {collection.count()}")
+                    else:
+                        st.session_state.url_msg = ('err', f"Could not extract text from '{uploaded.name}'.")
+                    st.rerun()
+
         # ── Chat message history ──
         for msg in st.session_state.display:
             avatar = "🧑" if msg['role'] == 'user' else ("🤖" if msg['role'] == 'agent' else "💬")
@@ -1588,12 +1635,6 @@ def run_streamlit(collection, chunks, bm25_index):
         for t, cnt in sorted(type_counts.items()):
             st.markdown(f'<div class="stat">{t.upper()} <span class="sv">{cnt}</span></div>', unsafe_allow_html=True)
         st.markdown("---")
-
-        if st.button("Clear Chat"):
-            st.session_state.conv=[]; st.session_state.display=[]
-            st.session_state.last=None; st.session_state.total=0
-            st.session_state.url_chunks=[]
-            st.rerun()
 
 # ============================================================
 # ENTRY POINT
