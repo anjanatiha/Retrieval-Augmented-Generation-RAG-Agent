@@ -8,12 +8,6 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 
 ---
 
-## Streamlit UI (local)
-
-![Streamlit Interface](assets/streamlit_rag.png)
-
----
-
 ## Features
 
 | # | Feature | Details |
@@ -35,7 +29,7 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 | 15 | **Streaming with typing indicator** | Token-level streaming with animated typing indicator in terminal |
 | 16 | **Benchmarking** | Automated eval suite with faithfulness, answer relevancy, keyword recall, and context relevance scores — with before/after run comparison |
 | 17 | **Agent with tool calling** | Agentic mode with `rag_search`, `calculator`, `summarise`, and `finish` tools; robust tool-call parsing and auto-finish logic |
-| 18 | **Streamlit UI** | Dark-themed web UI with chat + agent mode toggle, URL ingestion panel, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
+| 18 | **Streamlit UI** | Ocean Blue web UI with chat + agent mode toggle, URL ingestion panel, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
 | 19 | **URL ingestion** | Paste any public URL — webpage, PDF, DOCX, XLSX, CSV, PPTX — and it is fetched, auto-detected by type, chunked through the correct chunker, and added to the index alongside local files |
 
 ---
@@ -274,7 +268,7 @@ Results are saved to `benchmark_results.json` with run-over-run comparison so yo
 ![Streamlit Interface](assets/streamlit_rag.png)
 
 The web UI features:
-- Dark terminal-aesthetic theme
+- Ocean Blue theme — white background with deep navy and light blue accents
 - Chat and Agent mode toggle
 - **URL ingestion panel** — paste any public URL to fetch and index it alongside local files
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores

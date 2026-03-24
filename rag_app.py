@@ -1357,7 +1357,7 @@ def run_terminal(collection, chunks, bm25_index):
 def run_streamlit(collection, chunks, bm25_index):
     import streamlit as st
 
-    st.set_page_config(page_title="RAG Chatbot", page_icon="🐱", layout="wide")
+    st.set_page_config(page_title="Ask Your Documents", page_icon="🐱", layout="wide")
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap');
@@ -1391,7 +1391,7 @@ def run_streamlit(collection, chunks, bm25_index):
     col_main, col_side = st.columns([3,1])
 
     with col_main:
-        st.markdown('<div class="rag-title">RAG Chatbot</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rag-title">Ask Your Documents</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="rag-sub">chunking · hybrid search · reranking · agent · '
             'PDF · TXT · DOCX · XLSX · PPTX · CSV · MD · HTML · URL</div>',
