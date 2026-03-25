@@ -129,6 +129,8 @@ project/
 │   ├── md/                 ← drop .md / .markdown files here
 │   └── html/               ← drop .html / .htm files here
 ├── chroma_db/              ← persistent vector store (auto-created, git-ignored)
+├── .streamlit/
+│   └── config.toml         ← Streamlit theme (Ocean Blue)
 ├── rag_app.py              ← main application
 ├── requirements.txt        ← Python dependencies
 ├── .gitignore              ← excludes env, chroma_db, and docs from git
@@ -144,48 +146,94 @@ project/
 
 ### Step 1 — Install Python 3.11
 
+**macOS**
 ```bash
 brew install python@3.11
 python3.11 --version
 ```
 
-### Step 2 — Create Virtual Environment
+**Windows**
+Download and install Python 3.11 from [python.org](https://www.python.org/downloads/). During installation, check **"Add Python to PATH"**.
+```cmd
+python --version
+```
 
+---
+
+### Step 2 — Install Ollama
+
+**macOS**
 ```bash
-cd ~/Desktop/rag
+brew install ollama
+```
+
+**Windows**
+Download and run the installer from [ollama.com/download](https://ollama.com/download).
+
+---
+
+### Step 3 — Clone the repo and create a virtual environment
+
+**macOS**
+```bash
+git clone https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent.git
+cd Retrieval-Augmented-Generation-RAG-Agent
 python3.11 -m venv rag_env_311
 source rag_env_311/bin/activate
 ```
 
-### Step 3 — Install Dependencies
+**Windows**
+```cmd
+git clone https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent.git
+cd Retrieval-Augmented-Generation-RAG-Agent
+python -m venv rag_env_311
+rag_env_311\Scripts\activate
+```
 
+---
+
+### Step 4 — Install Dependencies
+
+**macOS / Windows**
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step 4 — Pull Models via Ollama
+---
 
+### Step 5 — Pull Models via Ollama
+
+**macOS / Windows**
 ```bash
 ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
 ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
 ```
 
-### Step 5 — Start Ollama
+---
 
-Make sure Ollama is running before starting the app:
+### Step 6 — Start Ollama
 
+**macOS**
 ```bash
 ollama serve
 ```
 
-> **Note:** The embedding model (`bge-base-en-v1.5`) has a 512 token context limit. Chunks are automatically truncated to 300 words before embedding. If you still encounter a context length error, delete `./chroma_db/` and rerun.
+**Windows**
+
+Ollama starts automatically after installation. If it is not running, launch it from the Start menu or run:
+```cmd
+ollama serve
+```
+
+> **Note:** The embedding model (`bge-base-en-v1.5`) has a 512 token context limit. Chunks are automatically truncated before embedding. If you encounter a context length error, delete `./chroma_db/` and rerun.
 
 ---
 
 ## Usage
 
-Drop your documents into the appropriate subfolder under `./docs/`, then choose a run mode:
+Drop your documents into the appropriate subfolder under `./docs/`, then choose a run mode.
 
+**macOS**
 ```bash
 # Standard chatbot (terminal)
 python3 rag_app.py
@@ -195,6 +243,21 @@ python3 rag_app.py --agent
 
 # Benchmark evaluation
 python3 rag_app.py --benchmark
+
+# Streamlit web UI (chat + agent toggle)
+streamlit run rag_app.py
+```
+
+**Windows**
+```cmd
+# Standard chatbot (terminal)
+python rag_app.py
+
+# Agent mode — uses tool calling (terminal)
+python rag_app.py --agent
+
+# Benchmark evaluation
+python rag_app.py --benchmark
 
 # Streamlit web UI (chat + agent toggle)
 streamlit run rag_app.py

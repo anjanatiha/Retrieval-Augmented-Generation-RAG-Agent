@@ -108,7 +108,7 @@ LOG_FILE             = 'rag_logs.json'
 BENCHMARK_FILE       = 'benchmark_results.json'
 SIMILARITY_THRESHOLD = 0.55
 TOP_RETRIEVE         = 20
-TOP_RERANK           = 3
+TOP_RERANK           = 5
 # TXT / MD: 1 line per chunk — original behaviour, do not change
 TXT_CHUNK_SIZE       = 1
 TXT_CHUNK_OVERLAP    = 0
@@ -1135,9 +1135,10 @@ Rules:
 - Use rag_search first to find information before answering
 - Do not explain yourself or add any commentary
 - The finish argument must be a clean, direct answer in plain English — NEVER paste raw bullet points or document chunks into finish
-- Once you have enough information, call finish IMMEDIATELY
 - For simple math questions, call calculator once then finish
 - For simple factual questions, call rag_search once then finish
+- For summarisation or comprehensive tasks (e.g. "summarise", "tell me about", "what is in"), search multiple times with different queries to cover all sections before calling finish
+- For resume summarisation search for: contact info, work experience, education, skills, projects — then summarise all in finish
 """
 
 def tool_rag_search(query, collection, chunks, bm25_index):
