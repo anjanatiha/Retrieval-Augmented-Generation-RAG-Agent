@@ -1,0 +1,54 @@
+# Virtual environment
+rag_env_311/
+
+# ChromaDB — vector store, rebuilds automatically on first run
+chroma_db/
+
+# Generated logs and results
+rag_logs.json
+benchmark_results.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Model weights — too large for GitHub
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Mac system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+
+# Document uploads — don't commit personal documents
+docs/pdfs/
+docs/txts/
+docs/docx/
+docs/xlsx/
+docs/pptx/
+docs/csv/
+docs/md/
+docs/html/

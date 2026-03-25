@@ -263,7 +263,21 @@ def _chunk_docx(filepath, filename, paras_per_chunk=DOCX_CHUNK_PARAS):
         print(f"  [ERROR] Could not open '{filename}': {e}")
         return []
 
+    # Collect body paragraphs
     paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+
+    # Also extract text from tables (resumes often use tables for layout)
+    for table in doc.tables:
+        for row in table.rows:
+            row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            # Deduplicate merged cells (python-docx repeats merged cell text)
+            seen = []
+            for cell in row_cells:
+                if cell not in seen:
+                    seen.append(cell)
+            if seen:
+                paras.append(' | '.join(seen))
+
     for i in range(0, len(paras), paras_per_chunk):
         window = paras[i: i + paras_per_chunk]
         if not window:
@@ -1384,7 +1398,7 @@ def run_streamlit(collection, chunks, bm25_index):
     </style>
     """, unsafe_allow_html=True)
 
-    for k,v in [('conv',[]),('display',[]),('total',0),('last',None),('mode','chat'),('url_chunks',[]),('bm25_index',None),('url_msg',None)]:
+    for k,v in [('conv',[]),('display',[]),('total',0),('last',None),('mode','chat'),('url_chunks',[]),('bm25_index',None),('url_msg',None),('file_msg',None)]:
         if k not in st.session_state: st.session_state[k] = v
 
     # Use the session-state BM25 if updated after URL ingestion, else the initial one
@@ -1456,38 +1470,49 @@ def run_streamlit(collection, chunks, bm25_index):
                     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
                         tmp.write(uploaded.read())
                         tmp_path = tmp.name
-                    with st.spinner(f"Processing {uploaded.name}..."):
-                        file_info = {
-                            'filepath':      tmp_path,
-                            'filename':      uploaded.name,
-                            'detected_type': dtype,
-                            'is_misplaced':  False,
-                        }
-                        new_chunks = _dispatch_chunker(file_info)
                     try:
-                        os.unlink(tmp_path)
-                    except:
-                        pass
-                    if new_chunks:
-                        st.session_state.url_chunks.extend(new_chunks)
-                        offset = collection.count()
-                        batch_size = 50
-                        for i in range(0, len(new_chunks), batch_size):
-                            batch  = new_chunks[i: i + batch_size]
-                            ids    = [f"file_chunk_{offset + i + j}" for j in range(len(batch))]
-                            texts  = [c['text'] for c in batch]
-                            metas  = [{'source': c['source'], 'start_line': c['start_line'],
-                                       'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
-                            embeds = [ollama.embed(model=EMBEDDING_MODEL,
-                                                   input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
-                            collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
-                        all_chunks = chunks + st.session_state.url_chunks
-                        st.session_state.bm25_index = build_bm25_index(all_chunks)
-                        active_bm25 = st.session_state.bm25_index
-                        st.session_state.url_msg = ('ok', f"Indexed '{uploaded.name}' — {len(new_chunks)} chunks added. Total: {collection.count()}")
-                    else:
-                        st.session_state.url_msg = ('err', f"Could not extract text from '{uploaded.name}'.")
+                        with st.spinner(f"Processing {uploaded.name}..."):
+                            file_info = {
+                                'filepath':      tmp_path,
+                                'filename':      uploaded.name,
+                                'detected_type': dtype,
+                                'is_misplaced':  False,
+                            }
+                            new_chunks = _dispatch_chunker(file_info)
+                        if new_chunks:
+                            st.session_state.url_chunks.extend(new_chunks)
+                            offset = collection.count()
+                            batch_size = 50
+                            with st.spinner(f"Embedding {len(new_chunks)} chunks..."):
+                                for i in range(0, len(new_chunks), batch_size):
+                                    batch  = new_chunks[i: i + batch_size]
+                                    ids    = [f"file_chunk_{offset + i + j}" for j in range(len(batch))]
+                                    texts  = [c['text'] for c in batch]
+                                    metas  = [{'source': c['source'], 'start_line': c['start_line'],
+                                               'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
+                                    embeds = [ollama.embed(model=EMBEDDING_MODEL,
+                                                           input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
+                                    collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
+                            all_chunks = chunks + st.session_state.url_chunks
+                            st.session_state.bm25_index = build_bm25_index(all_chunks)
+                            active_bm25 = st.session_state.bm25_index
+                            st.session_state.file_msg = ('ok', f"Indexed '{uploaded.name}' — {len(new_chunks)} chunks added. Total: {collection.count()}")
+                        else:
+                            st.session_state.file_msg = ('err', f"Could not extract text from '{uploaded.name}'.")
+                    except Exception as e:
+                        st.session_state.file_msg = ('err', f"Error indexing '{uploaded.name}': {e}")
+                    finally:
+                        try:
+                            os.unlink(tmp_path)
+                        except:
+                            pass
                     st.rerun()
+            if st.session_state.get('file_msg'):
+                kind, msg = st.session_state.file_msg
+                if kind == 'ok':
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
         # ── Chat message history ──
         for msg in st.session_state.display:
@@ -1662,7 +1687,10 @@ try:
     import streamlit as st
     # If streamlit is already imported and running, __name__ won't be __main__
     if st.runtime.exists():
-        collection, chunks, bm25 = _initialize()
+        @st.cache_resource
+        def _cached_initialize():
+            return _initialize()
+        collection, chunks, bm25 = _cached_initialize()
         run_streamlit(collection, chunks, bm25)
 except Exception:
     pass
