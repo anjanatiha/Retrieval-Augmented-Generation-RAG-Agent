@@ -705,10 +705,14 @@ def chunk_url(url):
 # ============================================================
 # 2. PERSISTENT VECTOR DB — ChromaDB
 # ============================================================
-def _truncate_for_embedding(text, max_words=300):
-    """Truncate to 300 words to stay within bge-base-en 512 token limit."""
+def _truncate_for_embedding(text, max_words=200, max_chars=1200):
+    """Truncate to stay within bge-base-en 512 token limit.
+    Caps on both word count and character count — whichever is shorter.
+    URL/code content can have very long tokens so word count alone is not enough.
+    """
     words = text.split()
-    return ' '.join(words[:max_words]) if len(words) > max_words else text
+    truncated = ' '.join(words[:max_words]) if len(words) > max_words else text
+    return truncated[:max_chars] if len(truncated) > max_chars else truncated
 
 def get_chroma_collection():
     client = chromadb.PersistentClient(path=CHROMA_DIR)
@@ -1019,12 +1023,35 @@ def run_pipeline(query, collection, chunks, bm25_index, conversation_history, st
         context_lines.append(f" - [{e['source']} {label}] {e['text']}")
     context = '\n'.join(context_lines)
 
+    # If no relevant chunks found, return immediately without calling the LLM
+    if not is_confident:
+        full_response = (
+            "I could not find relevant information in the provided documents to answer this question. "
+            "Please upload a document or add a URL that contains the relevant information."
+        )
+        conversation_history.append({'role': 'user', 'content': query})
+        conversation_history.append({'role': 'assistant', 'content': full_response})
+        log_interaction(query, qtype, 0, [], full_response)
+        return {
+            'response':     full_response,
+            'query_type':   qtype,
+            'queries':      queries,
+            'is_confident': False,
+            'best_score':   best_score,
+            'retrieved':    retrieved,
+            'reranked':     reranked,
+        }
+
     instruction_prompt = (
-        "You are a helpful chatbot.\n"
-        "Use only the following context to answer the question.\n"
-        "Do not make up new information.\n"
-        "Cite sources at the end of your answer.\n\n"
-        f"{context}"
+        "You are a document question-answering assistant.\n"
+        "Answer the question using ONLY the context passages provided below.\n"
+        "STRICT RULES:\n"
+        "- Do NOT use your training data or general knowledge under any circumstances.\n"
+        "- If the context does not contain the answer, say exactly: "
+        "'The provided documents do not contain information about this topic.'\n"
+        "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
+        "- Cite the source(s) at the end of your answer.\n\n"
+        f"CONTEXT:\n{context}"
     )
 
     conversation_history.append({'role': 'user', 'content': query})
@@ -1395,6 +1422,12 @@ def run_streamlit(collection, chunks, bm25_index):
     [data-testid="stChatMessage"]{background:#f4f9fc;border-radius:10px;margin:.3rem 0}
     [data-testid="stChatMessageContent"] p{margin:0;line-height:1.6}
     .stChatInputContainer textarea{font-family:'IBM Plex Mono',monospace!important;background:#f4f9fc!important;border:1px solid #b3d4e8!important;color:#0d2b45!important}
+    .stChatInputContainer textarea:focus{border-color:#1565a0!important;box-shadow:0 0 0 2px rgba(21,101,160,0.25)!important;outline:none!important}
+    .stChatInputContainer:focus-within{border-color:#1565a0!important;box-shadow:0 0 0 2px rgba(21,101,160,0.25)!important}
+    [data-testid="stChatInputContainer"]:focus-within{border-color:#1565a0!important;box-shadow:0 0 0 2px rgba(21,101,160,0.25)!important}
+    input:focus, textarea:focus{border-color:#1565a0!important;box-shadow:0 0 0 2px rgba(21,101,160,0.25)!important;outline:none!important}
+    *:focus{outline-color:#1565a0!important}
+    :root{--primary-color:#1565a0!important}
     </style>
     """, unsafe_allow_html=True)
 
@@ -1403,6 +1436,8 @@ def run_streamlit(collection, chunks, bm25_index):
 
     # Use the session-state BM25 if updated after URL ingestion, else the initial one
     active_bm25 = st.session_state.bm25_index if st.session_state.bm25_index is not None else bm25_index
+
+    _needs_rerun = False  # flag to defer st.rerun() until after all columns render
 
     col_main, col_side = st.columns([3,1])
 
@@ -1424,30 +1459,32 @@ def run_streamlit(collection, chunks, bm25_index):
                 url_input   = st.text_input("URL:", placeholder="https://example.com/page or https://example.com/file.pdf")
                 url_submit  = st.form_submit_button("Fetch & index →")
             if url_submit and url_input.strip():
-                with st.spinner(f"Fetching {url_input.strip()}..."):
-                    new_chunks = chunk_url(url_input.strip())
-                if new_chunks:
-                    st.session_state.url_chunks.extend(new_chunks)
-                    # Append only the new chunks to ChromaDB (no deletion)
-                    offset = collection.count()
-                    batch_size = 50
-                    for i in range(0, len(new_chunks), batch_size):
-                        batch  = new_chunks[i: i + batch_size]
-                        ids    = [f"url_chunk_{offset + i + j}" for j in range(len(batch))]
-                        texts  = [c['text'] for c in batch]
-                        metas  = [{'source': c['source'], 'start_line': c['start_line'],
-                                   'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
-                        embeds = [ollama.embed(model=EMBEDDING_MODEL,
-                                               input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
-                        collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
-                    # Rebuild BM25 with all chunks and persist in session state
-                    all_chunks = chunks + st.session_state.url_chunks
-                    st.session_state.bm25_index = build_bm25_index(all_chunks)
-                    active_bm25 = st.session_state.bm25_index
-                    st.session_state.url_msg = ('ok', f"Added {len(new_chunks)} chunks. Total in knowledge base: {collection.count()}")
-                else:
-                    st.session_state.url_msg = ('err', "Could not fetch or parse the URL. Check it's publicly accessible.")
-                st.rerun()
+                try:
+                    with st.spinner(f"Fetching {url_input.strip()}..."):
+                        new_chunks = chunk_url(url_input.strip())
+                    if new_chunks:
+                        st.session_state.url_chunks.extend(new_chunks)
+                        offset = collection.count()
+                        batch_size = 50
+                        with st.spinner(f"Embedding {len(new_chunks)} chunks..."):
+                            for i in range(0, len(new_chunks), batch_size):
+                                batch  = new_chunks[i: i + batch_size]
+                                ids    = [f"url_chunk_{offset + i + j}" for j in range(len(batch))]
+                                texts  = [c['text'] for c in batch]
+                                metas  = [{'source': c['source'], 'start_line': c['start_line'],
+                                           'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
+                                embeds = [ollama.embed(model=EMBEDDING_MODEL,
+                                                       input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
+                                collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
+                        all_chunks = chunks + st.session_state.url_chunks
+                        st.session_state.bm25_index = build_bm25_index(all_chunks)
+                        active_bm25 = st.session_state.bm25_index
+                        st.session_state.url_msg = ('ok', f"Added {len(new_chunks)} chunks. Total in knowledge base: {collection.count()}")
+                    else:
+                        st.session_state.url_msg = ('err', "Could not fetch or parse the URL. Check it's publicly accessible.")
+                except Exception as e:
+                    st.session_state.url_msg = ('err', f"Error fetching URL: {e}")
+                _needs_rerun = True
 
             if st.session_state.url_msg:
                 kind, msg = st.session_state.url_msg
@@ -1506,7 +1543,7 @@ def run_streamlit(collection, chunks, bm25_index):
                             os.unlink(tmp_path)
                         except:
                             pass
-                    st.rerun()
+                    _needs_rerun = True
             if st.session_state.get('file_msg'):
                 kind, msg = st.session_state.file_msg
                 if kind == 'ok':
@@ -1530,6 +1567,10 @@ def run_streamlit(collection, chunks, bm25_index):
                     st.session_state.last = None
                     st.session_state.total = 0
                     st.rerun()
+
+    # Deferred rerun — called after all columns finish rendering to avoid cutting off the page
+    if _needs_rerun:
+        st.rerun()
 
     # ── Chat input at page level (prevents disappearing inside columns) ──
     placeholder = "Ask a question..." if st.session_state.mode == 'chat' else "Give the agent a task..."
