@@ -1052,7 +1052,9 @@ def run_pipeline(query, collection, chunks, bm25_index, conversation_history, st
         "- If the context does not contain the answer, say exactly: "
         "'The provided documents do not contain information about this topic.'\n"
         "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
-        "- Cite the source(s) at the end of your answer.\n\n"
+        "- At the end of your answer, cite ONLY the bracketed source labels from the context "
+        "(e.g. [filename.pdf p3] or [example.com/page s12]). "
+        "Do NOT copy any bibliographic references, footnotes, or citations that appear inside the text.\n\n"
         f"CONTEXT:\n{context}"
     )
 
@@ -1603,16 +1605,18 @@ def run_streamlit(collection, chunks, bm25_index):
     # ── Chat input at page level (prevents disappearing inside columns) ──
     placeholder = "Ask a question..." if st.session_state.mode == 'chat' else "Give the agent a task..."
     user_input = st.chat_input(placeholder)
+    # Progress bar placeholder lives here — renders right below the chat input
+    _progress_slot = st.empty()
 
     if user_input and user_input.strip():
         st.session_state.url_msg = None  # clear any URL status on new message
         st.session_state.display.append({'role':'user','content': user_input})
         if st.session_state.mode == 'agent':
-            bar = st.progress(0, text="Agent starting...")
+            bar = _progress_slot.progress(0, text="Agent starting...")
             bar.progress(30, text="Agent: searching knowledge base...")
             res = run_agent(user_input, collection, chunks, active_bm25, streamlit_mode=True)
             bar.progress(100, text="Agent: done!")
-            bar.empty()
+            _progress_slot.empty()
             steps_html = ''.join(
                 f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"][:50]}...) → {s["result"][:80]}...</div>'
                 if len(s["arg"])>50 else
@@ -1623,7 +1627,7 @@ def run_streamlit(collection, chunks, bm25_index):
             st.session_state.display.append({'role':'agent','content': content})
             st.session_state.last = {'type':'agent','data': res}
         else:
-            bar = st.progress(0, text="Classifying query...")
+            bar = _progress_slot.progress(0, text="Classifying query...")
             qtype    = classify_query(user_input)
             top_n    = smart_top_n(qtype)
             queries  = expand_query(user_input)
@@ -1642,11 +1646,17 @@ def run_streamlit(collection, chunks, bm25_index):
                 context_lines.append(f" - [{e['source']} {label}] {e['text']}")
             context = '\n'.join(context_lines)
             instruction_prompt = (
-                "You are a helpful chatbot.\n"
-                "Use only the following context to answer the question.\n"
-                "Do not make up new information.\n"
-                "Cite sources at the end of your answer.\n\n"
-                f"{context}"
+                "You are a document question-answering assistant.\n"
+                "Answer the question using ONLY the context passages provided below.\n"
+                "STRICT RULES:\n"
+                "- Do NOT use your training data or general knowledge under any circumstances.\n"
+                "- If the context does not contain the answer, say exactly: "
+                "'The provided documents do not contain information about this topic.'\n"
+                "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
+                "- At the end of your answer, cite ONLY the bracketed source labels from the context "
+                "(e.g. [filename.pdf p3] or [example.com/page s12]). "
+                "Do NOT copy any bibliographic references, footnotes, or citations that appear inside the text.\n\n"
+                f"CONTEXT:\n{context}"
             )
             st.session_state.conv.append({'role': 'user', 'content': user_input})
             stream = ollama.chat(
@@ -1660,7 +1670,7 @@ def run_streamlit(collection, chunks, bm25_index):
             log_interaction(user_input, qtype, len(reranked), sim_scores, full_response)
 
             bar.progress(100, text="Done!")
-            bar.empty()
+            _progress_slot.empty()
 
             res = {
                 'response':     full_response,
