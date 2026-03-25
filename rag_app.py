@@ -1123,7 +1123,8 @@ Available tools:
 1. rag_search - search the knowledge base for information
 2. calculator - evaluate a math expression
 3. summarise  - summarise a piece of text
-4. finish     - return the final answer to the user
+4. sentiment  - analyse the sentiment/tone of a passage or topic from the documents
+5. finish     - return the final answer to the user
 
 You MUST respond in EXACTLY this format with NO other text before or after:
 TOOL: tool_name(your argument here)
@@ -1132,6 +1133,7 @@ Examples:
 TOOL: rag_search(NLP experience)
 TOOL: calculator(16 * 365)
 TOOL: summarise(cats sleep a lot and are nocturnal hunters...)
+TOOL: sentiment(customer reviews)
 TOOL: finish(Yes, the candidate has NLP experience including POS tagging and language modeling.)
 
 Rules:
@@ -1143,6 +1145,7 @@ Rules:
 - rag_search arguments must be SHORT, SIMPLE keyword phrases — NEVER use boolean operators like AND, OR, quotes, or complex syntax
 - For simple math questions, call calculator once then finish
 - For simple factual questions, call rag_search once then finish
+- For sentiment questions (e.g. "what is the tone", "is this positive", "sentiment of"), call sentiment with a keyword or passage then finish
 - For summarisation or comprehensive tasks (e.g. "summarise", "tell me about", "what is in"):
   * Make multiple SEPARATE rag_search calls, one per topic
   * For a resume: search "work experience", then "education", then "skills", then "projects" as separate calls
@@ -1207,6 +1210,39 @@ def tool_summarise(text):
         messages=[{'role': 'user', 'content': f"Summarise this in {length_hint}:\n{text}"}]
     )
     return resp['message']['content'].strip()
+
+def tool_sentiment(text_or_query, collection=None, chunks=None, bm25_index=None):
+    """
+    Analyses the sentiment/tone of a passage.
+    If the input is a short keyword/query (< 10 words), searches the knowledge base
+    first and analyses the retrieved content. Otherwise analyses the text directly.
+    Returns: overall sentiment, confidence, tone description, and key phrases.
+    """
+    # If short query and search index available, retrieve relevant content first
+    if len(text_or_query.split()) < 10 and collection is not None:
+        retrieved = tool_rag_search(text_or_query, collection, chunks, bm25_index)
+        text_to_analyse = retrieved if retrieved.strip() else text_or_query
+    else:
+        text_to_analyse = text_or_query
+
+    prompt = (
+        "Analyse the sentiment and tone of the following text.\n\n"
+        "Respond in this exact format:\n"
+        "Sentiment: <Positive / Negative / Neutral / Mixed>\n"
+        "Tone: <one short phrase describing the tone, e.g. 'professional and confident'>\n"
+        "Key phrases: <2-4 phrases from the text that drove this assessment>\n"
+        "Explanation: <1-2 sentences explaining the sentiment>\n\n"
+        f"Text:\n{text_to_analyse}"
+    )
+    try:
+        resp = ollama.chat(
+            model=LANGUAGE_MODEL,
+            messages=[{'role': 'user', 'content': prompt}],
+            options={"temperature": 0}
+        )
+        return resp['message']['content'].strip()
+    except Exception as e:
+        return f"Sentiment analysis error: {e}"
 
 def parse_tool_call(response_text):
     match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+?)\s*\)', response_text, re.DOTALL)
@@ -1294,8 +1330,10 @@ def run_agent(user_query, collection, chunks, bm25_index, max_steps=8, streamlit
             result = tool_calculator(tool_arg)
         elif tool_name == 'summarise':
             result = tool_summarise(tool_arg)
+        elif tool_name == 'sentiment':
+            result = tool_sentiment(tool_arg, collection, chunks, bm25_index)
         else:
-            result = f"Unknown tool '{tool_name}'. Available: rag_search, calculator, summarise, finish"
+            result = f"Unknown tool '{tool_name}'. Available: rag_search, calculator, summarise, sentiment, finish"
 
         steps.append({'step': step+1, 'tool': tool_name, 'arg': tool_arg, 'result': result})
 
@@ -1531,6 +1569,26 @@ def run_streamlit(collection, chunks, bm25_index):
         mode = st.radio("Mode:", ["Chat", "Agent"], horizontal=True,
                         index=0 if st.session_state.mode=='chat' else 1)
         st.session_state.mode = mode.lower()
+
+        if st.session_state.mode == 'agent':
+            st.markdown(
+                """
+                <div style="background:#e8f4fd;border-left:3px solid #1565a0;
+                            border-radius:6px;padding:10px 14px;margin:8px 0;font-size:0.82rem;">
+                <b>🤖 Agent Tools Available</b><br><br>
+                <b>🔍 rag_search</b> — search your documents<br>
+                <i>e.g. "what skills does the resume mention?"</i><br><br>
+                <b>🧮 calculator</b> — evaluate math expressions<br>
+                <i>e.g. "what is 15% of 85000?"</i><br><br>
+                <b>📝 summarise</b> — summarise any document or section<br>
+                <i>e.g. "summarise the resume"</i><br><br>
+                <b>💬 sentiment</b> — analyse tone & sentiment of content<br>
+                <i>e.g. "what is the sentiment of the resume?"</i><br><br>
+                <b>✅ finish</b> — returns the final answer
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
         # ── URL ingestion ──
         with st.expander("Add a URL to knowledge base", expanded=False):
