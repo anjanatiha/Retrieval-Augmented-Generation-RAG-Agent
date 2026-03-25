@@ -928,11 +928,15 @@ def classify_query(query):
     Drives smart_top_n — comparison queries retrieve more candidates.
     """
     q = query.lower()
+    summarise_signals  = ['summarise', 'summarize', 'summary', 'overview', 'tell me about',
+                          'what is in', 'describe', 'explain', 'give me a summary', 'resume']
     comparison_signals = ['compare', 'difference', 'vs', 'versus', 'better', 'worse',
                           'pros and cons', 'which is', 'how does', 'contrast']
     factual_signals    = ['what is', 'what are', 'who is', 'who are', 'when did',
                           'where is', 'how many', 'how much', 'does', 'did', 'has',
                           'have', 'list', 'name', 'define', 'tell me']
+    if any(s in q for s in summarise_signals):
+        return 'summarise'
     if any(s in q for s in comparison_signals):
         return 'comparison'
     if any(s in q for s in factual_signals):
@@ -940,7 +944,7 @@ def classify_query(query):
     return 'general'
 
 def smart_top_n(qtype):
-    return {'factual': 5, 'comparison': 15, 'general': 10}.get(qtype, TOP_RETRIEVE)
+    return {'factual': 5, 'comparison': 15, 'general': 10, 'summarise': TOP_RETRIEVE}.get(qtype, TOP_RETRIEVE)
 
 # ============================================================
 # 8. CONFIDENCE CHECK
@@ -1012,12 +1016,13 @@ def _source_label(entry):
 # 12. CORE PIPELINE
 # ============================================================
 def run_pipeline(query, collection, chunks, bm25_index, conversation_history, streamlit_mode=False):
-    qtype     = classify_query(query)
-    top_n     = smart_top_n(qtype)
-    queries   = expand_query(query)
-    retrieved = hybrid_retrieve(queries, collection, chunks, bm25_index, top_n=top_n)
+    qtype      = classify_query(query)
+    top_n      = smart_top_n(qtype)
+    top_rerank = 10 if qtype == 'summarise' else TOP_RERANK
+    queries    = expand_query(query)
+    retrieved  = hybrid_retrieve(queries, collection, chunks, bm25_index, top_n=top_n)
     is_confident, best_score = check_confidence(retrieved)
-    reranked  = rerank(query, retrieved, top_n=TOP_RERANK)
+    reranked   = rerank(query, retrieved, top_n=top_rerank)
 
     context_lines = []
     for e, _, _ in reranked:
@@ -1124,7 +1129,7 @@ You MUST respond in EXACTLY this format with NO other text before or after:
 TOOL: tool_name(your argument here)
 
 Examples:
-TOOL: rag_search(does the candidate have NLP experience)
+TOOL: rag_search(NLP experience)
 TOOL: calculator(16 * 365)
 TOOL: summarise(cats sleep a lot and are nocturnal hunters...)
 TOOL: finish(Yes, the candidate has NLP experience including POS tagging and language modeling.)
@@ -1135,10 +1140,13 @@ Rules:
 - Use rag_search first to find information before answering
 - Do not explain yourself or add any commentary
 - The finish argument must be a clean, direct answer in plain English — NEVER paste raw bullet points or document chunks into finish
+- rag_search arguments must be SHORT, SIMPLE keyword phrases — NEVER use boolean operators like AND, OR, quotes, or complex syntax
 - For simple math questions, call calculator once then finish
 - For simple factual questions, call rag_search once then finish
-- For summarisation or comprehensive tasks (e.g. "summarise", "tell me about", "what is in"), search multiple times with different queries to cover all sections before calling finish
-- For resume summarisation search for: contact info, work experience, education, skills, projects — then summarise all in finish
+- For summarisation or comprehensive tasks (e.g. "summarise", "tell me about", "what is in"):
+  * Make multiple SEPARATE rag_search calls, one per topic
+  * For a resume: search "work experience", then "education", then "skills", then "projects" as separate calls
+  * Collect all results, then call finish with a complete summary
 """
 
 def tool_rag_search(query, collection, chunks, bm25_index):
@@ -1187,9 +1195,16 @@ def tool_calculator(expression):
         return f"Error: {e}"
 
 def tool_summarise(text):
+    word_count = len(text.split())
+    if word_count < 100:
+        length_hint = "2-3 sentences"
+    elif word_count < 300:
+        length_hint = "4-5 sentences"
+    else:
+        length_hint = "6-8 sentences covering all key points"
     resp = ollama.chat(
         model=LANGUAGE_MODEL,
-        messages=[{'role': 'user', 'content': f"Summarise this in 2-3 sentences:\n{text}"}]
+        messages=[{'role': 'user', 'content': f"Summarise this in {length_hint}:\n{text}"}]
     )
     return resp['message']['content'].strip()
 
@@ -1211,6 +1226,32 @@ def run_agent(user_query, collection, chunks, bm25_index, max_steps=8, streamlit
     steps            = []
     answer           = None
     bad_format_count = 0
+    collected_context = []  # accumulates all rag_search results for final synthesis
+
+    # Detect summarisation queries
+    _q_lower = user_query.lower()
+    is_summarise = (
+        any(s in _q_lower for s in
+            ['summarise', 'summarize', 'summerise', 'summerize', 'summary',
+             'overview', 'tell me about', 'describe', 'what is in'])
+        or _q_lower.startswith('summ')
+    )
+
+    # Fast path: for summarise queries do multi-search directly — no agent loop needed
+    if is_summarise:
+        search_terms = ['work experience', 'education', 'skills projects', 'summary contact']
+        fast_steps = []
+        for i, term in enumerate(search_terms):
+            r = tool_rag_search(term, collection, chunks, bm25_index)
+            collected_context.append(f"[Search: {term}]\n{r}")
+            fast_steps.append({'step': i+1, 'tool': 'rag_search', 'arg': term, 'result': r})
+            if not streamlit_mode:
+                print(f"\n  [Agent Step {i+1}] rag_search({term})")
+                print(f"  → {r[:120]}..." if len(r) > 120 else f"  → {r}")
+        all_context = '\n\n'.join(collected_context)
+        answer = _synthesize_rag_answer(user_query, all_context)
+        fast_steps.append({'step': len(search_terms)+1, 'tool': 'finish', 'arg': answer, 'result': answer})
+        return {'answer': answer, 'steps': fast_steps}
 
     for step in range(max_steps):
         resp     = ollama.chat(model=LANGUAGE_MODEL, messages=messages)
@@ -1236,12 +1277,19 @@ def run_agent(user_query, collection, chunks, bm25_index, max_steps=8, streamlit
         bad_format_count = 0
 
         if tool_name == 'finish':
-            answer = tool_arg
-            steps.append({'step': step+1, 'tool': 'finish', 'arg': tool_arg, 'result': tool_arg})
+            # Synthesize final answer from ALL collected context — ignore model's raw arg
+            # to prevent hallucination
+            if collected_context:
+                all_context = '\n'.join(collected_context)
+                answer = _synthesize_rag_answer(user_query, all_context)
+            else:
+                answer = tool_arg
+            steps.append({'step': step+1, 'tool': 'finish', 'arg': answer, 'result': answer})
             break
 
         if tool_name == 'rag_search':
             result = tool_rag_search(tool_arg, collection, chunks, bm25_index)
+            collected_context.append(f"[Search: {tool_arg}]\n{result}")
         elif tool_name == 'calculator':
             result = tool_calculator(tool_arg)
         elif tool_name == 'summarise':
@@ -1263,8 +1311,8 @@ def run_agent(user_query, collection, chunks, bm25_index, max_steps=8, streamlit
                 print(f"\n  [Agent Step {step+2}] finish({answer})")
             break
 
-        if tool_name == 'rag_search':
-            # Synthesize a clean answer from the raw retrieved chunks
+        # For simple (non-summarise) queries: auto-finish after first rag_search
+        if tool_name == 'rag_search' and not is_summarise:
             answer = _synthesize_rag_answer(user_query, result)
             steps.append({'step': step+2, 'tool': 'finish', 'arg': answer, 'result': answer})
             if not streamlit_mode:
