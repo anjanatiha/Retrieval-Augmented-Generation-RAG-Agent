@@ -106,7 +106,7 @@ CHROMA_DIR           = './chroma_db'
 CHROMA_COLLECTION    = 'rag_docs'
 LOG_FILE             = 'rag_logs.json'
 BENCHMARK_FILE       = 'benchmark_results.json'
-SIMILARITY_THRESHOLD = 0.4
+SIMILARITY_THRESHOLD = 0.55
 TOP_RETRIEVE         = 20
 TOP_RERANK           = 3
 # TXT / MD: 1 line per chunk — original behaviour, do not change
@@ -725,11 +725,13 @@ def build_or_load_chroma(chunks):
     collection = get_chroma_collection()
     existing   = collection.count()
 
-    if existing == len(chunks):
+    if existing >= len(chunks):
+        # existing >= local chunks means DB is up to date or has extra URL/file chunks — keep it
         print(f"ChromaDB loaded — {existing} chunks already stored.\n")
         return collection
 
     if existing > 0:
+        # existing < local chunks means local docs grew — rebuild from local files only
         print(f"ChromaDB has {existing} chunks but dataset has {len(chunks)} — rebuilding...")
         collection.delete(ids=collection.get()['ids'])
 
@@ -1063,6 +1065,32 @@ def run_pipeline(query, collection, chunks, bm25_index, conversation_history, st
 
     full_response = (''.join(c['message']['content'] for c in stream)
                      if streamlit_mode else stream_response(stream))
+
+    # Post-process: if the model admits the context lacks the answer but then
+    # hallucinates from training data (e.g. "However, I can tell you..."),
+    # truncate to just the not-found acknowledgement.
+    _no_info_phrases = [
+        "there is no information",
+        "i couldn't find",
+        "i could not find",
+        "the provided context does not",
+        "the provided documents do not",
+        "no information in the provided",
+        "not mentioned in the",
+        "not found in the",
+    ]
+    _hallucination_pivots = ["however,", "but i can", "but,", "that said,", "nevertheless,", "i can tell you", "i can provide"]
+    lower_resp = full_response.lower()
+    if any(p in lower_resp for p in _no_info_phrases):
+        for pivot in _hallucination_pivots:
+            idx = lower_resp.find(pivot)
+            if idx != -1:
+                full_response = (
+                    full_response[:idx].strip() + "\n\n"
+                    "I can only answer based on the uploaded documents. "
+                    "Please add a relevant document or URL to get an answer."
+                )
+                break
 
     conversation_history.append({'role': 'assistant', 'content': full_response})
 
@@ -1724,17 +1752,20 @@ def _initialize():
     return collection, chunks, bm25
 
 # ── Streamlit mode — detected when run via `streamlit run rag_app.py` ──
+# Only catch ImportError — Streamlit's internal RerunException / StopException
+# must NOT be swallowed or the cache breaks and _initialize() re-runs every rerun,
+# wiping any URL/file chunks added during the session.
 try:
     import streamlit as st
-    # If streamlit is already imported and running, __name__ won't be __main__
-    if st.runtime.exists():
-        @st.cache_resource
-        def _cached_initialize():
-            return _initialize()
-        collection, chunks, bm25 = _cached_initialize()
-        run_streamlit(collection, chunks, bm25)
-except Exception:
-    pass
+except ImportError:
+    st = None
+
+if st is not None and st.runtime.exists():
+    @st.cache_resource
+    def _cached_initialize():
+        return _initialize()
+    collection, chunks, bm25 = _cached_initialize()
+    run_streamlit(collection, chunks, bm25)
 
 # ── Terminal / CLI mode ──
 if __name__ == '__main__':
