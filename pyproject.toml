@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "rag-agent"
+version = "1.0.0"
+description = "A fully local, production-grade RAG system"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ollama", "rank-bm25", "chromadb", "streamlit", "requests",
+    "pymupdf", "python-docx", "openpyxl", "xlrd", "python-pptx",
+    "beautifulsoup4", "lxml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "pytest-mock"]
+
+[project.urls]
+Homepage = "https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent"
+Demo = "https://huggingface.co/spaces/anjanatiha2024/ragdoll"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
