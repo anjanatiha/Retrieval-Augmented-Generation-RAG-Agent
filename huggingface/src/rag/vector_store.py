@@ -37,9 +37,8 @@ def _get_st_model():
     return _ST_MODEL
 
 
-def _llm_call(prompt, max_tokens=512, temperature=0.01):
-    """Call HF Inference Providers router (OpenAI-compatible) via requests.
-    Tries each model in LANGUAGE_MODEL_FALLBACKS until one succeeds."""
+def _llm_call(prompt, max_tokens=512, temperature=0.1):
+    """Call HF Inference API. Tries chat completions first, then text-generation fallback."""
     import requests
     token = os.getenv("HF_TOKEN", "").strip()
     if not token:
@@ -49,10 +48,12 @@ def _llm_call(prompt, max_tokens=512, temperature=0.01):
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    url = "https://router.huggingface.co/v1/chat/completions"
     last_error = ""
+
     for model in LANGUAGE_MODEL_FALLBACKS:
-        payload = {
+        # ── Try 1: router chat completions (OpenAI-compatible) ──────────────
+        chat_url = "https://router.huggingface.co/v1/chat/completions"
+        chat_payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
@@ -60,21 +61,49 @@ def _llm_call(prompt, max_tokens=512, temperature=0.01):
             "stream": False,
         }
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=60)
-            if not resp.ok:
-                print(f"[LLM] {model} HTTP {resp.status_code}: {resp.text[:300]}")
+            resp = requests.post(chat_url, headers=headers, json=chat_payload, timeout=60)
+            if resp.ok:
+                result = resp.json()["choices"][0]["message"]["content"].strip()
+                if result:
+                    print(f"[LLM] Used model (chat): {model}")
+                    return result
+            error_body = resp.text[:300]
+            print(f"[LLM] {model} chat HTTP {resp.status_code}: {error_body}")
+            # If not a chat model, try text-generation format on the same model
+            if "not a chat model" not in error_body:
                 last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
                 continue
-            data = resp.json()
-            result = data["choices"][0]["message"]["content"].strip()
-            if result:
-                print(f"[LLM] Used model: {model}")
-                return result
         except Exception as e:
             last_error = f"{type(e).__name__}: {e}"
-            print(f"[LLM] {model} failed: {last_error} — trying next model")
+            print(f"[LLM] {model} chat failed: {last_error}")
             continue
-    return f"[LLM error: all models failed. Last error: {last_error}]"
+
+        # ── Try 2: text-generation endpoint (for non-chat models) ───────────
+        gen_url = f"https://api-inference.huggingface.co/models/{model}"
+        gen_payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": max_tokens,
+                "temperature": max(temperature, 0.1),
+                "return_full_text": False,
+            },
+        }
+        try:
+            resp = requests.post(gen_url, headers=headers, json=gen_payload, timeout=60)
+            if resp.ok:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    result = data[0].get("generated_text", "").strip()
+                    if result:
+                        print(f"[LLM] Used model (text-gen): {model}")
+                        return result
+            print(f"[LLM] {model} text-gen HTTP {resp.status_code}: {resp.text[:200]}")
+            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            print(f"[LLM] {model} text-gen failed: {last_error}")
+
+    return f"[LLM error: all models failed. Last: {last_error}]"
 
 
 class VectorStore:
