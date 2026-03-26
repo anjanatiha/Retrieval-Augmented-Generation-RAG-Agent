@@ -177,12 +177,14 @@ class VectorStore:
                 f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
                 for m in messages
             ) + "\nAssistant:"
-            content = client.text_generation(
+            result = client.text_generation(
                 prompt,
                 max_new_tokens=max_tokens,
                 temperature=max(temperature, 0.01),
                 do_sample=True,
+                stream=False,
             )
+            content = result if isinstance(result, str) else ''.join(result)
             if not content:
                 print("[WARNING] LLM returned empty response.")
                 return "[LLM error: empty response from model]"
