@@ -296,7 +296,7 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
         _initialize()
         return f"Chunks in knowledge base: **{_chunk_count()}**"
 
-    demo.on_load(fn=_on_load, outputs=[chunk_counter])
+    demo.load(fn=_on_load, outputs=[chunk_counter])
 
 if __name__ == "__main__":
     demo.launch(ssr_mode=False)
