@@ -274,16 +274,9 @@ class VectorStore:
         return sorted(fused.values(), key=lambda x: x[1], reverse=True)[:top_n]
 
     def _rerank(self, query, candidates, top_n):
-        scored = []
-        for entry, sim in candidates:
-            prompt = self._rerank_prompt(query, entry)
-            try:
-                raw       = self._llm_chat([{"role": "user", "content": prompt}], temperature=0)
-                m         = re.search(r'\d+', raw)
-                llm_score = float(m.group()) / 10.0 if m else sim
-            except Exception:
-                llm_score = sim
-            scored.append((entry, sim, llm_score))
+        # LLM reranking disabled on HF free CPU — too slow (N × API call = timeout).
+        # Use hybrid similarity score directly instead.
+        scored = [(entry, sim, sim) for entry, sim in candidates]
         scored.sort(key=lambda x: x[2], reverse=True)
         return scored[:top_n]
 
@@ -363,19 +356,8 @@ class VectorStore:
         return 'general'
 
     def _expand_query(self, query):
-        """Generates 2 alternative phrasings of the query using the LLM."""
-        prompt = (
-            "Rewrite the following search query in 2 different ways to improve document retrieval. "
-            "Use synonyms, acronyms, and related terms. Output ONLY the 2 rewrites, one per line, "
-            "no numbering, no explanation.\n\n"
-            f"Query: {query}"
-        )
-        try:
-            result = self._llm_chat([{'role': 'user', 'content': prompt}], temperature=0.3)
-            lines  = [l.strip() for l in result.splitlines() if l.strip()]
-            return [query] + lines[:2]
-        except Exception:
-            return [query]
+        """Query expansion disabled on HF free CPU — saves 1 LLM call per query."""
+        return [query]
 
     def _check_confidence(self, results):
         if not results:

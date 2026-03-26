@@ -22,8 +22,8 @@ LANGUAGE_MODEL_FALLBACKS = [
 
 CHROMA_COLLECTION    = 'rag_docs'
 SIMILARITY_THRESHOLD = 0.40
-TOP_RETRIEVE         = 20
-TOP_RERANK           = 5
+TOP_RETRIEVE         = 5   # reduced for HF free CPU — avoids timeout
+TOP_RERANK           = 3   # reduced for HF free CPU
 
 # Maps every supported file extension → canonical type key
 EXT_TO_TYPE = {
