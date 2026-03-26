@@ -25,12 +25,10 @@ def _initialize():
     return _loader, _store
 
 
-_initialize()
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _chunk_count():
-    return _store.collection.count() if _store.collection else 0
+    return _store.collection.count() if _store and _store.collection else 0
 
 
 def _pipeline_summary(data):
@@ -225,7 +223,7 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
         with gr.Column(scale=1):
 
             chunk_counter = gr.Markdown(
-                value=f"Chunks in knowledge base: **{_chunk_count()}**",
+                value="Chunks in knowledge base: **0**",
                 label="",
             )
 
@@ -293,6 +291,12 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
         inputs=[url_input],
         outputs=[url_msg, chunk_counter, url_input],
     )
+
+    def _on_load():
+        _initialize()
+        return f"Chunks in knowledge base: **{_chunk_count()}**"
+
+    demo.load(fn=_on_load, outputs=[chunk_counter])
 
 if __name__ == "__main__":
     demo.launch(ssr_mode=False)
