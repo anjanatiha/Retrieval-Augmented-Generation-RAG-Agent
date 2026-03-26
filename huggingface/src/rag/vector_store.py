@@ -56,7 +56,8 @@ def _llm_call(prompt, max_tokens=512, temperature=0.01):
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
-            "temperature": max(temperature, 0.01),
+            "temperature": max(temperature, 0.1),
+            "stream": False,
         }
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=60)

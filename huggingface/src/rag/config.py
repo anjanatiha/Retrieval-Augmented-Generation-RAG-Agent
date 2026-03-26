@@ -15,9 +15,9 @@ EMBEDDING_MODEL      = 'BAAI/bge-base-en-v1.5'
 LANGUAGE_MODEL       = 'mistralai/Mistral-7B-Instruct-v0.3'
 LANGUAGE_MODEL_FALLBACKS = [
     'mistralai/Mistral-7B-Instruct-v0.3',   # strong instruction following, good for RAG
-    'HuggingFaceH4/zephyr-7b-beta',          # fine-tuned on helpful QA
-    'meta-llama/Llama-3.2-3B-Instruct',      # Meta instruction model
-    'google/gemma-2-2b-it',                  # small but capable
+    'HuggingFaceH4/zephyr-7b-beta',          # fine-tuned on helpful QA — not gated
+    'mistralai/Mistral-7B-Instruct-v0.1',    # older fallback — not gated
+    'tiiuae/falcon-7b-instruct',             # not gated
 ]
 
 CHROMA_COLLECTION    = 'rag_docs'
