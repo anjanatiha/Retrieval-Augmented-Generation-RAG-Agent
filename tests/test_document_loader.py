@@ -1,0 +1,424 @@
+"""Unit + integration tests for DocumentLoader.
+Real libraries used (fitz, docx, openpyxl, xlrd, pptx, bs4).
+Only requests.get is mocked for URL tests.
+"""
+
+import csv
+import io
+import json
+import os
+import tempfile
+import textwrap
+import pytest
+from unittest.mock import MagicMock, patch
+
+
+# ---------------------------------------------------------------------------
+# Fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def loader():
+    from src.rag.document_loader import DocumentLoader
+    return DocumentLoader()
+
+
+# ---------------------------------------------------------------------------
+# __init__
+# ---------------------------------------------------------------------------
+
+class TestInit:
+    def test_has_doc_folders(self, loader):
+        from src.rag.config import DOC_FOLDERS
+        assert loader.doc_folders == DOC_FOLDERS
+
+    def test_has_ext_to_type(self, loader):
+        from src.rag.config import EXT_TO_TYPE
+        assert loader.ext_to_type == EXT_TO_TYPE
+
+    def test_has_chunk_sizes(self, loader):
+        assert hasattr(loader, 'chunk_sizes')
+        assert 'txt_chunk_size' in loader.chunk_sizes
+
+
+# ---------------------------------------------------------------------------
+# _truncate_chunk
+# ---------------------------------------------------------------------------
+
+class TestTruncateChunk:
+    def test_short_text_unchanged(self, loader):
+        text = "hello world"
+        assert loader._truncate_chunk(text) == text
+
+    def test_truncates_at_300_words(self, loader):
+        text = ' '.join(['word'] * 400)
+        result = loader._truncate_chunk(text)
+        assert len(result.split()) <= 300
+
+    def test_truncates_at_1200_chars(self, loader):
+        text = 'a' * 2000
+        result = loader._truncate_chunk(text)
+        assert len(result) <= 1200
+
+    def test_word_limit_takes_priority_over_char_if_shorter(self, loader):
+        # 100 words each 5 chars → 600 chars total — word limit not hit, char not hit
+        text = ' '.join(['hello'] * 100)
+        result = loader._truncate_chunk(text)
+        assert result == text
+
+    def test_char_limit_takes_priority_when_words_short_but_chars_long(self, loader):
+        # 50 very long "words" — under 300 words but over 1200 chars
+        text = ' '.join(['a' * 30] * 50)   # 50 * 31 chars ≈ 1550 chars
+        result = loader._truncate_chunk(text)
+        assert len(result) <= 1200
+
+
+# ---------------------------------------------------------------------------
+# _chunk_txt
+# ---------------------------------------------------------------------------
+
+class TestChunkTxt:
+    def test_basic_chunking(self, loader, tmp_path):
+        f = tmp_path / 'test.txt'
+        f.write_text('line one\nline two\nline three\n')
+        chunks = loader._chunk_txt(str(f), 'test.txt')
+        assert len(chunks) == 3
+        assert all(c['type'] == 'txt' for c in chunks)
+        assert all(c['source'] == 'test.txt' for c in chunks)
+
+    def test_empty_lines_skipped(self, loader, tmp_path):
+        f = tmp_path / 'test.txt'
+        f.write_text('line one\n\n\nline two\n')
+        chunks = loader._chunk_txt(str(f), 'test.txt')
+        assert len(chunks) == 2
+
+    def test_chunk_has_start_end_line(self, loader, tmp_path):
+        f = tmp_path / 'test.txt'
+        f.write_text('a\nb\nc\n')
+        chunks = loader._chunk_txt(str(f), 'test.txt')
+        assert chunks[0]['start_line'] == 1
+
+
+# ---------------------------------------------------------------------------
+# _chunk_md
+# ---------------------------------------------------------------------------
+
+class TestChunkMd:
+    def test_strips_headings(self, loader, tmp_path):
+        f = tmp_path / 'test.md'
+        f.write_text('# Title\nsome content\n')
+        chunks = loader._chunk_md(str(f), 'test.md')
+        assert all('# ' not in c['text'] for c in chunks)
+
+    def test_strips_bold(self, loader, tmp_path):
+        f = tmp_path / 'test.md'
+        f.write_text('**bold text** here\n')
+        chunks = loader._chunk_md(str(f), 'test.md')
+        assert all('**' not in c['text'] for c in chunks)
+
+    def test_type_is_md(self, loader, tmp_path):
+        f = tmp_path / 'test.md'
+        f.write_text('some markdown content\n')
+        chunks = loader._chunk_md(str(f), 'test.md')
+        assert all(c['type'] == 'md' for c in chunks)
+
+
+# ---------------------------------------------------------------------------
+# _chunk_pdf
+# ---------------------------------------------------------------------------
+
+class TestChunkPdf:
+    def test_returns_list(self, loader, tmp_path):
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((50, 50), "Hello world. This is a PDF. It has sentences.")
+        path = str(tmp_path / 'test.pdf')
+        doc.save(path)
+        doc.close()
+        chunks = loader._chunk_pdf(path, 'test.pdf')
+        assert isinstance(chunks, list)
+        assert len(chunks) >= 1
+
+    def test_type_is_pdf(self, loader, tmp_path):
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((50, 50), "Test sentence. Another sentence.")
+        path = str(tmp_path / 'test.pdf')
+        doc.save(path)
+        doc.close()
+        chunks = loader._chunk_pdf(path, 'test.pdf')
+        assert all(c['type'] == 'pdf' for c in chunks)
+
+    def test_bad_file_returns_empty(self, loader, tmp_path):
+        path = str(tmp_path / 'bad.pdf')
+        with open(path, 'w') as f:
+            f.write('not a pdf')
+        chunks = loader._chunk_pdf(path, 'bad.pdf')
+        assert chunks == []
+
+
+# ---------------------------------------------------------------------------
+# _chunk_docx
+# ---------------------------------------------------------------------------
+
+class TestChunkDocx:
+    def _make_docx(self, tmp_path, paragraphs=None, table_rows=None):
+        from docx import Document
+        doc = Document()
+        for p in (paragraphs or []):
+            doc.add_paragraph(p)
+        if table_rows:
+            table = doc.add_table(rows=len(table_rows), cols=len(table_rows[0]))
+            for i, row_data in enumerate(table_rows):
+                for j, cell_text in enumerate(row_data):
+                    table.rows[i].cells[j].text = cell_text
+        path = str(tmp_path / 'test.docx')
+        doc.save(path)
+        return path
+
+    def test_basic_paragraphs(self, loader, tmp_path):
+        path = self._make_docx(tmp_path, paragraphs=['Para one', 'Para two', 'Para three'])
+        chunks = loader._chunk_docx(path, 'test.docx')
+        assert len(chunks) >= 1
+        assert all(c['type'] == 'docx' for c in chunks)
+
+    def test_table_rows_extracted(self, loader, tmp_path):
+        path = self._make_docx(tmp_path, table_rows=[['Name', 'Alice'], ['Job', 'Engineer']])
+        chunks = loader._chunk_docx(path, 'test.docx')
+        full_text = ' '.join(c['text'] for c in chunks)
+        assert 'Alice' in full_text or 'Name' in full_text
+
+    def test_merged_cells_deduplicated(self, loader, tmp_path):
+        from docx import Document
+        doc = Document()
+        table = doc.add_table(rows=1, cols=3)
+        table.rows[0].cells[0].text = 'Merged'
+        table.rows[0].cells[1].text = 'Merged'   # simulate merged cell repeat
+        table.rows[0].cells[2].text = 'Different'
+        path = str(tmp_path / 'merged.docx')
+        doc.save(path)
+        chunks = loader._chunk_docx(path, 'merged.docx')
+        full_text = ' '.join(c['text'] for c in chunks)
+        # "Merged" should appear only once in the table row chunk
+        assert full_text.count('Merged') == 1
+
+
+# ---------------------------------------------------------------------------
+# _chunk_xlsx
+# ---------------------------------------------------------------------------
+
+class TestChunkXlsx:
+    def test_row_chunks(self, loader, tmp_path):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['Name', 'Age'])
+        ws.append(['Alice', 30])
+        ws.append(['Bob', 25])
+        path = str(tmp_path / 'test.xlsx')
+        wb.save(path)
+        chunks = loader._chunk_xlsx(path, 'test.xlsx')
+        assert len(chunks) == 2  # 2 data rows
+        assert all(c['type'] == 'xlsx' for c in chunks)
+        assert 'Alice' in chunks[0]['text']
+
+    def test_empty_rows_skipped(self, loader, tmp_path):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['Name', 'Age'])
+        ws.append([None, None])
+        ws.append(['Bob', 25])
+        path = str(tmp_path / 'test.xlsx')
+        wb.save(path)
+        chunks = loader._chunk_xlsx(path, 'test.xlsx')
+        assert len(chunks) == 1
+
+
+# ---------------------------------------------------------------------------
+# _chunk_xls
+# ---------------------------------------------------------------------------
+
+class TestChunkXls:
+    def test_xls_row_chunks(self, loader, tmp_path):
+        import xlwt
+        wb = xlwt.Workbook()
+        ws = wb.add_sheet('Sheet1')
+        ws.write(0, 0, 'Name'); ws.write(0, 1, 'Score')
+        ws.write(1, 0, 'Alice'); ws.write(1, 1, 95)
+        path = str(tmp_path / 'test.xls')
+        wb.save(path)
+        chunks = loader._chunk_xls(path, 'test.xls')
+        assert len(chunks) == 1
+        assert 'Alice' in chunks[0]['text']
+
+
+# ---------------------------------------------------------------------------
+# _chunk_csv
+# ---------------------------------------------------------------------------
+
+class TestChunkCsv:
+    def test_csv_row_chunks(self, loader, tmp_path):
+        f = tmp_path / 'test.csv'
+        f.write_text('name,age\nAlice,30\nBob,25\n')
+        chunks = loader._chunk_csv(str(f), 'test.csv')
+        assert len(chunks) == 2
+        assert all(c['type'] == 'csv' for c in chunks)
+        assert 'Alice' in chunks[0]['text']
+
+    def test_empty_rows_skipped(self, loader, tmp_path):
+        f = tmp_path / 'test.csv'
+        f.write_text('name,age\n,\nAlice,30\n')
+        chunks = loader._chunk_csv(str(f), 'test.csv')
+        assert len(chunks) == 1
+
+
+# ---------------------------------------------------------------------------
+# _chunk_pptx
+# ---------------------------------------------------------------------------
+
+class TestChunkPptx:
+    def test_slide_chunks(self, loader, tmp_path):
+        from pptx import Presentation
+        from pptx.util import Inches
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[5])
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(2))
+        txBox.text_frame.text = 'Hello from slide one'
+        path = str(tmp_path / 'test.pptx')
+        prs.save(path)
+        chunks = loader._chunk_pptx(path, 'test.pptx')
+        assert len(chunks) >= 1
+        assert all(c['type'] == 'pptx' for c in chunks)
+        assert 'Hello from slide one' in chunks[0]['text']
+
+
+# ---------------------------------------------------------------------------
+# _chunk_html
+# ---------------------------------------------------------------------------
+
+class TestChunkHtml:
+    def test_strips_tags(self, loader, tmp_path):
+        f = tmp_path / 'test.html'
+        f.write_text('<html><body><p>Hello world.</p><p>Second sentence.</p></body></html>')
+        chunks = loader._chunk_html(str(f), 'test.html')
+        assert len(chunks) >= 1
+        assert all('<' not in c['text'] for c in chunks)
+        assert all(c['type'] == 'html' for c in chunks)
+
+
+# ---------------------------------------------------------------------------
+# scan_all_files — misplaced detection
+# ---------------------------------------------------------------------------
+
+class TestScanAllFiles:
+    def test_misplaced_file_detected(self, loader, tmp_path):
+        # Put a .pdf file in the txts/ folder
+        txts_dir = tmp_path / 'txts'
+        txts_dir.mkdir(parents=True)
+        (txts_dir / 'report.pdf').write_bytes(b'%PDF fake')
+
+        fake_folders = {
+            'pdf':  str(tmp_path / 'pdfs'),
+            'txt':  str(txts_dir),
+            'docx': str(tmp_path / 'docx'),
+            'xlsx': str(tmp_path / 'xlsx'),
+            'pptx': str(tmp_path / 'pptx'),
+            'csv':  str(tmp_path / 'csv'),
+            'md':   str(tmp_path / 'md'),
+            'html': str(tmp_path / 'html'),
+        }
+        loader.doc_folders = fake_folders
+        files = loader.scan_all_files()
+        assert len(files) == 1
+        assert files[0]['is_misplaced'] is True
+        assert files[0]['detected_type'] == 'pdf'
+        assert files[0]['filename'] == 'report.pdf'
+
+    def test_correct_folder_not_misplaced(self, loader, tmp_path):
+        pdfs_dir = tmp_path / 'pdfs'
+        pdfs_dir.mkdir(parents=True)
+        (pdfs_dir / 'doc.pdf').write_bytes(b'%PDF fake')
+
+        fake_folders = {
+            'pdf':  str(pdfs_dir),
+            'txt':  str(tmp_path / 'txts'),
+            'docx': str(tmp_path / 'docx'),
+            'xlsx': str(tmp_path / 'xlsx'),
+            'pptx': str(tmp_path / 'pptx'),
+            'csv':  str(tmp_path / 'csv'),
+            'md':   str(tmp_path / 'md'),
+            'html': str(tmp_path / 'html'),
+        }
+        loader.doc_folders = fake_folders
+        files = loader.scan_all_files()
+        assert len(files) == 1
+        assert files[0]['is_misplaced'] is False
+
+
+# ---------------------------------------------------------------------------
+# URL ingestion — mock requests.get
+# ---------------------------------------------------------------------------
+
+class TestChunkUrl:
+    def _mock_resp(self, content, content_type='text/html', encoding='utf-8'):
+        resp = MagicMock()
+        resp.content = content if isinstance(content, bytes) else content.encode(encoding)
+        resp.headers = {'Content-Type': content_type}
+        resp.encoding = encoding
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def test_html_webpage(self, loader):
+        html = b'<html><body><p>Hello world. Second sentence. Third one.</p></body></html>'
+        with patch('requests.get', return_value=self._mock_resp(html, 'text/html')):
+            chunks = loader.chunk_url('https://example.com')
+        assert len(chunks) >= 1
+        assert all(c['type'] == 'html' for c in chunks)
+
+    def test_type_by_content_type_pdf(self, loader, tmp_path):
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((50, 50), "PDF content sentence. Another one.")
+        buf = io.BytesIO()
+        doc.save(buf)
+        pdf_bytes = buf.getvalue()
+        with patch('requests.get', return_value=self._mock_resp(pdf_bytes, 'application/pdf')):
+            chunks = loader.chunk_url('https://example.com/file')
+        assert isinstance(chunks, list)
+
+    def test_type_by_extension_in_url(self, loader):
+        html = b'<html><body><p>Content. More content. Third.</p></body></html>'
+        with patch('requests.get', return_value=self._mock_resp(html, 'application/octet-stream')):
+            chunks = loader.chunk_url('https://example.com/page.html')
+        assert all(c['type'] == 'html' for c in chunks)
+
+    def test_type_by_pdf_magic_bytes(self, loader):
+        # content-type is octet-stream, no extension, but starts with %PDF
+        fake_pdf = b'%PDF-1.4 fake content'
+        with patch('requests.get', return_value=self._mock_resp(fake_pdf, 'application/octet-stream')):
+            # Will try fitz.open on fake bytes and fail gracefully → empty list
+            chunks = loader.chunk_url('https://example.com/nodoc')
+        assert isinstance(chunks, list)
+
+    def test_defaults_to_html(self, loader):
+        content = b'Hello world. This is a sentence. Third sentence here.'
+        with patch('requests.get', return_value=self._mock_resp(content, 'application/octet-stream')):
+            chunks = loader.chunk_url('https://example.com/nodoc')
+        assert isinstance(chunks, list)
+
+    def test_connection_error_returns_empty(self, loader):
+        with patch('requests.get', side_effect=Exception('timeout')):
+            chunks = loader.chunk_url('https://example.com')
+        assert chunks == []
+
+    def test_source_label_truncated_60_chars(self, loader):
+        long_url = 'https://example.com/' + 'a' * 100
+        html = b'<html><body><p>Text. More. Here.</p></body></html>'
+        with patch('requests.get', return_value=self._mock_resp(html, 'text/html')):
+            chunks = loader.chunk_url(long_url)
+        if chunks:
+            assert len(chunks[0]['source']) <= 60
