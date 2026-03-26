@@ -44,11 +44,4 @@ build/
 .env
 
 # Document uploads — don't commit personal documents
-docs/pdfs/
-docs/txts/
-docs/docx/
-docs/xlsx/
-docs/pptx/
-docs/csv/
-docs/md/
-docs/html/
+docs/
