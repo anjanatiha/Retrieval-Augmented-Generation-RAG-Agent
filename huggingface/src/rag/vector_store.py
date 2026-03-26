@@ -51,8 +51,8 @@ def _llm_call(prompt, max_tokens=512, temperature=0.1):
     last_error = ""
 
     for model in LANGUAGE_MODEL_FALLBACKS:
-        # ── Try 1: router chat completions (OpenAI-compatible) ──────────────
-        chat_url = "https://router.huggingface.co/v1/chat/completions"
+        # ── Try 1: router chat completions — explicitly via Featherless AI ──
+        chat_url = "https://router.huggingface.co/featherless-ai/v1/chat/completions"
         chat_payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
