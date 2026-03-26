@@ -294,4 +294,4 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
     )
 
 if __name__ == "__main__":
-    demo.launch(ssr_mode=False)
+    demo.launch()
