@@ -171,16 +171,20 @@ class VectorStore:
     def _llm_chat(self, messages, temperature=0.0, max_tokens=512):
         """Single point of contact for all LLM calls via HF Inference API."""
         try:
-            client   = _get_llm_client()
-            response = client.chat_completion(
-                messages=messages,
-                max_tokens=max_tokens,
+            client = _get_llm_client()
+            # Format prompt from messages for text_generation
+            prompt = "\n".join(
+                f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+                for m in messages
+            ) + "\nAssistant:"
+            content = client.text_generation(
+                prompt,
+                max_new_tokens=max_tokens,
                 temperature=max(temperature, 0.01),
-                stream=False,
+                do_sample=True,
             )
-            content = response.choices[0].message.content
             if not content:
-                print(f"[WARNING] LLM returned empty response. Full response: {response}")
+                print("[WARNING] LLM returned empty response.")
                 return "[LLM error: empty response from model]"
             return content.strip()
         except Exception as e:
