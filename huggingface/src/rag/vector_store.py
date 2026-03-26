@@ -23,13 +23,15 @@ __all__ = ['VectorStore']
 def _load_st_model():
     """Load sentence-transformers model once at module level."""
     from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(EMBEDDING_MODEL)
+    return SentenceTransformer(EMBEDDING_MODEL, device='cpu')
 
 
 def _load_llm_client():
     """Load HF InferenceClient once at module level."""
     from huggingface_hub import InferenceClient
-    token = os.getenv("HF_TOKEN", "")
+    token = os.getenv("HF_TOKEN", "").strip()
+    if not token:
+        print("[WARNING] HF_TOKEN not set — LLM calls will fail. Set it in Space secrets.")
     return InferenceClient(model=LANGUAGE_MODEL, token=token if token else None)
 
 
