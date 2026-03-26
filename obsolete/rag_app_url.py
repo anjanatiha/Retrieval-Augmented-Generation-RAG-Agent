@@ -106,9 +106,9 @@ CHROMA_DIR           = './chroma_db'
 CHROMA_COLLECTION    = 'rag_docs'
 LOG_FILE             = 'rag_logs.json'
 BENCHMARK_FILE       = 'benchmark_results.json'
-SIMILARITY_THRESHOLD = 0.55
+SIMILARITY_THRESHOLD = 0.4
 TOP_RETRIEVE         = 20
-TOP_RERANK           = 5
+TOP_RERANK           = 3
 # TXT / MD: 1 line per chunk — original behaviour, do not change
 TXT_CHUNK_SIZE       = 1
 TXT_CHUNK_OVERLAP    = 0
@@ -263,21 +263,7 @@ def _chunk_docx(filepath, filename, paras_per_chunk=DOCX_CHUNK_PARAS):
         print(f"  [ERROR] Could not open '{filename}': {e}")
         return []
 
-    # Collect body paragraphs
     paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-
-    # Also extract text from tables (resumes often use tables for layout)
-    for table in doc.tables:
-        for row in table.rows:
-            row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-            # Deduplicate merged cells (python-docx repeats merged cell text)
-            seen = []
-            for cell in row_cells:
-                if cell not in seen:
-                    seen.append(cell)
-            if seen:
-                paras.append(' | '.join(seen))
-
     for i in range(0, len(paras), paras_per_chunk):
         window = paras[i: i + paras_per_chunk]
         if not window:
@@ -537,12 +523,10 @@ def chunk_all_documents():
 def chunk_url(url):
     """
     Fetches a URL and routes it to the correct chunker based on:
-    1. Content-Type header from the response  (most reliable)
-    2. File extension in the URL path         (fallback)
+    1. File extension in the URL (e.g. .pdf, .docx, .csv)
+    2. Content-Type header from the response
     3. Falls back to HTML chunker for plain webpages
 
-    Handles: special characters, query strings, redirects,
-    atypical URLs, and all supported file types.
     Supports: PDF, DOCX, XLSX, CSV, PPTX, TXT, MD, HTML
     """
     try:
@@ -551,88 +535,43 @@ def chunk_url(url):
         print("  [WARNING] requests not installed. pip install requests")
         return []
 
-    url = url.strip()
     print(f"\n  Fetching URL: {url}")
     try:
-        resp = requests.get(url, timeout=30, headers={
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/120.0.0.0 Safari/537.36'
-        }, allow_redirects=True, stream=True)
+        resp = requests.get(url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; RAGBot/1.0)'
+        })
         resp.raise_for_status()
-        # Read full content now (stream=True lets us check headers first)
-        content = resp.content
-        text    = None  # will decode lazily if needed
     except Exception as e:
         print(f"  [ERROR] Could not fetch URL: {e}")
         return []
 
-    # ── Type detection ──────────────────────────────────────────
-    # Priority 1: Content-Type header (most reliable for any URL)
-    content_type = resp.headers.get('Content-Type', '').lower().split(';')[0].strip()
-    dtype = None
+    # Detect type from URL extension first, then Content-Type header
+    parsed_path = urlparse(url).path.lower()
+    ext         = os.path.splitext(parsed_path)[1]
+    dtype       = EXT_TO_TYPE.get(ext)
 
-    CONTENT_TYPE_MAP = {
-        'application/pdf':                                          'pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-        'application/msword':                                       'docx',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-        'application/vnd.ms-excel':                                 'xlsx',
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-        'application/vnd.ms-powerpoint':                            'pptx',
-        'text/csv':                                                 'csv',
-        'text/plain':                                               'txt',
-        'text/markdown':                                            'md',
-        'text/html':                                                'html',
-        'application/xhtml+xml':                                    'html',
-    }
-    dtype = CONTENT_TYPE_MAP.get(content_type)
-
-    # Fuzzy fallback for non-standard content-type values
     if dtype is None:
-        if 'pdf'          in content_type: dtype = 'pdf'
-        elif 'word'       in content_type: dtype = 'docx'
-        elif 'excel'      in content_type or 'spreadsheet' in content_type: dtype = 'xlsx'
+        content_type = resp.headers.get('Content-Type', '').lower()
+        if 'pdf'        in content_type: dtype = 'pdf'
+        elif 'word'     in content_type: dtype = 'docx'
+        elif 'excel'    in content_type or 'spreadsheet' in content_type: dtype = 'xlsx'
+        elif 'csv'      in content_type: dtype = 'csv'
         elif 'powerpoint' in content_type or 'presentation' in content_type: dtype = 'pptx'
-        elif 'csv'        in content_type: dtype = 'csv'
+        elif 'text/plain' in content_type: dtype = 'txt'
+        else: dtype = 'html'  # default — treat as webpage
 
-    # Priority 2: file extension in the URL path (ignores query strings)
-    if dtype is None:
-        from urllib.parse import urlparse
-        parsed_path = urlparse(url).path.lower()
-        # Strip query params and fragments that may be embedded in path
-        clean_path  = re.sub(r'[?#].*$', '', parsed_path)
-        ext         = os.path.splitext(clean_path)[1]
-        dtype       = EXT_TO_TYPE.get(ext)
-
-    # Priority 3: sniff first bytes for PDF magic number
-    if dtype is None and content[:4] == b'%PDF':
-        dtype = 'pdf'
-
-    # Priority 4: default to HTML
-    if dtype is None:
-        dtype = 'html'
-
-    # ── Source label ─────────────────────────────────────────────
-    # Clean URL for display — strip auth info, truncate if long
-    from urllib.parse import urlparse
-    parsed      = urlparse(url)
-    source_name = (parsed.netloc + parsed.path).rstrip('/')
-    if parsed.query:
-        source_name += '?' + parsed.query[:20] + ('...' if len(parsed.query) > 20 else '')
+    # Use URL hostname + path as the source label
+    source_name = urlparse(url).netloc + urlparse(url).path
     if len(source_name) > 60:
         source_name = source_name[:57] + '...'
-    if not source_name:
-        source_name = url[:60]
 
-    print(f"  Detected type: {dtype.upper()} (content-type: {content_type})")
+    print(f"  Detected type: {dtype.upper()}")
 
-    # ── Dispatch to chunker ───────────────────────────────────────
-    # Binary formats — write to temp file and use existing chunkers
+    # For binary formats — write to temp file and use existing chunkers
     if dtype in ('pdf', 'docx', 'xlsx', 'pptx', 'xls'):
         suffix = {'pdf':'.pdf','docx':'.docx','xlsx':'.xlsx','pptx':'.pptx','xls':'.xls'}[dtype]
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(content)
+            tmp.write(resp.content)
             tmp_path = tmp.name
         try:
             file_info = {
@@ -643,54 +582,43 @@ def chunk_url(url):
             }
             chunks = _dispatch_chunker(file_info)
         finally:
-            try: os.unlink(tmp_path)
-            except: pass
-        if not chunks:
-            print(f"  [WARNING] No chunks extracted from {dtype.upper()} at URL. "
-                  f"File may be empty, password-protected, or corrupt.")
+            os.unlink(tmp_path)
         return chunks
 
-    # Text formats
-    try:
-        text = content.decode(resp.encoding or 'utf-8', errors='replace')
-    except Exception:
-        text = content.decode('utf-8', errors='replace')
-
+    # For text formats — write text content to temp file
     if dtype == 'csv':
         with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w',
                                          encoding='utf-8', errors='replace') as tmp:
-            tmp.write(text)
+            tmp.write(resp.text)
             tmp_path = tmp.name
         try:
             chunks = _chunk_csv(tmp_path, source_name)
         finally:
-            try: os.unlink(tmp_path)
-            except: pass
+            os.unlink(tmp_path)
         return chunks
 
     if dtype == 'txt':
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        lines = [l.strip() for l in resp.text.splitlines() if l.strip()]
         return [{'text': l, 'source': source_name, 'start_line': i+1,
                  'end_line': i+1, 'type': 'txt'} for i, l in enumerate(lines)]
 
     if dtype == 'md':
         with tempfile.NamedTemporaryFile(delete=False, suffix='.md', mode='w',
                                           encoding='utf-8', errors='replace') as tmp:
-            tmp.write(text)
+            tmp.write(resp.text)
             tmp_path = tmp.name
         try:
             chunks = _chunk_md(tmp_path, source_name)
         finally:
-            try: os.unlink(tmp_path)
-            except: pass
+            os.unlink(tmp_path)
         return chunks
 
-    # HTML / webpage
+    # HTML / webpage — use BeautifulSoup to strip tags then chunk
     try:
         from bs4 import BeautifulSoup
-        text = BeautifulSoup(text, 'html.parser').get_text(separator=' ', strip=True)
+        text  = BeautifulSoup(resp.text, 'html.parser').get_text(separator=' ', strip=True)
     except ImportError:
-        text = re.sub(r'<[^>]+>', ' ', text)
+        text  = re.sub(r'<[^>]+>', ' ', resp.text)  # fallback: regex strip
 
     sents  = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
     chunks = []
@@ -699,21 +627,8 @@ def chunk_url(url):
         if window:
             chunks.append({'text': ' '.join(window), 'source': source_name,
                            'start_line': i+1, 'end_line': i+len(window), 'type': 'html'})
-
+    print(f"  [URL/{dtype.upper()}] '{source_name}': {len(chunks)} chunks")
     return chunks
-
-# ============================================================
-# 2. PERSISTENT VECTOR DB — ChromaDB
-# ============================================================
-def _truncate_for_embedding(text, max_words=200, max_chars=1200):
-    """Truncate to stay within bge-base-en 512 token limit.
-    Caps on both word count and character count — whichever is shorter.
-    URL/code content can have very long tokens so word count alone is not enough.
-    """
-    words = text.split()
-    truncated = ' '.join(words[:max_words]) if len(words) > max_words else text
-    return truncated[:max_chars] if len(truncated) > max_chars else truncated
-
 def get_chroma_collection():
     client = chromadb.PersistentClient(path=CHROMA_DIR)
     return client.get_or_create_collection(
@@ -725,13 +640,11 @@ def build_or_load_chroma(chunks):
     collection = get_chroma_collection()
     existing   = collection.count()
 
-    if existing >= len(chunks):
-        # existing >= local chunks means DB is up to date or has extra URL/file chunks — keep it
+    if existing == len(chunks):
         print(f"ChromaDB loaded — {existing} chunks already stored.\n")
         return collection
 
     if existing > 0:
-        # existing < local chunks means local docs grew — rebuild from local files only
         print(f"ChromaDB has {existing} chunks but dataset has {len(chunks)} — rebuilding...")
         collection.delete(ids=collection.get()['ids'])
 
@@ -743,9 +656,7 @@ def build_or_load_chroma(chunks):
         texts  = [c['text'] for c in batch]
         metas  = [{'source': c['source'], 'start_line': c['start_line'],
                    'end_line': c['end_line'], 'type': c.get('type', 'txt')} for c in batch]
-        embeds = [ollama.embed(model=EMBEDDING_MODEL,
-                               input=_truncate_for_embedding(t))['embeddings'][0]
-                  for t in texts]
+        embeds = [ollama.embed(model=EMBEDDING_MODEL, input=t)['embeddings'][0] for t in texts]
         collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
         print(f"  Stored {min(i+batch_size, len(chunks))}/{len(chunks)}", end='\r')
 
@@ -839,72 +750,16 @@ def hybrid_retrieve(queries, collection, chunks, bm25_index, top_n=TOP_RETRIEVE,
     return sorted(fused.values(), key=lambda x: x[1], reverse=True)[:top_n]
 
 # ============================================================
-# 6. LLM RERANKER — document type-aware
+# 6. LLM RERANKER
 # ============================================================
-def _rerank_prompt(query, entry):
-    """
-    Returns a reranking prompt tailored to the document type.
-    Each type gets framing that helps the LLM evaluate relevance correctly —
-    e.g. spreadsheet rows look like key=value pairs which a generic prompt
-    may score low simply because they are not fluent prose.
-    """
-    text     = entry['text']
-    doc_type = entry.get('type', 'txt')
-
-    if doc_type in ('xlsx', 'csv'):
-        return (
-            f"A user is searching for: {query}\n"
-            f"Does this spreadsheet row contain relevant information to answer the query?\n"
-            f"Row data: {text}\n"
-            f"Reply with a single integer from 1 to 10 and nothing else."
-        )
-    elif doc_type == 'pptx':
-        return (
-            f"A user is searching for: {query}\n"
-            f"Does this presentation slide contain relevant information to answer the query?\n"
-            f"Slide text: {text}\n"
-            f"Reply with a single integer from 1 to 10 and nothing else."
-        )
-    elif doc_type == 'pdf':
-        return (
-            f"A user is searching for: {query}\n"
-            f"Does this PDF page extract contain relevant information to answer the query?\n"
-            f"Page text: {text}\n"
-            f"Reply with a single integer from 1 to 10 and nothing else."
-        )
-    elif doc_type == 'docx':
-        return (
-            f"A user is searching for: {query}\n"
-            f"Does this document paragraph contain relevant information to answer the query?\n"
-            f"Paragraph: {text}\n"
-            f"Reply with a single integer from 1 to 10 and nothing else."
-        )
-    elif doc_type == 'html':
-        return (
-            f"A user is searching for: {query}\n"
-            f"Does this webpage content contain relevant information to answer the query?\n"
-            f"Content: {text}\n"
-            f"Reply with a single integer from 1 to 10 and nothing else."
-        )
-    elif doc_type == 'md':
-        return (
-            f"A user is searching for: {query}\n"
-            f"Does this markdown document section contain relevant information to answer the query?\n"
-            f"Section: {text}\n"
-            f"Reply with a single integer from 1 to 10 and nothing else."
-        )
-    else:
-        # txt and any other type — generic prompt
-        return (
-            f"On a scale of 1-10, how relevant is the following text to the query?\n"
-            f"Query: {query}\nText: {text}\n"
-            f"Reply with a single integer from 1 to 10 and nothing else."
-        )
-
 def rerank(query, chunks, top_n=TOP_RERANK):
     scored = []
     for entry, sim in chunks:
-        prompt = _rerank_prompt(query, entry)
+        prompt = (
+            f"On a scale of 1-10, how relevant is the following text to the query?\n"
+            f"Query: {query}\nText: {entry['text']}\n"
+            f"Reply with a single integer from 1 to 10 and nothing else."
+        )
         try:
             resp = ollama.chat(
                 model=LANGUAGE_MODEL,
@@ -928,15 +783,11 @@ def classify_query(query):
     Drives smart_top_n — comparison queries retrieve more candidates.
     """
     q = query.lower()
-    summarise_signals  = ['summarise', 'summarize', 'summary', 'overview', 'tell me about',
-                          'what is in', 'describe', 'explain', 'give me a summary', 'resume']
     comparison_signals = ['compare', 'difference', 'vs', 'versus', 'better', 'worse',
                           'pros and cons', 'which is', 'how does', 'contrast']
     factual_signals    = ['what is', 'what are', 'who is', 'who are', 'when did',
                           'where is', 'how many', 'how much', 'does', 'did', 'has',
                           'have', 'list', 'name', 'define', 'tell me']
-    if any(s in q for s in summarise_signals):
-        return 'summarise'
     if any(s in q for s in comparison_signals):
         return 'comparison'
     if any(s in q for s in factual_signals):
@@ -944,7 +795,7 @@ def classify_query(query):
     return 'general'
 
 def smart_top_n(qtype):
-    return {'factual': 5, 'comparison': 15, 'general': 10, 'summarise': TOP_RETRIEVE}.get(qtype, TOP_RETRIEVE)
+    return {'factual': 5, 'comparison': 15, 'general': 10}.get(qtype, TOP_RETRIEVE)
 
 # ============================================================
 # 8. CONFIDENCE CHECK
@@ -1016,13 +867,12 @@ def _source_label(entry):
 # 12. CORE PIPELINE
 # ============================================================
 def run_pipeline(query, collection, chunks, bm25_index, conversation_history, streamlit_mode=False):
-    qtype      = classify_query(query)
-    top_n      = smart_top_n(qtype)
-    top_rerank = 10 if qtype == 'summarise' else TOP_RERANK
-    queries    = expand_query(query)
-    retrieved  = hybrid_retrieve(queries, collection, chunks, bm25_index, top_n=top_n)
+    qtype     = classify_query(query)
+    top_n     = smart_top_n(qtype)
+    queries   = expand_query(query)
+    retrieved = hybrid_retrieve(queries, collection, chunks, bm25_index, top_n=top_n)
     is_confident, best_score = check_confidence(retrieved)
-    reranked   = rerank(query, retrieved, top_n=top_rerank)
+    reranked  = rerank(query, retrieved, top_n=TOP_RERANK)
 
     context_lines = []
     for e, _, _ in reranked:
@@ -1030,37 +880,12 @@ def run_pipeline(query, collection, chunks, bm25_index, conversation_history, st
         context_lines.append(f" - [{e['source']} {label}] {e['text']}")
     context = '\n'.join(context_lines)
 
-    # If no relevant chunks found, return immediately without calling the LLM
-    if not is_confident:
-        full_response = (
-            "I could not find relevant information in the provided documents to answer this question. "
-            "Please upload a document or add a URL that contains the relevant information."
-        )
-        conversation_history.append({'role': 'user', 'content': query})
-        conversation_history.append({'role': 'assistant', 'content': full_response})
-        log_interaction(query, qtype, 0, [], full_response)
-        return {
-            'response':     full_response,
-            'query_type':   qtype,
-            'queries':      queries,
-            'is_confident': False,
-            'best_score':   best_score,
-            'retrieved':    retrieved,
-            'reranked':     reranked,
-        }
-
     instruction_prompt = (
-        "You are a document question-answering assistant.\n"
-        "Answer the question using ONLY the context passages provided below.\n"
-        "STRICT RULES:\n"
-        "- Do NOT use your training data or general knowledge under any circumstances.\n"
-        "- If the context does not contain the answer, say exactly: "
-        "'The provided documents do not contain information about this topic.'\n"
-        "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
-        "- At the end of your answer, cite ONLY the bracketed source labels from the context "
-        "(e.g. [filename.pdf p3] or [example.com/page s12]). "
-        "Do NOT copy any bibliographic references, footnotes, or citations that appear inside the text.\n\n"
-        f"CONTEXT:\n{context}"
+        "You are a helpful chatbot.\n"
+        "Use only the following context to answer the question.\n"
+        "Do not make up new information.\n"
+        "Cite sources at the end of your answer.\n\n"
+        f"{context}"
     )
 
     conversation_history.append({'role': 'user', 'content': query})
@@ -1072,32 +897,6 @@ def run_pipeline(query, collection, chunks, bm25_index, conversation_history, st
 
     full_response = (''.join(c['message']['content'] for c in stream)
                      if streamlit_mode else stream_response(stream))
-
-    # Post-process: if the model admits the context lacks the answer but then
-    # hallucinates from training data (e.g. "However, I can tell you..."),
-    # truncate to just the not-found acknowledgement.
-    _no_info_phrases = [
-        "there is no information",
-        "i couldn't find",
-        "i could not find",
-        "the provided context does not",
-        "the provided documents do not",
-        "no information in the provided",
-        "not mentioned in the",
-        "not found in the",
-    ]
-    _hallucination_pivots = ["however,", "but i can", "but,", "that said,", "nevertheless,", "i can tell you", "i can provide"]
-    lower_resp = full_response.lower()
-    if any(p in lower_resp for p in _no_info_phrases):
-        for pivot in _hallucination_pivots:
-            idx = lower_resp.find(pivot)
-            if idx != -1:
-                full_response = (
-                    full_response[:idx].strip() + "\n\n"
-                    "I can only answer based on the uploaded documents. "
-                    "Please add a relevant document or URL to get an answer."
-                )
-                break
 
     conversation_history.append({'role': 'assistant', 'content': full_response})
 
@@ -1123,17 +922,15 @@ Available tools:
 1. rag_search - search the knowledge base for information
 2. calculator - evaluate a math expression
 3. summarise  - summarise a piece of text
-4. sentiment  - analyse the sentiment/tone of a passage or topic from the documents
-5. finish     - return the final answer to the user
+4. finish     - return the final answer to the user
 
 You MUST respond in EXACTLY this format with NO other text before or after:
 TOOL: tool_name(your argument here)
 
 Examples:
-TOOL: rag_search(NLP experience)
+TOOL: rag_search(does the candidate have NLP experience)
 TOOL: calculator(16 * 365)
 TOOL: summarise(cats sleep a lot and are nocturnal hunters...)
-TOOL: sentiment(customer reviews)
 TOOL: finish(Yes, the candidate has NLP experience including POS tagging and language modeling.)
 
 Rules:
@@ -1142,14 +939,9 @@ Rules:
 - Use rag_search first to find information before answering
 - Do not explain yourself or add any commentary
 - The finish argument must be a clean, direct answer in plain English — NEVER paste raw bullet points or document chunks into finish
-- rag_search arguments must be SHORT, SIMPLE keyword phrases — NEVER use boolean operators like AND, OR, quotes, or complex syntax
+- Once you have enough information, call finish IMMEDIATELY
 - For simple math questions, call calculator once then finish
 - For simple factual questions, call rag_search once then finish
-- For sentiment questions (e.g. "what is the tone", "is this positive", "sentiment of"), call sentiment with a keyword or passage then finish
-- For summarisation or comprehensive tasks (e.g. "summarise", "tell me about", "what is in"):
-  * Make multiple SEPARATE rag_search calls, one per topic
-  * For a resume: search "work experience", then "education", then "skills", then "projects" as separate calls
-  * Collect all results, then call finish with a complete summary
 """
 
 def tool_rag_search(query, collection, chunks, bm25_index):
@@ -1198,51 +990,11 @@ def tool_calculator(expression):
         return f"Error: {e}"
 
 def tool_summarise(text):
-    word_count = len(text.split())
-    if word_count < 100:
-        length_hint = "2-3 sentences"
-    elif word_count < 300:
-        length_hint = "4-5 sentences"
-    else:
-        length_hint = "6-8 sentences covering all key points"
     resp = ollama.chat(
         model=LANGUAGE_MODEL,
-        messages=[{'role': 'user', 'content': f"Summarise this in {length_hint}:\n{text}"}]
+        messages=[{'role': 'user', 'content': f"Summarise this in 2-3 sentences:\n{text}"}]
     )
     return resp['message']['content'].strip()
-
-def tool_sentiment(text_or_query, collection=None, chunks=None, bm25_index=None):
-    """
-    Analyses the sentiment/tone of a passage.
-    If the input is a short keyword/query (< 10 words), searches the knowledge base
-    first and analyses the retrieved content. Otherwise analyses the text directly.
-    Returns: overall sentiment, confidence, tone description, and key phrases.
-    """
-    # If short query and search index available, retrieve relevant content first
-    if len(text_or_query.split()) < 10 and collection is not None:
-        retrieved = tool_rag_search(text_or_query, collection, chunks, bm25_index)
-        text_to_analyse = retrieved if retrieved.strip() else text_or_query
-    else:
-        text_to_analyse = text_or_query
-
-    prompt = (
-        "Analyse the sentiment and tone of the following text.\n\n"
-        "Respond in this exact format:\n"
-        "Sentiment: <Positive / Negative / Neutral / Mixed>\n"
-        "Tone: <one short phrase describing the tone, e.g. 'professional and confident'>\n"
-        "Key phrases: <2-4 phrases from the text that drove this assessment>\n"
-        "Explanation: <1-2 sentences explaining the sentiment>\n\n"
-        f"Text:\n{text_to_analyse}"
-    )
-    try:
-        resp = ollama.chat(
-            model=LANGUAGE_MODEL,
-            messages=[{'role': 'user', 'content': prompt}],
-            options={"temperature": 0}
-        )
-        return resp['message']['content'].strip()
-    except Exception as e:
-        return f"Sentiment analysis error: {e}"
 
 def parse_tool_call(response_text):
     match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+?)\s*\)', response_text, re.DOTALL)
@@ -1262,62 +1014,6 @@ def run_agent(user_query, collection, chunks, bm25_index, max_steps=8, streamlit
     steps            = []
     answer           = None
     bad_format_count = 0
-    collected_context = []  # accumulates all rag_search results for final synthesis
-
-    # Detect summarisation queries
-    _q_lower = user_query.lower()
-    is_summarise = (
-        any(s in _q_lower for s in
-            ['summarise', 'summarize', 'summerise', 'summerize', 'summary',
-             'overview', 'tell me about', 'describe', 'what is in'])
-        or _q_lower.startswith('summ')
-    )
-
-    # Fast path: for summarise queries do multi-search directly — no agent loop needed
-    if is_summarise:
-        search_terms = ['work experience', 'education', 'skills projects', 'summary contact']
-        fast_steps = []
-        for i, term in enumerate(search_terms):
-            r = tool_rag_search(term, collection, chunks, bm25_index)
-            collected_context.append(f"[Search: {term}]\n{r}")
-            fast_steps.append({'step': i+1, 'tool': 'rag_search', 'arg': term, 'result': r})
-            if not streamlit_mode:
-                print(f"\n  [Agent Step {i+1}] rag_search({term})")
-                print(f"  → {r[:120]}..." if len(r) > 120 else f"  → {r}")
-        all_context = '\n\n'.join(collected_context)
-        answer = _synthesize_rag_answer(user_query, all_context)
-        fast_steps.append({'step': len(search_terms)+1, 'tool': 'finish', 'arg': answer, 'result': answer})
-        return {'answer': answer, 'steps': fast_steps}
-
-    # Fast path: for sentiment queries — search then analyse directly
-    is_sentiment = any(s in _q_lower for s in
-                       ['sentiment', 'tone', 'feeling', 'positive', 'negative', 'neutral',
-                        'emotion', 'attitude', 'mood'])
-    if is_sentiment:
-        # Extract the subject of the sentiment query — strip sentiment-related words
-        # so we search for the actual content (e.g. "resume", "reviews", "report")
-        search_query = re.sub(
-            r'\b(what is the|what\'s the|analyse|analyze|analysis|check|tell me the|'
-            r'of the|of|sentiment|tone|feeling|emotion|attitude|mood|the|is|a|an)\b',
-            '', _q_lower, flags=re.IGNORECASE
-        ).strip() or user_query
-        if not streamlit_mode:
-            print(f"\n  [Agent Step 1] rag_search({search_query})")
-        raw = tool_rag_search(search_query, collection, chunks, bm25_index)
-        if not streamlit_mode:
-            print(f"  → {raw[:120]}..." if len(raw) > 120 else f"  → {raw}")
-            print(f"\n  [Agent Step 2] sentiment({search_query})")
-        # Strip chunk metadata labels (e.g. "- [source L1-3]") for cleaner sentiment input
-        clean_text = re.sub(r'-\s*\[[^\]]+\]\s*', '', raw).strip()
-        sentiment_result = tool_sentiment(clean_text or raw)
-        if not streamlit_mode:
-            print(f"  → {sentiment_result[:120]}..." if len(sentiment_result) > 120 else f"  → {sentiment_result}")
-        sentiment_steps = [
-            {'step': 1, 'tool': 'rag_search',  'arg': search_query,    'result': raw},
-            {'step': 2, 'tool': 'sentiment',    'arg': search_query,    'result': sentiment_result},
-            {'step': 3, 'tool': 'finish',       'arg': sentiment_result,'result': sentiment_result},
-        ]
-        return {'answer': sentiment_result, 'steps': sentiment_steps}
 
     for step in range(max_steps):
         resp     = ollama.chat(model=LANGUAGE_MODEL, messages=messages)
@@ -1343,28 +1039,18 @@ def run_agent(user_query, collection, chunks, bm25_index, max_steps=8, streamlit
         bad_format_count = 0
 
         if tool_name == 'finish':
-            # Synthesize final answer from ALL collected context — ignore model's raw arg
-            # to prevent hallucination
-            if collected_context:
-                all_context = '\n'.join(collected_context)
-                answer = _synthesize_rag_answer(user_query, all_context)
-            else:
-                answer = tool_arg
-            steps.append({'step': step+1, 'tool': 'finish', 'arg': answer, 'result': answer})
+            answer = tool_arg
+            steps.append({'step': step+1, 'tool': 'finish', 'arg': tool_arg, 'result': tool_arg})
             break
 
         if tool_name == 'rag_search':
             result = tool_rag_search(tool_arg, collection, chunks, bm25_index)
-            collected_context.append(f"[Search: {tool_arg}]\n{result}")
         elif tool_name == 'calculator':
             result = tool_calculator(tool_arg)
         elif tool_name == 'summarise':
             result = tool_summarise(tool_arg)
-        elif tool_name == 'sentiment':
-            result = tool_sentiment(tool_arg, collection, chunks, bm25_index)
-            collected_context.append(f"[Sentiment analysis: {tool_arg}]\n{result}")
         else:
-            result = f"Unknown tool '{tool_name}'. Available: rag_search, calculator, summarise, sentiment, finish"
+            result = f"Unknown tool '{tool_name}'. Available: rag_search, calculator, summarise, finish"
 
         steps.append({'step': step+1, 'tool': tool_name, 'arg': tool_arg, 'result': result})
 
@@ -1380,8 +1066,8 @@ def run_agent(user_query, collection, chunks, bm25_index, max_steps=8, streamlit
                 print(f"\n  [Agent Step {step+2}] finish({answer})")
             break
 
-        # For simple (non-summarise) queries: auto-finish after first rag_search
-        if tool_name == 'rag_search' and not is_summarise:
+        if tool_name == 'rag_search':
+            # Synthesize a clean answer from the raw retrieved chunks
             answer = _synthesize_rag_answer(user_query, result)
             steps.append({'step': step+2, 'tool': 'finish', 'arg': answer, 'result': answer})
             if not streamlit_mode:
@@ -1546,51 +1232,40 @@ def run_terminal(collection, chunks, bm25_index):
 def run_streamlit(collection, chunks, bm25_index):
     import streamlit as st
 
-    st.set_page_config(page_title="Ask Your Documents", page_icon="🐱", layout="wide")
+    st.set_page_config(page_title="RAG Chatbot", page_icon="🐱", layout="wide")
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap');
-    html,body,[class*="css"]{font-family:'IBM Plex Sans',sans-serif;background:#ffffff;color:#0d2b45}
-    .stApp{background:#ffffff}
-    .rag-title{font-family:'IBM Plex Mono',monospace;font-size:2rem;font-weight:600;color:#1565a0;letter-spacing:-.02em}
-    .rag-sub{font-family:'IBM Plex Mono',monospace;font-size:.75rem;color:#7aafc8;margin-bottom:1.5rem}
-    .chunk{background:#ffffff;border:1px solid #b3d4e8;border-radius:6px;padding:.5rem .7rem;margin:.25rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#4a8fa8}
-    .cs{color:#1565a0;font-weight:600}.src{color:#4a9fc4}
-    .step{background:#e8f5e8;border:1px solid #aed4bb;border-radius:6px;padding:.5rem .7rem;margin:.2rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#2e7d32}
+    html,body,[class*="css"]{font-family:'IBM Plex Sans',sans-serif;background:#0d0d0d;color:#e8e8e8}
+    .stApp{background:#0d0d0d}
+    .rag-title{font-family:'IBM Plex Mono',monospace;font-size:2rem;font-weight:600;color:#f0c040;letter-spacing:-.02em}
+    .rag-sub{font-family:'IBM Plex Mono',monospace;font-size:.75rem;color:#444;margin-bottom:1.5rem}
+    .msg-user{background:#1a1a1a;border-left:3px solid #f0c040;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0}
+    .msg-bot{background:#141414;border-left:3px solid #3a9ad9;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0;line-height:1.6}
+    .msg-agent{background:#0f1a0f;border-left:3px solid #4caf50;padding:.8rem 1rem;margin:.4rem 0;border-radius:0 8px 8px 0}
+    .msg-label{font-family:'IBM Plex Mono',monospace;font-size:.65rem;color:#444;margin-bottom:.2rem;text-transform:uppercase;letter-spacing:.1em}
+    .chunk{background:#111;border:1px solid #1e1e1e;border-radius:6px;padding:.5rem .7rem;margin:.25rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#888}
+    .cs{color:#f0c040;font-weight:600}.src{color:#3a9ad9}
+    .step{background:#0a1a0a;border:1px solid #1a2a1a;border-radius:6px;padding:.5rem .7rem;margin:.2rem 0;font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#4caf50}
     .badge{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:.65rem;padding:.15rem .4rem;border-radius:3px;margin:.1rem}
-    .b-fact{background:#daeaf4;color:#1565a0}.b-comp{background:#e3f0f9;color:#0d47a1}.b-gen{background:#ede7f6;color:#512da8}
-    .b-ok{background:#daeaf4;color:#1565a0}.b-warn{background:#fff8e1;color:#f57f17}
-    .stat{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:#7aafc8;padding:.25rem 0;border-bottom:1px solid #daeaf4;display:flex;justify-content:space-between}
-    .sv{color:#1565a0;font-weight:600}
-    .stButton>button{background:#1565a0!important;color:#ffffff!important;font-family:'IBM Plex Mono',monospace!important;font-weight:600!important;border:none!important;border-radius:6px!important}
-    [data-testid="stSidebar"]{background:#f4f9fc!important;border-right:1px solid #b3d4e8!important}
-    hr{border-color:#daeaf4!important}
-    .stRadio>div{background:#f4f9fc;border-radius:6px;padding:.3rem .5rem}
-    /* chat bubbles */
-    [data-testid="stChatMessage"]{background:#f4f9fc;border-radius:10px;margin:.3rem 0}
-    [data-testid="stChatMessageContent"] p{margin:0;line-height:1.6}
-    .stChatInputContainer textarea{font-family:'IBM Plex Mono',monospace!important;background:#f4f9fc!important;border:1px solid #b3d4e8!important;color:#0d2b45!important}
-    .stChatInputContainer textarea:focus{border-color:#1565a0!important;box-shadow:0 0 0 2px rgba(21,101,160,0.25)!important;outline:none!important}
-    .stChatInputContainer:focus-within{border-color:#1565a0!important;box-shadow:0 0 0 2px rgba(21,101,160,0.25)!important}
-    [data-testid="stChatInputContainer"]:focus-within{border-color:#1565a0!important;box-shadow:0 0 0 2px rgba(21,101,160,0.25)!important}
-    input:focus, textarea:focus{border-color:#1565a0!important;box-shadow:0 0 0 2px rgba(21,101,160,0.25)!important;outline:none!important}
-    *:focus{outline-color:#1565a0!important}
-    :root{--primary-color:#1565a0!important}
+    .b-fact{background:#1a3a1a;color:#4caf50}.b-comp{background:#1a2a3a;color:#3a9ad9}.b-gen{background:#2a1a2a;color:#ce93d8}
+    .b-ok{background:#1a3a1a;color:#4caf50}.b-warn{background:#3a2a00;color:#f0c040}
+    .stat{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:#444;padding:.25rem 0;border-bottom:1px solid #151515;display:flex;justify-content:space-between}
+    .sv{color:#f0c040}
+    .stTextInput>div>div>input{background:#1a1a1a!important;border:1px solid #2a2a2a!important;color:#e8e8e8!important;font-family:'IBM Plex Mono',monospace!important;border-radius:6px!important}
+    .stButton>button{background:#f0c040!important;color:#0d0d0d!important;font-family:'IBM Plex Mono',monospace!important;font-weight:600!important;border:none!important;border-radius:6px!important}
+    [data-testid="stSidebar"]{background:#0a0a0a!important;border-right:1px solid #151515}
+    hr{border-color:#1a1a1a!important}
     </style>
     """, unsafe_allow_html=True)
 
-    for k,v in [('conv',[]),('display',[]),('total',0),('last',None),('mode','chat'),('url_chunks',[]),('bm25_index',None),('url_msg',None),('file_msg',None)]:
+    for k,v in [('conv',[]),('display',[]),('total',0),('last',None),('mode','chat'),('url_chunks',[])]:
         if k not in st.session_state: st.session_state[k] = v
-
-    # Use the session-state BM25 if updated after URL ingestion, else the initial one
-    active_bm25 = st.session_state.bm25_index if st.session_state.bm25_index is not None else bm25_index
-
-    _needs_rerun = False  # flag to defer st.rerun() until after all columns render
 
     col_main, col_side = st.columns([3,1])
 
     with col_main:
-        st.markdown('<div class="rag-title">Ask Your Documents</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rag-title">// RAG Chatbot</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="rag-sub">chunking · hybrid search · reranking · agent · '
             'PDF · TXT · DOCX · XLSX · PPTX · CSV · MD · HTML · URL</div>',
@@ -1601,228 +1276,70 @@ def run_streamlit(collection, chunks, bm25_index):
                         index=0 if st.session_state.mode=='chat' else 1)
         st.session_state.mode = mode.lower()
 
-        if st.session_state.mode == 'agent':
-            st.markdown(
-                """
-                <div style="background:#e8f4fd;border-left:3px solid #1565a0;
-                            border-radius:6px;padding:10px 14px;margin:8px 0;font-size:0.82rem;">
-                <b>🤖 Agent Tools Available</b><br><br>
-                <b>🔍 rag_search</b> — search your documents<br>
-                <i>e.g. "what skills does the resume mention?"</i><br><br>
-                <b>🧮 calculator</b> — evaluate math expressions<br>
-                <i>e.g. "what is 15% of 85000?"</i><br><br>
-                <b>📝 summarise</b> — summarise any document or section<br>
-                <i>e.g. "summarise the resume"</i><br><br>
-                <b>💬 sentiment</b> — analyse tone & sentiment of content<br>
-                <i>e.g. "what is the sentiment of the resume?"</i><br><br>
-                <b>✅ finish</b> — returns the final answer
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
         # ── URL ingestion ──
         with st.expander("Add a URL to knowledge base", expanded=False):
             with st.form('url_form', clear_on_submit=True):
                 url_input   = st.text_input("URL:", placeholder="https://example.com/page or https://example.com/file.pdf")
                 url_submit  = st.form_submit_button("Fetch & index →")
             if url_submit and url_input.strip():
-                try:
-                    with st.spinner(f"Fetching {url_input.strip()}..."):
-                        new_chunks = chunk_url(url_input.strip())
-                    if new_chunks:
-                        st.session_state.url_chunks.extend(new_chunks)
-                        offset = collection.count()
-                        batch_size = 50
-                        with st.spinner(f"Embedding {len(new_chunks)} chunks..."):
-                            for i in range(0, len(new_chunks), batch_size):
-                                batch  = new_chunks[i: i + batch_size]
-                                ids    = [f"url_chunk_{offset + i + j}" for j in range(len(batch))]
-                                texts  = [c['text'] for c in batch]
-                                metas  = [{'source': c['source'], 'start_line': c['start_line'],
-                                           'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
-                                embeds = [ollama.embed(model=EMBEDDING_MODEL,
-                                                       input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
-                                collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
-                        all_chunks = chunks + st.session_state.url_chunks
-                        st.session_state.bm25_index = build_bm25_index(all_chunks)
-                        active_bm25 = st.session_state.bm25_index
-                        st.session_state.url_msg = ('ok', f"Added {len(new_chunks)} chunks. Total in knowledge base: {collection.count()}")
-                    else:
-                        st.session_state.url_msg = ('err', "Could not fetch or parse the URL. Check it's publicly accessible.")
-                except Exception as e:
-                    st.session_state.url_msg = ('err', f"Error fetching URL: {e}")
-                _needs_rerun = True
-
-            if st.session_state.url_msg:
-                kind, msg = st.session_state.url_msg
-                if kind == 'ok':
-                    st.success(msg)
+                with st.spinner(f"Fetching {url_input.strip()}..."):
+                    new_chunks = chunk_url(url_input.strip())
+                if new_chunks:
+                    st.session_state.url_chunks.extend(new_chunks)
+                    # Rebuild BM25 and ChromaDB with new chunks
+                    all_chunks = chunks + st.session_state.url_chunks
+                    collection.delete(ids=collection.get()['ids']) if collection.count() > 0 else None
+                    batch_size = 50
+                    for i in range(0, len(all_chunks), batch_size):
+                        batch  = all_chunks[i: i + batch_size]
+                        ids    = [f"chunk_{i+j}" for j in range(len(batch))]
+                        texts  = [c['text'] for c in batch]
+                        metas  = [{'source': c['source'], 'start_line': c['start_line'],
+                                   'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
+                        embeds = [ollama.embed(model=EMBEDDING_MODEL,
+                                               input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
+                        collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
+                    bm25_index = build_bm25_index(all_chunks)
+                    st.success(f"Added {len(new_chunks)} chunks from URL. Total chunks: {collection.count()}")
                 else:
-                    st.error(msg)
+                    st.error("Could not fetch or parse the URL. Check it's publicly accessible.")
 
-        # ── File upload ingestion ──
-        with st.expander("Upload a file to knowledge base", expanded=False):
-            uploaded = st.file_uploader(
-                "Supported: PDF, TXT, DOCX, XLSX, PPTX, CSV, MD, HTML",
-                type=["pdf","txt","docx","doc","xlsx","xls","pptx","ppt","csv","md","markdown","html","htm"],
-                key="file_uploader"
-            )
-            if uploaded:
-                if st.button("Index file →", key="file_index_btn"):
-                    ext = os.path.splitext(uploaded.name)[1].lower()
-                    dtype = EXT_TO_TYPE.get(ext, 'txt')
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                        tmp.write(uploaded.read())
-                        tmp_path = tmp.name
-                    try:
-                        with st.spinner(f"Processing {uploaded.name}..."):
-                            file_info = {
-                                'filepath':      tmp_path,
-                                'filename':      uploaded.name,
-                                'detected_type': dtype,
-                                'is_misplaced':  False,
-                            }
-                            new_chunks = _dispatch_chunker(file_info)
-                        if new_chunks:
-                            st.session_state.url_chunks.extend(new_chunks)
-                            offset = collection.count()
-                            batch_size = 50
-                            with st.spinner(f"Embedding {len(new_chunks)} chunks..."):
-                                for i in range(0, len(new_chunks), batch_size):
-                                    batch  = new_chunks[i: i + batch_size]
-                                    ids    = [f"file_chunk_{offset + i + j}" for j in range(len(batch))]
-                                    texts  = [c['text'] for c in batch]
-                                    metas  = [{'source': c['source'], 'start_line': c['start_line'],
-                                               'end_line': c['end_line'], 'type': c.get('type','txt')} for c in batch]
-                                    embeds = [ollama.embed(model=EMBEDDING_MODEL,
-                                                           input=_truncate_for_embedding(t))['embeddings'][0] for t in texts]
-                                    collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
-                            all_chunks = chunks + st.session_state.url_chunks
-                            st.session_state.bm25_index = build_bm25_index(all_chunks)
-                            active_bm25 = st.session_state.bm25_index
-                            st.session_state.file_msg = ('ok', f"Indexed '{uploaded.name}' — {len(new_chunks)} chunks added. Total: {collection.count()}")
-                        else:
-                            st.session_state.file_msg = ('err', f"Could not extract text from '{uploaded.name}'.")
-                    except Exception as e:
-                        st.session_state.file_msg = ('err', f"Error indexing '{uploaded.name}': {e}")
-                    finally:
-                        try:
-                            os.unlink(tmp_path)
-                        except:
-                            pass
-                    _needs_rerun = True
-            if st.session_state.get('file_msg'):
-                kind, msg = st.session_state.file_msg
-                if kind == 'ok':
-                    st.success(msg)
-                else:
-                    st.error(msg)
+        st.markdown("---")
 
-        # ── Chat message history ──
         for msg in st.session_state.display:
-            avatar = "🧑" if msg['role'] == 'user' else ("🤖" if msg['role'] == 'agent' else "💬")
-            with st.chat_message(msg['role'], avatar=avatar):
-                st.markdown(msg['content'], unsafe_allow_html=True)
+            css = {'user':'msg-user','assistant':'msg-bot','agent':'msg-agent'}.get(msg['role'],'msg-bot')
+            lbl = msg['role']
+            st.markdown(f'<div class="{css}"><div class="msg-label">{lbl}</div>{msg["content"]}</div>',
+                        unsafe_allow_html=True)
 
-        # ── Clear button below chat ──
-        if st.session_state.display:
-            _, btn_col = st.columns([6, 1])
-            with btn_col:
-                if st.button("🗑 Clear", use_container_width=True):
-                    st.session_state.conv = []
-                    st.session_state.display = []
-                    st.session_state.last = None
-                    st.session_state.total = 0
-                    st.rerun()
+        st.markdown("---")
+        with st.form('chat', clear_on_submit=True):
+            placeholder = "Ask a question..." if st.session_state.mode == 'chat' else "Give the agent a task..."
+            user_input = st.text_input("Input:", placeholder=placeholder, label_visibility='collapsed')
+            submitted  = st.form_submit_button("Send →")
 
-    # Deferred rerun — called after all columns finish rendering to avoid cutting off the page
-    if _needs_rerun:
-        st.rerun()
-
-    # ── Chat input at page level (prevents disappearing inside columns) ──
-    placeholder = "Ask a question..." if st.session_state.mode == 'chat' else "Give the agent a task..."
-    user_input = st.chat_input(placeholder)
-    # Progress bar placeholder lives here — renders right below the chat input
-    _progress_slot = st.empty()
-
-    if user_input and user_input.strip():
-        st.session_state.url_msg = None  # clear any URL status on new message
-        st.session_state.display.append({'role':'user','content': user_input})
-        if st.session_state.mode == 'agent':
-            bar = _progress_slot.progress(0, text="Agent starting...")
-            bar.progress(30, text="Agent: searching knowledge base...")
-            res = run_agent(user_input, collection, chunks, active_bm25, streamlit_mode=True)
-            bar.progress(100, text="Agent: done!")
-            _progress_slot.empty()
-            steps_html = ''.join(
-                f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"][:50]}...) → {s["result"][:80]}...</div>'
-                if len(s["arg"])>50 else
-                f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"]}) → {s["result"][:80]}</div>'
-                for s in res['steps']
-            )
-            content = f"{steps_html}<br/><strong>Answer:</strong> {res['answer']}"
-            st.session_state.display.append({'role':'agent','content': content})
-            st.session_state.last = {'type':'agent','data': res}
-        else:
-            bar = _progress_slot.progress(0, text="Classifying query...")
-            qtype    = classify_query(user_input)
-            top_n    = smart_top_n(qtype)
-            queries  = expand_query(user_input)
-
-            bar.progress(25, text="Retrieving documents...")
-            retrieved = hybrid_retrieve(queries, collection, chunks, active_bm25, top_n=top_n)
-            is_confident, best_score = check_confidence(retrieved)
-
-            bar.progress(55, text="Reranking results...")
-            reranked = rerank(user_input, retrieved, top_n=TOP_RERANK)
-
-            bar.progress(75, text="Generating answer...")
-            context_lines = []
-            for e, _, _ in reranked:
-                label = _source_label(e)
-                context_lines.append(f" - [{e['source']} {label}] {e['text']}")
-            context = '\n'.join(context_lines)
-            instruction_prompt = (
-                "You are a document question-answering assistant.\n"
-                "Answer the question using ONLY the context passages provided below.\n"
-                "STRICT RULES:\n"
-                "- Do NOT use your training data or general knowledge under any circumstances.\n"
-                "- If the context does not contain the answer, say exactly: "
-                "'The provided documents do not contain information about this topic.'\n"
-                "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
-                "- At the end of your answer, cite ONLY the bracketed source labels from the context "
-                "(e.g. [filename.pdf p3] or [example.com/page s12]). "
-                "Do NOT copy any bibliographic references, footnotes, or citations that appear inside the text.\n\n"
-                f"CONTEXT:\n{context}"
-            )
-            st.session_state.conv.append({'role': 'user', 'content': user_input})
-            stream = ollama.chat(
-                model=LANGUAGE_MODEL,
-                messages=[{'role': 'system', 'content': instruction_prompt}, *st.session_state.conv],
-                stream=True,
-            )
-            full_response = ''.join(c['message']['content'] for c in stream)
-            st.session_state.conv.append({'role': 'assistant', 'content': full_response})
-            sim_scores = [s for _, s, _ in reranked]
-            log_interaction(user_input, qtype, len(reranked), sim_scores, full_response)
-
-            bar.progress(100, text="Done!")
-            _progress_slot.empty()
-
-            res = {
-                'response':     full_response,
-                'query_type':   qtype,
-                'queries':      queries,
-                'is_confident': is_confident,
-                'best_score':   best_score,
-                'retrieved':    retrieved,
-                'reranked':     reranked,
-            }
-            st.session_state.display.append({'role':'assistant','content': res['response']})
-            st.session_state.last = {'type':'chat','data': res}
-        st.session_state.total += 1
-        st.rerun()
+        if submitted and user_input.strip():
+            st.session_state.display.append({'role':'user','content': user_input})
+            if st.session_state.mode == 'agent':
+                with st.spinner("Agent thinking..."):
+                    res = run_agent(user_input, collection, chunks, bm25_index, streamlit_mode=True)
+                steps_html = ''.join(
+                    f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"][:50]}...) → {s["result"][:80]}...</div>'
+                    if len(s["arg"])>50 else
+                    f'<div class="step">Step {s["step"]}: {s["tool"]}({s["arg"]}) → {s["result"][:80]}</div>'
+                    for s in res['steps']
+                )
+                content = f"{steps_html}<br/><strong>Answer:</strong> {res['answer']}"
+                st.session_state.display.append({'role':'agent','content': content})
+                st.session_state.last = {'type':'agent','data': res}
+            else:
+                with st.spinner("Thinking..."):
+                    res = run_pipeline(user_input, collection, chunks, bm25_index,
+                                       st.session_state.conv, streamlit_mode=True)
+                st.session_state.display.append({'role':'assistant','content': res['response']})
+                st.session_state.last = {'type':'chat','data': res}
+            st.session_state.total += 1
+            st.rerun()
 
     with col_side:
         st.markdown("### Pipeline")
@@ -1878,11 +1395,21 @@ def run_streamlit(collection, chunks, bm25_index):
             st.markdown(f'<div class="stat">{t.upper()} <span class="sv">{cnt}</span></div>', unsafe_allow_html=True)
         st.markdown("---")
 
+        if st.button("Clear Chat"):
+            st.session_state.conv=[]; st.session_state.display=[]
+            st.session_state.last=None; st.session_state.total=0
+            st.session_state.url_chunks=[]
+            st.rerun()
+
 # ============================================================
 # ENTRY POINT
 # ============================================================
-def _initialize():
-    """Load documents, build index, return (collection, chunks, bm25)."""
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='RAG Chatbot')
+    parser.add_argument('--benchmark', action='store_true', help='Run benchmark')
+    parser.add_argument('--agent',     action='store_true', help='Agent mode in terminal')
+    args = parser.parse_args()
+
     print("="*60)
     print("  Initializing RAG Pipeline")
     print("="*60)
@@ -1890,39 +1417,14 @@ def _initialize():
     for t, folder in DOC_FOLDERS.items():
         print(f"    {t.upper():<8} → {folder}/")
     print(f"  Vector DB:  ChromaDB (persistent @ {CHROMA_DIR})")
-    print(f"  Reranker:   LLM-based (document type-aware)")
+    print(f"  Reranker:   LLM-based")
     print(f"  Smart mis-placed file detection: ENABLED")
     print("="*60 + "\n")
+
     ensure_folders()
     chunks     = chunk_all_documents()
     collection = build_or_load_chroma(chunks)
     bm25       = build_bm25_index(chunks)
-    return collection, chunks, bm25
-
-# ── Streamlit mode — detected when run via `streamlit run rag_app.py` ──
-# Only catch ImportError — Streamlit's internal RerunException / StopException
-# must NOT be swallowed or the cache breaks and _initialize() re-runs every rerun,
-# wiping any URL/file chunks added during the session.
-try:
-    import streamlit as st
-except ImportError:
-    st = None
-
-if st is not None and st.runtime.exists():
-    @st.cache_resource
-    def _cached_initialize():
-        return _initialize()
-    collection, chunks, bm25 = _cached_initialize()
-    run_streamlit(collection, chunks, bm25)
-
-# ── Terminal / CLI mode ──
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='RAG Chatbot')
-    parser.add_argument('--benchmark', action='store_true', help='Run benchmark')
-    parser.add_argument('--agent',     action='store_true', help='Agent mode in terminal')
-    args = parser.parse_args()
-
-    collection, chunks, bm25 = _initialize()
 
     if args.benchmark:
         run_benchmark(collection, chunks, bm25)
