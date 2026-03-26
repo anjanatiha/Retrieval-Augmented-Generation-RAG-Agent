@@ -189,7 +189,12 @@ Rules:
             '', query, flags=re.IGNORECASE
         ).strip() or query
 
-        search_terms = [topic, f"{topic} overview", f"{topic} details", f"{topic} facts"]
+        # Use resume-specific terms if query is about a resume/CV
+        _resume_keywords = ['resume', 'cv', 'curriculum vitae', 'candidate', 'applicant']
+        if any(k in query.lower() for k in _resume_keywords):
+            search_terms = ['work experience', 'education', 'skills projects', 'summary contact']
+        else:
+            search_terms = [topic, f"{topic} overview", f"{topic} details", f"{topic} facts"]
 
         fast_steps = []
         collected  = []
