@@ -181,10 +181,18 @@ Rules:
             return context
 
     def _fast_path_summarise(self, query, streamlit_mode=False):
-        """For summarise queries: 4-term multi-search → synthesize. No agent loop."""
-        search_terms = ['work experience', 'education', 'skills projects', 'summary contact']
-        fast_steps   = []
-        collected    = []
+        """For summarise queries: extract topic from query, run targeted searches."""
+        # Strip summarise keywords to get the actual topic
+        topic = re.sub(
+            r'\b(summarise|summarize|summerise|summerize|summary|overview|'
+            r'tell me about|describe|what is in|give me a|the|a|an|document|doc|file)\b',
+            '', query, flags=re.IGNORECASE
+        ).strip() or query
+
+        search_terms = [topic, f"{topic} overview", f"{topic} details", f"{topic} facts"]
+
+        fast_steps = []
+        collected  = []
         for i, term in enumerate(search_terms):
             r = self._tool_rag_search(term)
             collected.append(f"[Search: {term}]\n{r}")
