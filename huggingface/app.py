@@ -105,7 +105,8 @@ def upload_file(file_obj):
     if file_obj is None:
         return "No file selected.", f"Chunks in knowledge base: {_chunk_count()}"
 
-    filepath = file_obj.name
+    # Gradio 5: file_obj is a filepath string
+    filepath = file_obj if isinstance(file_obj, str) else file_obj.name
     filename = os.path.basename(filepath)
     ext      = os.path.splitext(filename)[1].lower()
     dtype    = loader.ext_to_type.get(ext, 'txt')
@@ -294,4 +295,4 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
     )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(ssr_mode=False)
