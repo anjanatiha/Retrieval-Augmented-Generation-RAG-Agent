@@ -357,6 +357,16 @@ The built-in benchmark evaluates retrieval and generation quality across four me
 
 Results are saved to `benchmark_results.json` with run-over-run comparison so you can track improvements as the pipeline evolves.
 
+**Current performance (10 runs, cat-facts.txt test set):**
+
+| Metric | Score |
+|--------|-------|
+| Faithfulness | 0.798 |
+| Answer Relevancy | 0.369 |
+| Keyword Recall | 1.000 |
+| Context Relevance | 0.719 |
+| **Overall** | **0.721** |
+
 ---
 
 ## Streamlit UI
@@ -389,9 +399,28 @@ The web UI features:
 
 ---
 
+## Testing
+
+The project includes a full automated test suite covering all 4 classes, all 8 file formats, URL ingestion, the full retrieval pipeline, all 5 agent tools, and Streamlit UI behaviour.
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src
+
+# Run a specific file
+pytest tests/test_integration.py
+```
+
+Dev dependencies (`pytest`, `pytest-cov`, `pytest-mock`) are in `pyproject.toml` and are not part of `requirements.txt`.
+
+---
+
 ## Built With
 
-`Python` · `Ollama` · `ChromaDB` · `rank_bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `python-pptx` · `BeautifulSoup4` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
+`Python` · `Ollama` · `ChromaDB` · `rank_bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
 
 ---
 
