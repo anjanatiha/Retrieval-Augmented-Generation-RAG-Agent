@@ -1,16 +1,40 @@
-# Architect Mode Prompt — RAG Agent Refactor
+# Architect Prompt — RAG Agent Refactor
 
-Paste everything below the line into Claude Code after running `/architect`
+Paste everything below this line into Claude Code.
+
+---
+
+IMPORTANT WORKFLOW:
+- Work ONE step at a time
+- STOP after each step and wait for my approval
+- Do NOT proceed until I say "continue" or "next"
+- Show exactly what changed before asking to move on
+- Never commit without my explicit "UI looks good, commit"
 
 ---
 
 I have a working 1600-line Python RAG application in `rag_app.py`.
-I want to refactor it into a clean, production-standard Python package
-with proper class encapsulation, separated files, and full unit tests.
+Read `CLAUDE.md` fully before doing anything — it is the authoritative
+specification written from a complete reading of `rag_app.py`, `README.md`,
+and `requirements.txt`. Follow every instruction exactly.
 
-Read `CLAUDE.md` first — it contains the full architecture plan,
-class responsibilities, refactor rules, and step-by-step order.
-Follow it exactly.
+---
+
+## Design philosophy
+
+This refactor uses **4 classes and 4 modules**. This is deliberate.
+
+Components with no meaningful state of their own (query classification,
+response generation, conversation memory, individual agent tools) become
+**private methods** (`_`) on the class that owns the state they operate on.
+This reduces indirection and keeps related logic together without
+sacrificing clarity.
+
+Do NOT create extra classes. Do NOT create a BaseTool abstract class.
+Do NOT create separate classes for Calculator, Summariser, or SentimentAnalyser.
+They are private methods on Agent.
+
+---
 
 ## Project structure to create
 
@@ -19,171 +43,211 @@ rag/
 ├── src/
 │   └── rag/
 │       ├── __init__.py
-│       ├── config.py
-│       ├── document_loader.py
-│       ├── retriever.py
-│       ├── agent.py
-│       └── benchmarker.py
+│       ├── config.py              ← MODULE: constants only
+│       ├── logger.py              ← MODULE: stateless log functions
+│       ├── document_loader.py     ← CLASS: DocumentLoader
+│       ├── vector_store.py        ← CLASS: VectorStore
+│       ├── agent.py               ← CLASS: Agent
+│       └── benchmarker.py         ← CLASS: Benchmarker
+├── ui/
+│   ├── __init__.py
+│   ├── theme.py                   ← MODULE: CSS + style constants
+│   └── session.py                 ← MODULE: session state helpers
 ├── tests/
 │   ├── __init__.py
 │   ├── test_document_loader.py
-│   ├── test_retriever.py
+│   ├── test_vector_store.py
 │   ├── test_agent.py
-│   └── test_benchmarker.py
-├── app.py
-├── main.py
-├── pyproject.toml
-├── requirements.txt
+│   ├── test_benchmarker.py
+│   └── test_integration.py
+├── app.py                         ← Streamlit thin wrapper (<50 lines)
+├── main.py                        ← CLI thin wrapper (<50 lines)
+├── requirements.txt               ← add lxml only
+├── pyproject.toml                 ← new
+├── DESIGN.md                      ← new: architectural decisions
 ├── CLAUDE.md
 └── README.md
 ```
 
-## Classes to extract from rag_app.py
+---
 
-### 1. `config.py`
-Move all top-level constants:
-- `EMBEDDING_MODEL`, `LANGUAGE_MODEL`
-- `DOCS_ROOT`, `DOC_FOLDERS`, `EXT_TO_TYPE`
-- `CHROMA_DIR`, `CHROMA_COLLECTION`, `LOG_FILE`, `BENCHMARK_FILE`
-- `SIMILARITY_THRESHOLD`, `TOP_RETRIEVE`, `TOP_RERANK`
-- All chunk size constants (`TXT_CHUNK_SIZE`, `PDF_CHUNK_SENTENCES`, etc.)
+## The 4 classes
 
-### 2. `DocumentLoader` class
-Extract these functions as methods:
-- `ensure_folders()` → `self.ensure_folders()`
-- `scan_all_files()` → `self.scan_all_files()`
-- `chunk_all_documents()` → `self.chunk_all_documents()`
-- `_chunk_txt()`, `_chunk_pdf()`, `_chunk_docx()`, `_chunk_xlsx()`
-- `_chunk_pptx()`, `_chunk_csv()`, `_chunk_md()`, `_chunk_html()`
-- `chunk_url(url)` → `self.chunk_url(url)`
-- Truncation logic → `self.truncate_chunk(text)`
+### CLASS 1: `DocumentLoader`
+Owns all ingestion — chunkers, URL fetching, misplaced detection.
 
-### 3. `Retriever` class
-Extract these functions as methods:
-- `build_or_load_chroma(chunks)` → `self.build_or_load_chroma(chunks)`
-- `build_bm25_index(chunks)` → `self.build_bm25_index(chunks)`
-- `embed(text)` → `self.embed(text)`
-- `hybrid_retrieve(queries, collection, chunks, bm25, top_n)` → `self.hybrid_retrieve(...)`
-- `rerank(query, candidates, top_n)` → `self.rerank(...)`
-- `expand_query(query)` → `self.expand_query(query)`
-- `classify_query(query)` → `self.classify_query(query)`
-- `check_confidence(results)` → `self.check_confidence(results)`
-- `smart_top_n(query_type)` → `self.smart_top_n(query_type)`
-- `log_interaction(...)` → `self.log_interaction(...)`
-
-### 4. `Agent` class
-Extract these functions as methods:
-- `run_agent(task, collection, chunks, bm25)` → `self.run(task)`
-- `_parse_tool_call(text)` → `self._parse_tool_call(text)`
-- All `_tool_*` methods
-- `_build_system_prompt()` → `self._build_system_prompt()`
-Constructor takes `retriever: Retriever` as dependency.
-
-### 5. `Benchmarker` class
-Extract these functions as methods:
-- `run_benchmark(collection, chunks, bm25)` → `self.run()`
-- All `score_*` functions → `self.score_*()`
-- `_load_previous_results()`, `_save_results()`
-Constructor takes `retriever: Retriever` as dependency.
-
-## Entry points after refactor
-
-### `main.py` (~40 lines max)
 ```python
-from src.rag.config import Config
+class DocumentLoader:
+    def __init__(self)              # loads config constants as instance vars
+    # Public
+    def ensure_folders(self)
+    def scan_all_files(self)        # misplaced file detection
+    def chunk_all_documents(self)
+    def chunk_url(self, url)        # 4-priority type detection
+    # Private
+    def _dispatch_chunker(self, file_info)
+    def _chunk_txt(self, filepath, filename)
+    def _chunk_md(self, filepath, filename)
+    def _chunk_pdf(self, filepath, filename)
+    def _chunk_docx(self, filepath, filename)   # + table rows + dedup merged cells
+    def _chunk_xlsx(self, filepath, filename)
+    def _chunk_xls(self, filepath, filename)    # xlrd fallback
+    def _chunk_csv(self, filepath, filename)
+    def _chunk_pptx(self, filepath, filename)
+    def _chunk_html(self, filepath, filename)
+    def _truncate_chunk(self, text)             # 300 words OR 1200 chars
+```
+
+### CLASS 2: `VectorStore`
+Owns ChromaDB, BM25, hybrid search, reranking, query pipeline,
+response generation, and conversation history.
+
+```python
+class VectorStore:
+    def __init__(self)
+    # Public
+    def build_or_load(self, chunks)
+    def add_chunks(self, chunks, id_prefix)
+    def rebuild_bm25(self, all_chunks)
+    def run_pipeline(self, query, streamlit_mode=False)
+    def stream_response(self, stream)
+    def clear_conversation(self)
+    # Private — vector/search
+    def _embed(self, text)
+    def _truncate_for_embedding(self, text)     # 200 words AND 1200 chars
+    def _cosine_similarity(self, a, b)
+    def _hybrid_retrieve(self, queries, top_n, alpha=0.5)
+    def _rerank(self, query, candidates, top_n)
+    def _rerank_prompt(self, query, entry)      # 7 variants — preserve exactly
+    # Private — query
+    def _classify_query(self, query)            # summarise→comparison→factual→general
+    def _expand_query(self, query)              # LLM 2 rewrites + original
+    def _check_confidence(self, results)
+    def _smart_top_n(self, query_type)
+    # Private — response
+    def _build_instruction_prompt(self, context)
+    def _source_label(self, entry)
+    def _synthesize(self, question, context)
+    def _filter_hallucination(self, response)
+```
+
+### CLASS 3: `Agent`
+Owns ReAct loop and all 5 tools as private methods.
+
+```python
+class Agent:
+    AGENT_SYSTEM_PROMPT: str        # class constant — preserve every word
+    def __init__(self, store: VectorStore)
+    # Public
+    def run(self, user_query, streamlit_mode=False)
+    # Private — loop
+    def _parse_tool_call(self, response_text)   # two regex patterns
+    def _dispatch_tool(self, tool_name, tool_arg)
+    def _synthesize_final_answer(self, query, context)
+    def _fast_path_summarise(self, query, streamlit_mode)
+    def _fast_path_sentiment(self, query, streamlit_mode)
+    # Private — tools (NOT separate classes)
+    def _tool_rag_search(self, query)
+    def _tool_calculator(self, expression)      # safe eval
+    def _tool_summarise(self, text)             # adaptive length
+    def _tool_sentiment(self, text_or_query)    # optional RAG search
+```
+
+### CLASS 4: `Benchmarker`
+Owns all evaluation, scoring, and results management.
+
+```python
+class Benchmarker:
+    DEFAULT_TEST_CASES: list        # 5 cat facts — preserve exactly
+    def __init__(self, store: VectorStore)
+    # Public
+    def run(self, test_cases=None)
+    # Private
+    def _score_faithfulness(self, response, reranked)
+    def _score_relevancy(self, question, response)
+    def _score_keyword_recall(self, response, keywords)
+    def _score_context_relevance(self, reranked)
+    def _save_results(self, results)
+    def _compare_runs(self, current, previous)
+    def _read_results(self)
+```
+
+---
+
+## The 4 modules
+
+```python
+# config.py — constants only, no functions
+EMBEDDING_MODEL, LANGUAGE_MODEL, DOCS_ROOT, DOC_FOLDERS,
+EXT_TO_TYPE, CHROMA_DIR, CHROMA_COLLECTION, LOG_FILE,
+BENCHMARK_FILE, SIMILARITY_THRESHOLD, TOP_RETRIEVE, TOP_RERANK,
+TXT_CHUNK_SIZE, TXT_CHUNK_OVERLAP, PDF_CHUNK_SENTENCES,
+DOCX_CHUNK_PARAS, PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES
+
+# logger.py — stateless functions
+def log_interaction(query, qtype, chunks_used, sim_scores, response)
+def _read_log() -> list
+def _write_log(entries: list)
+
+# ui/theme.py — constants
+CSS: str            # IBM Plex Mono stylesheet — preserve every rule
+BADGE_CLASSES: dict
+CONFIDENCE_BADGE: dict
+AVATAR: dict
+
+# ui/session.py — functions
+def init_session_state()
+def get_active_bm25(base_bm25)
+```
+
+---
+
+## Entry points
+
+### `main.py` (~40 lines)
+```python
+from src.rag.config import *
 from src.rag.document_loader import DocumentLoader
-from src.rag.retriever import Retriever
+from src.rag.vector_store import VectorStore
 from src.rag.agent import Agent
 from src.rag.benchmarker import Benchmarker
 import argparse
 
-def main():
+def initialize():
     loader = DocumentLoader()
     loader.ensure_folders()
     chunks = loader.chunk_all_documents()
+    store = VectorStore()
+    store.build_or_load(chunks)
+    return loader, store
 
-    retriever = Retriever()
-    collection = retriever.build_or_load_chroma(chunks)
-    bm25 = retriever.build_bm25_index(chunks)
-
+if __name__ == '__main__':
+    loader, store = initialize()
     parser = argparse.ArgumentParser()
     parser.add_argument('--benchmark', action='store_true')
     parser.add_argument('--agent', action='store_true')
     args = parser.parse_args()
-
     if args.benchmark:
-        Benchmarker(retriever, collection, chunks, bm25).run()
+        Benchmarker(store).run()
     elif args.agent:
-        agent = Agent(retriever, collection, chunks, bm25)
-        # run terminal agent loop
+        agent = Agent(store)
+        # terminal agent loop — preserve exact output format from original
     else:
-        # run terminal chat loop
-
-if __name__ == '__main__':
-    main()
+        # terminal chat loop — preserve exact output format from original
 ```
 
-### `app.py` (~50 lines max)
-- Import classes, wire with `@st.cache_resource`
-- All Streamlit UI logic stays here (run_streamlit function)
-- No business logic — only UI rendering and calling class methods
-
-## Unit tests to write
-
-### `tests/test_document_loader.py`
+### `app.py` (~45 lines)
 ```python
-# Mock file system and test:
-- test_chunk_txt_basic()
-- test_chunk_txt_empty_file()
-- test_chunk_pdf_returns_chunks()
-- test_chunk_xlsx_key_value_format()
-- test_scan_detects_misplaced_file()
-- test_truncate_chunk_enforces_300_words()
-- test_chunk_url_html_content()
-- test_chunk_url_unknown_type_raises()
+# @st.cache_resource initialize()
+# ui/session.init_session_state()
+# ui/theme.CSS applied
+# run_streamlit() — full UI logic
+# Preserve: deferred _needs_rerun pattern, active_bm25 logic
 ```
 
-### `tests/test_retriever.py`
-```python
-# Mock ollama.embeddings and chromadb:
-- test_embed_returns_vector()
-- test_classify_query_factual()
-- test_classify_query_comparison()
-- test_expand_query_returns_list()
-- test_check_confidence_above_threshold()
-- test_check_confidence_below_threshold()
-- test_hybrid_retrieve_merges_results()
-- test_rerank_returns_top_n()
-- test_smart_top_n_factual()
-```
+---
 
-### `tests/test_agent.py`
-```python
-# Mock Retriever and ollama.chat:
-- test_parse_tool_call_rag_search()
-- test_parse_tool_call_calculator()
-- test_parse_tool_call_finish()
-- test_tool_calculator_basic_arithmetic()
-- test_tool_calculator_rejects_unsafe_input()
-- test_run_agent_calls_finish()
-- test_run_agent_step_limit()
-- test_build_system_prompt_contains_tools()
-```
-
-### `tests/test_benchmarker.py`
-```python
-# Mock Retriever and ollama.chat:
-- test_score_faithfulness_high()
-- test_score_faithfulness_low()
-- test_score_keyword_recall_full_match()
-- test_score_keyword_recall_partial()
-- test_score_answer_relevancy()
-- test_save_and_load_results()
-- test_compare_runs_shows_delta()
-```
-
-## pyproject.toml to create
-
+## pyproject.toml
 ```toml
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -193,23 +257,20 @@ build-backend = "setuptools.backends.legacy:build"
 name = "rag-agent"
 version = "1.0.0"
 description = "A fully local, production-grade RAG system"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "ollama",
-    "rank-bm25",
-    "chromadb",
-    "streamlit",
-    "requests",
-    "pymupdf",
-    "python-docx",
-    "openpyxl",
-    "xlrd",
-    "python-pptx",
-    "beautifulsoup4",
+    "ollama", "rank-bm25", "chromadb", "streamlit", "requests",
+    "pymupdf", "python-docx", "openpyxl", "xlrd", "python-pptx",
+    "beautifulsoup4", "lxml",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "unittest-mock"]
+dev = ["pytest", "pytest-cov", "pytest-mock"]
+
+[project.urls]
+Homepage = "https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent"
+Demo = "https://huggingface.co/spaces/anjanatiha2024/ragdoll"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -219,21 +280,129 @@ pythonpath = ["src"]
 where = ["src"]
 ```
 
-## Absolute rules — do not violate
+---
 
-1. Change structure, not behavior — every step must leave the app working
-2. One class per commit — do not combine extractions
-3. Run `streamlit run app.py` after steps 2, 3, 6 to confirm UI works
-4. Run `python main.py` after every step
-5. Run `pytest` after step 7 — all tests must pass before final commit
-6. Never call real Ollama models in tests — always mock
-7. Keep the `@st.cache_resource` pattern on initialization in `app.py`
-8. Keep chunk truncation (300 words) in every chunker path
-9. Keep misplaced file detection logic intact
-10. Keep type-aware reranker prompts exactly as written
+## DESIGN.md — write this at Step 9
 
-## Start here
+Contents (write based on the actual code):
+- Why 4 classes instead of more granular decomposition
+- What each class owns and why those responsibilities belong together
+- Why tools are private methods on Agent, not separate classes
+- Tradeoffs: ChromaDB vs Pinecone, local vs API, BM25 vs pure dense
+- How you'd scale this to production (async, batching, caching, distributed)
+- What the type-aware reranker solves that a generic reranker doesn't
+- Benchmark metrics — what they measure and what the scores mean
+- What you'd do differently with more time / larger team
 
-Begin with Step 0: create the folder structure, empty `__init__.py` files,
-and `pyproject.toml`. Then read `CLAUDE.md` and confirm you understand
-the full plan before touching any logic in `rag_app.py`.
+---
+
+## Critical facts — get these right
+
+```python
+# Embed call — mock ollama.embed, NOT ollama.embeddings
+ollama.embed(model=EMBEDDING_MODEL, input=text)['embeddings'][0]
+
+# URL type detection — 4 priorities
+# 1. Content-Type header
+# 2. File extension in URL path (strip ?query first)
+# 3. PDF magic bytes: content[:4] == b'%PDF'
+# 4. Default to 'html'
+
+# VectorStore rebuild
+if existing >= len(chunks): return  # skip
+if existing > 0: delete all then rebuild
+
+# Agent parse_tool_call — preserve both patterns
+re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+?)\s*\)', text, re.DOTALL)  # with parens
+re.search(r'(?i)TOOL:\s*(\w+)\s+(.+)', text)                         # without parens
+
+# Hallucination filter — preserve both lists
+_no_info_phrases = ["there is no information", "i couldn't find", ...]
+_hallucination_pivots = ["however,", "but i can", "but,", ...]
+
+# Deferred rerun — preserve
+_needs_rerun = False
+# ... process ...
+_needs_rerun = True
+if _needs_rerun: st.rerun()
+```
+
+---
+
+## TDD cycle — mandatory for every file
+
+```
+1. Stubs only
+2. Tests → RED
+3. Implement → GREEN
+4. Integration tests → GREEN
+5. Streamlit tests → GREEN
+6. STOP: "Please test UI"
+7. Wait for "UI looks good, commit"
+8. Commit → next step
+```
+
+---
+
+## Mock strategy
+
+```python
+ollama.embed  → {'embeddings': [[0.1, 0.2, ...]]}
+ollama.chat   → {'message': {'content': 'mock'}}
+chromadb      → chromadb.EphemeralClient()
+requests.get  → Mock(.content, .headers, .encoding, .raise_for_status)
+
+# Never mock:
+fitz, python-docx, openpyxl, xlrd, python-pptx, beautifulsoup4
+BM25Okapi, truncation, misplaced detection, calculator eval
+```
+
+---
+
+## 11-step refactor order
+
+```
+Step 0:  structure + pyproject.toml + __init__.py + lxml → STOP
+Step 1:  config.py → STOP
+Step 2:  logger.py → STOP
+Step 3:  ui/theme.py + ui/session.py → browser check → commit
+Step 4:  DocumentLoader → integration tests → browser check → commit
+Step 5:  VectorStore → integration tests → browser check → commit
+Step 6:  Agent → integration tests → browser check → commit
+Step 7:  Benchmarker → run --benchmark → STOP → commit
+Step 8:  slim app.py + main.py → full UI test → commit
+Step 9:  DESIGN.md → STOP → commit
+Step 10: full integration tests → show results → STOP → commit
+Step 11: final verification → final UI test → final commit
+```
+
+---
+
+## Absolute rules
+
+1. `rag_app.py` is READ-ONLY — never modify it, only extract from it
+2. Copy, do not rewrite — copy logic from `rag_app.py` verbatim.
+   Only change what is strictly necessary to make it work in its new
+   location (e.g. adding self., updating import paths, passing deps
+   via constructor). No simplifying, improving, renaming, reformatting.
+3. Change structure, not behavior
+2. One file per commit
+3. TDD for every file — no exceptions
+4. GREEN before asking me to review
+5. Browser UI check before every commit
+6. Commit only after "UI looks good, commit"
+7. Mock `ollama.embed` — NOT `ollama.embeddings`
+8. No extra classes beyond the 4
+9. No BaseTool, no Calculator class, no Summariser class, no SentimentAnalyser class
+10. No packages added to requirements.txt (lxml only)
+11. No proceed without my "continue"
+
+---
+
+## Start here — Step 0
+
+Create the full folder structure, all empty `__init__.py` files,
+`pyproject.toml`, and add `lxml` to `requirements.txt`.
+List every file and folder created.
+STOP — do not touch `rag_app.py`.
+Wait for "continue".

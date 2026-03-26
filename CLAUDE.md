@@ -11,11 +11,76 @@ RAG Agent is a fully local, production-grade Retrieval-Augmented Generation syst
 It ingests documents in 8 formats, retrieves using hybrid BM25 + dense vector search,
 reranks with a type-aware LLM reranker, and answers via LLaMA 3.2 — all on-device via Ollama.
 
-**Entry points:**
+**Live demo:** https://huggingface.co/spaces/anjanatiha2024/ragdoll
+**GitHub:** https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent
+
+**Entry points (current — before refactor):**
+- `python3 rag_app.py` — terminal chatbot
+- `python3 rag_app.py --agent` — agent mode
+- `python3 rag_app.py --benchmark` — benchmark evaluation
+- `streamlit run rag_app.py` — Streamlit web UI
+
+**Entry points (after refactor):**
 - `python main.py` — terminal chatbot
-- `python main.py --agent` — agent mode (ReAct loop)
+- `python main.py --agent` — agent mode
 - `python main.py --benchmark` — benchmark evaluation
 - `streamlit run app.py` — Streamlit web UI
+
+---
+
+## Models
+
+| Role | Model |
+|------|-------|
+| Embeddings | `hf.co/CompendiumLabs/bge-base-en-v1.5-gguf` |
+| Language / Reranker | `hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF` |
+
+---
+
+## Design Decision — 4 Classes
+
+This codebase uses **4 classes and 4 modules**. This is a deliberate choice.
+
+Components that have no meaningful state of their own — query classification,
+response generation, conversation memory, individual tools — are implemented
+as private methods (`_`) on the class that owns the state they operate on.
+This reduces indirection, keeps related logic together, and makes the codebase
+navigable without sacrificing clarity.
+
+**Classes own state. Modules own constants and stateless functions.**
+This distinction is strict and must be preserved throughout the refactor.
+
+---
+
+## Dependencies
+
+### Runtime — `requirements.txt`
+```
+ollama
+rank_bm25
+chromadb
+streamlit
+requests
+pymupdf           # PDF
+python-docx       # DOCX
+openpyxl          # XLSX
+xlrd              # XLS legacy only — NOT for .xlsx
+python-pptx       # PPTX
+beautifulsoup4    # HTML + URL parsing
+lxml              # BeautifulSoup parser — add this, it is missing from original
+```
+
+### Dev only — `pyproject.toml`
+```toml
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "pytest-mock"]
+```
+
+**Rules:**
+- Do NOT add any package to `requirements.txt` during the refactor
+- `lxml` is the only addition — it is a missing but needed dependency
+- Dev dependencies go in `pyproject.toml` only, never `requirements.txt`
+- `xlrd` is for `.xls` legacy files only — `openpyxl` handles `.xlsx`
 
 ---
 
@@ -26,228 +91,656 @@ rag/
 ├── src/
 │   └── rag/
 │       ├── __init__.py
-│       ├── config.py            ← all constants and settings
-│       ├── document_loader.py   ← DocumentLoader class
-│       ├── retriever.py         ← Retriever class
-│       ├── agent.py             ← Agent class
-│       └── benchmarker.py       ← Benchmarker class
+│       ├── config.py              ← MODULE: all constants
+│       ├── logger.py              ← MODULE: stateless log functions
+│       ├── document_loader.py     ← CLASS: DocumentLoader
+│       ├── vector_store.py        ← CLASS: VectorStore
+│       ├── agent.py               ← CLASS: Agent
+│       └── benchmarker.py         ← CLASS: Benchmarker
+├── ui/
+│   ├── __init__.py
+│   ├── theme.py                   ← MODULE: CSS + style constants
+│   └── session.py                 ← MODULE: session state helpers
 ├── tests/
 │   ├── __init__.py
 │   ├── test_document_loader.py
-│   ├── test_retriever.py
+│   ├── test_vector_store.py
 │   ├── test_agent.py
-│   └── test_benchmarker.py
-├── app.py                       ← Streamlit UI (thin wrapper only)
-├── main.py                      ← CLI entry point (thin wrapper only)
-├── requirements.txt
-├── pyproject.toml
-├── CLAUDE.md                    ← this file
+│   ├── test_benchmarker.py
+│   └── test_integration.py
+├── app.py                         ← Streamlit UI thin wrapper (<50 lines)
+├── main.py                        ← CLI thin wrapper (<50 lines)
+├── requirements.txt               ← add lxml only
+├── pyproject.toml                 ← new file
+├── DESIGN.md                      ← new file: architectural decisions
+├── .gitignore                     ← preserve existing
+├── .streamlit/config.toml         ← preserve existing Ocean Blue theme
+├── CLAUDE.md
 └── README.md
 ```
 
 ---
 
-## Architecture
+## Class Responsibilities
 
-### Class Responsibilities
+### `DocumentLoader` — owns all ingestion
 
-#### `config.py`
-- All hardcoded constants: model names, paths, thresholds, chunk sizes
-- No logic — pure configuration only
-- Everything imported from here, never hardcoded elsewhere
+**State:**
+```python
+self.doc_folders  # from config
+self.ext_to_type  # from config
+self.chunk_sizes  # all chunk size constants from config
+```
 
-#### `DocumentLoader`
-Owns everything related to getting text into the system.
-- `ensure_folders()` — create doc subfolders
-- `scan_all_files()` — walk all subfolders, detect type by extension, flag misplaced files
-- `chunk_all_documents()` — dispatch to correct chunker per type
-- Per-type chunkers: `_chunk_txt`, `_chunk_pdf`, `_chunk_docx`, `_chunk_xlsx`, `_chunk_pptx`, `_chunk_csv`, `_chunk_md`, `_chunk_html`
-- `chunk_url(url)` — fetch and chunk a remote URL
-- `truncate_chunk(text)` — enforce 300-word limit before embedding
+**Public methods:**
+```python
+def ensure_folders()
+def scan_all_files()           # misplaced file detection
+def chunk_all_documents()
+def chunk_url(url)             # 4-priority type detection
+```
 
-#### `Retriever`
-Owns all retrieval, indexing, and ranking logic.
-- `build_or_load_chroma(chunks)` — persistent ChromaDB setup
-- `build_bm25_index(chunks)` — in-memory BM25 index
-- `embed(text)` — call Ollama embedding model
-- `hybrid_retrieve(queries, collection, chunks, bm25, top_n)` — fuse BM25 + vector results
-- `rerank(query, candidates, top_n)` — LLM reranker with type-aware prompts
-- `expand_query(query)` — LLM query expansion
-- `classify_query(query)` — factual / comparison / general
-- `check_confidence(results)` — similarity threshold filter
-- `smart_top_n(query_type)` — dynamic retrieval depth
+**Private methods:**
+```python
+def _dispatch_chunker(file_info)
+def _chunk_txt(filepath, filename)
+def _chunk_md(filepath, filename)    # strip headings/bold/italic/code/images/links
+def _chunk_pdf(filepath, filename)   # page-level isolation, sentence windows
+def _chunk_docx(filepath, filename)  # paragraphs + table rows, dedup merged cells
+def _chunk_xlsx(filepath, filename)  # key=value pairs per row, per sheet
+def _chunk_xls(filepath, filename)   # xlrd fallback for legacy .xls
+def _chunk_csv(filepath, filename)   # DictReader key=value pairs
+def _chunk_pptx(filepath, filename)  # text shapes per slide
+def _chunk_html(filepath, filename)  # BeautifulSoup tag strip + sentence windows
+def _truncate_chunk(text)            # 300 words OR 1200 chars, whichever shorter
+```
 
-#### `Agent`
-Owns the agentic ReAct loop and tool execution.
-- `run_agent(task, collection, chunks, bm25)` — main ReAct loop
-- `_parse_tool_call(text)` — extract tool name + argument from LLM output
-- `_tool_rag_search(query, collection, chunks, bm25)` — calls Retriever
-- `_tool_calculator(expr)` — safe arithmetic eval
-- `_tool_summarise(passage)` — LLM summarisation pass
-- `_build_system_prompt(tools)` — construct agent system prompt
+**URL type detection — 4 priorities in exact order:**
+1. Content-Type header + fuzzy fallback
+2. File extension in URL path (strip query strings first)
+3. PDF magic bytes sniff (`content[:4] == b'%PDF'`)
+4. Default to 'html'
 
-#### `Benchmarker`
-Owns evaluation logic.
-- `run_benchmark(collection, chunks, bm25)` — run full eval suite
-- `score_faithfulness(response, context)` — grounding check
-- `score_answer_relevancy(query, response)` — on-topic check
-- `score_keyword_recall(response, expected_keywords)` — keyword coverage
-- `score_context_relevance(query, retrieved)` — retrieval quality
-- `save_results(results)` — write to benchmark_results.json
-- `compare_runs(current, previous)` — before/after delta
+**chunk_url dispatch:**
+- Binary formats (pdf, docx, xlsx, pptx, xls) → write to tempfile → chunker → delete tempfile
+- Text formats (csv, md) → write to tempfile → chunker → delete tempfile
+- txt → line-based directly from decoded content
+- html/webpage → BeautifulSoup directly from decoded content
+
+---
+
+### `VectorStore` — owns all retrieval, search, and response generation
+
+This is the largest class. It owns ChromaDB, BM25, the full query pipeline,
+response generation, and conversation history. These are all grouped here
+because they all operate on the same core state: the vector index and chunk list.
+
+**State:**
+```python
+self.client          # chromadb.PersistentClient
+self.collection      # ChromaDB collection
+self.chunks          # list of all chunks (local + URL/file uploaded)
+self.bm25_index      # BM25Okapi index
+self.conversation    # list of {'role': ..., 'content': ...} dicts
+```
+
+**Public methods:**
+```python
+def build_or_load(chunks)          # persistent ChromaDB, batch embed (size 50), rebuild logic
+def add_chunks(chunks, id_prefix)  # runtime URL/file upload
+def rebuild_bm25(all_chunks)       # after URL/file upload adds new chunks
+def run_pipeline(query, streamlit_mode=False)   # full chat pipeline
+def stream_response(stream)        # terminal: typing dots then token stream
+def clear_conversation()           # wipe conversation history
+```
+
+**Private — vector and search:**
+```python
+def _embed(text)                   # ollama.embed(model=..., input=...)['embeddings'][0]
+def _truncate_for_embedding(text)  # 200 words AND 1200 chars
+def _cosine_similarity(a, b)       # manual dot product
+def _hybrid_retrieve(queries, top_n, alpha=0.5)   # BM25 + dense fusion
+def _rerank(query, candidates, top_n)              # type-aware LLM reranker
+def _rerank_prompt(query, entry)   # 7 prompt variants — preserve exactly
+```
+
+**Private — query processing:**
+```python
+def _classify_query(query)         # summarise → comparison → factual → general
+def _expand_query(query)           # LLM 2 rewrites + original = 3 queries
+def _check_confidence(results)     # results[0][1] >= SIMILARITY_THRESHOLD
+def _smart_top_n(query_type)       # factual:5, comparison:15, general:10, summarise:TOP_RETRIEVE
+```
+
+**Private — response generation:**
+```python
+def _build_instruction_prompt(context)
+def _source_label(entry)           # pdf→p{n}, xlsx/csv→row{n}, pptx→slide{n}, html→s{n}, else→L{s}-{e}
+def _synthesize(question, context) # anti-hallucination LLM synthesis
+def _filter_hallucination(response)  # truncate on pivot phrases after no-info phrases
+```
+
+**Hybrid fusion logic:**
+```python
+# For each query:
+# 1. Dense: query ChromaDB, get distances, convert to similarity (1 - dist)
+# 2. BM25: get scores, normalize by max score
+# 3. Fuse: score = alpha * dense + (1 - alpha) * bm25
+# 4. Keep best score per chunk across all expanded queries
+# 5. Sort descending, return top_n
+```
+
+**VectorStore rebuild logic:**
+```python
+if existing >= len(chunks):    # DB up to date or has extra URL chunks → skip
+    return collection
+if existing > 0:               # local files grew → delete all → rebuild
+    collection.delete(ids=collection.get()['ids'])
+# embed all chunks in batches of 50
+```
+
+**Hallucination filter — preserve both lists exactly:**
+```python
+_no_info_phrases = [
+    "there is no information", "i couldn't find", "i could not find",
+    "the provided context does not", "the provided documents do not",
+    "no information in the provided", "not mentioned in the", "not found in the",
+]
+_hallucination_pivots = [
+    "however,", "but i can", "but,", "that said,",
+    "nevertheless,", "i can tell you", "i can provide"
+]
+```
+
+**Low confidence path:** if `not is_confident` → return fixed message, do NOT call LLM.
+**run_pipeline rerank top_n:** `10` if query_type == 'summarise', else `TOP_RERANK`.
+
+---
+
+### `Agent` — owns the ReAct loop and all 5 tools
+
+Tools (calculator, summarise, sentiment) are private methods — not separate classes.
+They have no state of their own and are implementation details of the agent.
+
+**State:**
+```python
+self.store           # VectorStore reference
+self.messages        # ReAct message history
+self.collected_context  # accumulated search results for final synthesis
+self.max_steps       # default 8
+```
+
+**Class constant:**
+```python
+AGENT_SYSTEM_PROMPT: str   # preserve every word exactly — do not change
+```
+
+**Public methods:**
+```python
+def run(user_query, streamlit_mode=False)
+```
+
+**Private — ReAct loop:**
+```python
+def _parse_tool_call(response_text)    # two regex patterns — preserve both
+def _dispatch_tool(tool_name, tool_arg)
+def _synthesize_final_answer(query, collected_context)
+def _fast_path_summarise(query, streamlit_mode)   # 4-term multi-search → synthesize
+def _fast_path_sentiment(query, streamlit_mode)   # search → strip labels → sentiment
+```
+
+**Private — tools (were separate classes, now private methods):**
+```python
+def _tool_rag_search(query)            # expand → hybrid retrieve → rerank → format
+def _tool_calculator(expression)       # safe eval, ALLOWED_CHARS whitelist
+def _tool_summarise(text)              # adaptive length hint + LLM
+def _tool_sentiment(text_or_query)     # < 10 words → search first; else analyse directly
+```
+
+**5 tools:** `rag_search`, `calculator`, `summarise`, `sentiment`, `finish`
+
+**parse_tool_call — two patterns (preserve both):**
+```python
+# Pattern 1: with parentheses
+re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+?)\s*\)', text, re.DOTALL)
+# Pattern 2: without parentheses (fallback)
+re.search(r'(?i)TOOL:\s*(\w+)\s+(.+)', text)
+```
+
+**Calculator allowed chars:** `set('0123456789+-*/(). ')`
+
+**Summariser length hints:**
+```python
+< 100 words  → "2-3 sentences"
+< 300 words  → "4-5 sentences"
+else         → "6-8 sentences covering all key points"
+```
+
+**Sentiment prompt output format (preserve exactly):**
+```
+Sentiment: <Positive / Negative / Neutral / Mixed>
+Tone: <one short phrase>
+Key phrases: <2-4 phrases>
+Explanation: <1-2 sentences>
+```
+
+**Agent fast path — summarise:**
+- Detected by keyword list (preserve exactly from original)
+- 4 search terms: `['work experience', 'education', 'skills projects', 'summary contact']`
+- Multi-search → collect context → synthesize → return
+
+**Agent fast path — sentiment:**
+- Detected by keyword list (preserve exactly)
+- Strip sentiment keywords from query to get search subject
+- Search → strip chunk metadata labels → sentiment analysis → return
+
+**Bad format recovery:** up to 2 retries with correction prompt, then use raw text.
+**Calculator auto-finish:** after successful calculator call → auto-finish with `{expr} = {result}`
+**RAG search auto-finish:** for non-summarise queries → synthesize after first rag_search
+
+---
+
+### `Benchmarker` — owns all evaluation
+
+**State:**
+```python
+self.store           # VectorStore reference
+self.results_file    # BENCHMARK_FILE from config
+```
+
+**Class constant:**
+```python
+DEFAULT_TEST_CASES = [   # 5 cat facts — preserve exactly for backward compat
+    {'question': 'How many hours do cats sleep per day?',     'expected_keywords': ['sleep', '16']},
+    {'question': 'Can cats see in dim light?',                'expected_keywords': ['dim', 'light', 'see']},
+    {'question': 'How many toes do cats have on front paws?', 'expected_keywords': ['five', 'toes', 'front']},
+    {'question': 'How many whiskers does a cat have?',        'expected_keywords': ['whiskers', '12']},
+    {'question': 'Can cats taste sweet food?',                'expected_keywords': ['sweet', 'taste']},
+]
+```
+
+**Public methods:**
+```python
+def run(test_cases=None)
+```
+
+**Private methods:**
+```python
+def _score_faithfulness(response, reranked)      # word overlap, faithfulness stopwords
+def _score_relevancy(question, response)          # F1 word overlap, relevancy stopwords
+def _score_keyword_recall(response, keywords)     # fraction of keywords found
+def _score_context_relevance(reranked)            # mean sim of top TOP_RERANK chunks
+def _save_results(results)
+def _compare_runs(current, previous)              # delta with ▲/▼/─ indicators
+def _read_results()
+```
+
+**Two separate stopword sets (preserve exactly):**
+```python
+# Faithfulness
+{'a','an','the','is','are','was','were','do','does','it','its',
+ 'to','of','in','for','and','or','not','with','on','at','by',
+ 'this','that','be','as','i','you','we','they','but','so','if'}
+
+# Relevancy
+{'a','an','the','is','are','was','were','do','does','did','have',
+ 'has','can','what','how','why','when','where','who','to','of','in',
+ 'it','its','for','and','or','not','with','on','at','by','from'}
+```
+
+**Bar chart format (preserve):** `'[' + '█'*int(s*20) + '░'*(20-int(s*20)) + ']'`
+
+---
+
+## Module Responsibilities
+
+### `config.py` — constants only, no functions, no classes
+```python
+EMBEDDING_MODEL      = 'hf.co/CompendiumLabs/bge-base-en-v1.5-gguf'
+LANGUAGE_MODEL       = 'hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF'
+DOCS_ROOT            = './docs'
+DOC_FOLDERS          = { 'pdf': ..., 'txt': ..., ... }
+EXT_TO_TYPE          = { '.pdf': 'pdf', '.txt': 'txt', ... }
+CHROMA_DIR           = './chroma_db'
+CHROMA_COLLECTION    = 'rag_docs'
+LOG_FILE             = 'rag_logs.json'
+BENCHMARK_FILE       = 'benchmark_results.json'
+SIMILARITY_THRESHOLD = 0.55
+TOP_RETRIEVE         = 20
+TOP_RERANK           = 5
+TXT_CHUNK_SIZE       = 1
+TXT_CHUNK_OVERLAP    = 0
+PDF_CHUNK_SENTENCES  = 5
+DOCX_CHUNK_PARAS     = 3
+PPTX_CHUNK_SLIDES    = 1
+HTML_CHUNK_SENTENCES = 5
+```
+
+### `logger.py` — stateless file I/O
+```python
+def log_interaction(query, qtype, chunks_used, sim_scores, response)
+def _read_log() -> list      # safe JSON read, return [] on any error
+def _write_log(entries)      # JSON dump with indent=2
+# Log entry format:
+# { timestamp, query, query_type, chunks_used,
+#   top_similarity, avg_similarity, response_length }
+```
+
+### `ui/theme.py` — style constants
+```python
+CSS: str              # full IBM Plex Mono stylesheet — preserve every rule exactly
+BADGE_CLASSES = {
+    'factual':    'b-fact',
+    'comparison': 'b-comp',
+    'general':    'b-gen',
+    'summarise':  'b-gen',
+}
+CONFIDENCE_BADGE = { True: 'b-ok', False: 'b-warn' }
+AVATAR = { 'user': '🧑', 'assistant': '💬', 'agent': '🤖' }
+```
+
+### `ui/session.py` — Streamlit session helpers
+```python
+SESSION_DEFAULTS = {
+    'conv': [], 'display': [], 'total': 0, 'last': None,
+    'mode': 'chat', 'url_chunks': [], 'bm25_index': None,
+    'url_msg': None, 'file_msg': None,
+}
+def init_session_state()           # set defaults for missing keys only
+def get_active_bm25(base_bm25)     # return session bm25 if updated, else base
+```
+
+---
+
+## Workflow Rules
+
+- Work **ONE step at a time**
+- After each step, **STOP and wait for my approval**
+- Show exactly what files were created or changed
+- Do **NOT** move to the next step until I say "continue" or "next"
+- If you encounter a decision point, **ask** — do not assume
+- Always run tests and the app before asking me to proceed
 
 ---
 
 ## Refactoring Rules
 
 ### Non-negotiable
-- **Change structure, not behavior** — the app must work identically after every step
-- **One class at a time** — extract, verify, commit, then move to the next
-- **Run the app after every class extraction** before proceeding
-- **Never break the Streamlit entry point** — `streamlit run app.py` must always work
-- **No circular imports** — config → loader → retriever → agent → benchmarker (one direction only)
+- **`rag_app.py` is read-only** — never modify it, only extract from it
+- **Copy, do not rewrite** — copy logic from `rag_app.py` verbatim.
+  Only change what is strictly necessary to make it work in its new location
+  (e.g. adding `self.`, updating import paths, passing dependencies via
+  constructor). No simplifying, no improving, no renaming, no reformatting.
+- **Change structure, not behavior** — app must work identically after every step
+- **One file at a time** — extract, verify, commit, then move to next
+- **Run both entry points after every extraction:**
+  `python main.py` AND `streamlit run app.py`
+- **No circular imports** — one direction only:
+  ```
+  config → logger → document_loader → vector_store → agent → benchmarker
+  ```
 
-### Code style
-- Full docstrings on every class and public method (Google style)
+### Code style — match original exactly
+- Same variable names as original `rag_app.py`
+- Same comment style
+- Same string formatting (f-strings)
+- Same error handling patterns (try/except with print warnings)
+- Google-style docstrings on every class and public method
 - Type hints on all method signatures
-- All constants in `config.py` — no magic numbers or strings inline
 - Private methods prefixed with `_`
 - `__all__` defined in each module
 
-### Testing rules
-- Use `pytest` with `unittest.mock`
-- Mock `ollama.chat`, `ollama.embeddings`, and `chromadb.Client` — never call real models in tests
-- Mock file I/O for document loader tests
-- Each test file maps 1:1 to a source file
-- Tests must be runnable with `pytest` from project root with no extra setup
+---
+
+## TDD Approach — Every File
+
+```
+1. Create file with stubs only
+2. Write unit tests → pytest → RED (expected)
+3. Implement logic from rag_app.py → pytest → GREEN
+4. Run integration tests → all green
+5. Run streamlit automated tests → all green
+6. STOP: "All tests passing. Please test the UI now."
+7. Wait for "UI looks good, commit"
+8. Commit — then move to next step
+```
+
+---
+
+## Testing Responsibilities
+
+### Claude Code — automated:
+- Unit tests per file
+- Integration tests — all 8 file types, xls, all URL types, all 5 agent tools
+- Streamlit automated tests (`streamlit.testing.v1`)
+- All GREEN before asking me
+
+### Me — manual browser only:
+- Upload each of the 8 file types
+- Paste URLs (webpage + remote file types)
+- Chat mode — factual, comparison, summarise queries
+- Agent mode — all 5 tools: rag_search, calculator, summarise, sentiment, finish
+- Check sidebar: pre/post rerank, confidence badge, query type badge, session stats
+- Say **"UI looks good, commit"** or report what is broken
+
+### Gate before every commit:
+```
+1. pytest → all green ✅
+2. streamlit tests → all green ✅
+3. Claude: "Please test the UI now"
+4. Me: test in browser
+5. Me: "looks good, commit" OR "fix X"
+6. Claude: commit ONLY after my approval
+```
+
+---
+
+## Integration Tests — `tests/test_integration.py`
+
+### 1. All 8 file types + xls (real libraries, tmp files)
+- `test_load_pdf/txt/docx/xlsx/xls/pptx/csv/md/html()`
+- `test_docx_table_rows_extracted()`
+- `test_docx_merged_cells_deduplicated()`
+- `test_misplaced_file_detected_and_chunked()`
+- `test_truncate_chunk_300_words()`
+- `test_truncate_chunk_1200_chars()`
+
+### 2. URL ingestion (mock requests.get only)
+- `test_url_html_webpage()`
+- `test_url_remote_pdf/docx/xlsx/csv/pptx()`
+- `test_url_type_by_content_type()`
+- `test_url_type_by_extension()`
+- `test_url_type_by_pdf_magic_bytes()`
+- `test_url_defaults_to_html()`
+- `test_url_connection_error_returns_empty()`
+- `test_url_source_label_truncated_60_chars()`
+
+### 3. VectorStore pipeline (mock ollama + EphemeralClient)
+- `test_hybrid_retrieve_fuses_bm25_and_dense()`
+- `test_hybrid_retrieve_alpha_weighting()`
+- `test_expand_query_returns_3()`
+- `test_classify_summarise_checked_first()`
+- `test_classify_factual/comparison/general()`
+- `test_rerank_orders_by_llm_score()`
+- `test_confidence_below_threshold()`
+- `test_confidence_above_threshold()`
+- `test_smart_top_n_all_4_types()`
+- `test_source_label_all_types()`
+- `test_hallucination_filter_truncates()`
+- `test_hallucination_filter_clean_response_unchanged()`
+- `test_low_confidence_skips_llm()`
+- `test_rebuild_logic_skips_if_existing_gte_chunks()`
+- `test_rebuild_logic_deletes_and_rebuilds_if_local_grew()`
+
+### 4. All 5 agent tools
+- `test_tool_calculator_basic()`
+- `test_tool_calculator_complex()`
+- `test_tool_calculator_unsafe_chars_rejected()`
+- `test_tool_summarise_short_2_3_sentences()`
+- `test_tool_summarise_medium_4_5_sentences()`
+- `test_tool_summarise_long_6_8_sentences()`
+- `test_tool_sentiment_short_query_searches_first()`
+- `test_tool_sentiment_long_text_direct()`
+- `test_tool_sentiment_output_4_fields()`
+- `test_parse_tool_call_with_parens()`
+- `test_parse_tool_call_without_parens()`
+- `test_parse_tool_call_malformed_returns_none()`
+- `test_fast_path_summarise_4_searches()`
+- `test_fast_path_sentiment_strips_labels()`
+- `test_calculator_auto_finish()`
+- `test_rag_search_auto_finish()`
+- `test_bad_format_retry_max_2()`
+- `test_step_limit_reached()`
+- `test_collected_context_used_for_final_answer()`
+
+### 5. Streamlit UI automated
+- `test_ui_loads_without_error()`
+- `test_chat_mode_is_default()`
+- `test_agent_mode_toggle()`
+- `test_chat_query_returns_response()`
+- `test_agent_query_shows_steps_and_answer()`
+- `test_url_ingestion_updates_chunk_count()`
+- `test_file_upload_updates_chunk_count()`
+- `test_all_8_file_types_upload()`
+- `test_clear_button_resets_state()`
+- `test_sidebar_pre_rerank_chunks()`
+- `test_sidebar_post_rerank_chunks()`
+- `test_confidence_badge_low/high()`
+- `test_query_type_badge()`
+- `test_agent_tools_panel_in_agent_mode()`
+- `test_session_stats_increment()`
+
+### Mock strategy
+```python
+# Always mock:
+ollama.embed  → {'embeddings': [[0.1, 0.2, ...]]}  # NOT ollama.embeddings
+ollama.chat   → {'message': {'content': 'mock'}}
+chromadb      → chromadb.EphemeralClient()
+requests.get  → Mock with .content, .headers, .encoding, .raise_for_status()
+
+# Never mock:
+fitz, python-docx, openpyxl, xlrd, python-pptx, beautifulsoup4
+BM25Okapi, chunk truncation, misplaced detection, calculator eval
+```
 
 ---
 
 ## Step-by-Step Refactor Order
 
-Work through these in order. Do NOT skip ahead.
-
 ```
-Step 0: Create folder structure + pyproject.toml + empty __init__.py files
-        → verify: project imports correctly
+Step 0:  Create structure + pyproject.toml + __init__.py + add lxml to requirements.txt
+         → show every file created
+         STOP: wait for "continue"
 
-Step 1: Extract config.py
-        → move all constants from rag_app.py top section
-        → verify: nothing breaks (just constants moved)
-        → commit: "refactor: extract config.py"
+Step 1:  Extract config.py (module)
+         → copy all constants exactly from rag_app.py
+         → run python rag_app.py → confirm still works
+         STOP: wait for "continue"
+         commit: "refactor: extract config module"
 
-Step 2: Extract DocumentLoader
-        → all chunkers + scan_all_files + ensure_folders + chunk_url
-        → update rag_app.py to import and use DocumentLoader
-        → verify: streamlit run app.py loads documents correctly
-        → commit: "refactor: extract DocumentLoader class"
+Step 2:  Extract logger.py (module)
+         → stubs → tests (red) → implement → green
+         STOP: wait for "continue"
+         commit: "refactor: extract logger module"
 
-Step 3: Extract Retriever
-        → build_or_load_chroma, build_bm25_index, embed, hybrid_retrieve,
-          rerank, expand_query, classify_query, check_confidence, smart_top_n
-        → verify: queries return correct results
-        → commit: "refactor: extract Retriever class"
+Step 3:  Extract ui/theme.py + ui/session.py (modules)
+         → CSS string, badge/avatar dicts, init_session_state, get_active_bm25
+         → run streamlit → confirm UI identical
+         STOP: "please check UI looks the same in browser"
+         → wait for "UI looks good, commit"
+         commit: "refactor: extract UI modules"
 
-Step 4: Extract Agent
-        → run_agent, all tool methods, prompt builder
-        → verify: python main.py --agent works end-to-end
-        → commit: "refactor: extract Agent class"
+Step 4:  Extract DocumentLoader (class)
+         → stubs → tests (red) → implement → green
+         → integration tests: all 8 types + xls + URL + misplaced + truncation
+         STOP: "please test UI — upload each file type and paste a URL"
+         → wait for "UI looks good, commit"
+         commit: "refactor: extract DocumentLoader class"
 
-Step 5: Extract Benchmarker
-        → all scoring functions, run_benchmark, save/compare
-        → verify: python main.py --benchmark completes
-        → commit: "refactor: extract Benchmarker class"
+Step 5:  Extract VectorStore (class)
+         → stubs → tests (red) → implement → green
+         → integration tests: hybrid retrieve, rerank, pipeline, hallucination filter
+         → confirm ChromaDB loads, queries work, pipeline produces answers
+         STOP: "please test UI — ask a factual, comparison, and summarise question"
+         → wait for "UI looks good, commit"
+         commit: "refactor: extract VectorStore class"
 
-Step 6: Slim down app.py and main.py
-        → both files should be <50 lines — import classes, wire together, run
-        → verify: all three entry points work (terminal, agent, streamlit)
-        → commit: "refactor: slim entry points"
+Step 6:  Extract Agent (class)
+         → stubs → tests (red) → implement → green
+         → integration tests: all 5 tools, fast paths, bad format recovery
+         STOP: "please test UI — agent mode: calculator, summarise, sentiment, rag_search"
+         → wait for "UI looks good, commit"
+         commit: "refactor: extract Agent class"
 
-Step 7: Write unit tests
-        → one test file per class, mock all external calls
-        → verify: pytest passes with no real model calls
-        → commit: "test: add unit tests for all classes"
+Step 7:  Extract Benchmarker (class)
+         → stubs → tests (red) → implement → green
+         → run python main.py --benchmark → confirm scores + bar chart output
+         STOP: wait for "continue"
+         commit: "refactor: extract Benchmarker class"
 
-Step 8: Final check
-        → run full app end-to-end
-        → run pytest
-        → verify README matches new structure
-        → commit: "refactor: complete class-based restructure"
+Step 8:  Slim app.py and main.py to <50 lines each
+         → wire all classes, @st.cache_resource, argparse
+         → run all three entry points
+         → run full pytest suite → all green
+         STOP: "please do a full UI test — every feature"
+         → wait for "UI looks good, commit"
+         commit: "refactor: slim entry points"
+
+Step 9:  Write DESIGN.md
+         → architectural decisions, tradeoffs, how to scale to production
+         → what each class owns and why
+         STOP: wait for "continue"
+         commit: "docs: add DESIGN.md"
+
+Step 10: Full integration tests — tests/test_integration.py
+         → all tests in list above → all green
+         STOP: show full test results summary
+         → wait for "continue"
+         commit: "test: add full integration test suite"
+
+Step 11: Final verification
+         → full pytest suite → all green
+         → python main.py, --agent, --benchmark
+         → streamlit run app.py
+         STOP: "please do a final complete UI test — every feature"
+         → wait for "all good, final commit"
+         commit: "refactor: complete — 4 classes, 4 modules, full test suite"
 ```
 
 ---
 
-## Key Implementation Details
+## Key Things to Preserve Exactly
 
-### Streamlit cache
-The `@st.cache_resource` on `_initialize()` is critical.
-Do NOT refactor in a way that causes re-initialization on every Streamlit rerun.
-The cached object must hold `(collection, chunks, bm25)` across reruns.
-
-### Chunk truncation
-All chunks must be truncated to 300 words before embedding.
-This is a hard requirement — the BGE model has a 512-token context limit.
-The truncation must happen in `DocumentLoader.truncate_chunk()` and be called
-from every chunker before the chunk is returned.
-
-### Misplaced file detection
-`scan_all_files()` detects files dropped into the wrong subfolder by checking
-the file extension against the folder it was found in.
-This logic must be preserved exactly — do not simplify it.
-
-### BM25 index
-The BM25 index is built in-memory from chunks and must be rebuilt whenever
-new chunks are added (URL ingestion, file upload).
-`Retriever` must expose a `rebuild_bm25(chunks)` method for this.
-
-### Type-aware reranker
-The reranker uses a different prompt depending on the document type of each chunk.
-The prompt selection logic is in `rerank()` and must be preserved exactly.
-See the `_rerank_prompt_for_type()` helper in the original code.
-
-### URL ingestion
-`DocumentLoader.chunk_url(url)` detects the content type by URL extension first,
-then falls back to the HTTP `Content-Type` header.
-Both detection paths must be preserved.
-
----
-
-## Commands Reference
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Install package in editable mode
-pip install -e .
-
-# Run tests
-pytest
-
-# Run tests with coverage
-pytest --cov=src/rag
-
-# Terminal chatbot
-python main.py
-
-# Agent mode
-python main.py --agent
-
-# Benchmark
-python main.py --benchmark
-
-# Streamlit UI
-streamlit run app.py
-```
+1. `AGENT_SYSTEM_PROMPT` — every word, every rule, every example
+2. All 7 `_rerank_prompt()` variants — one per doc type
+3. Hallucination filter — both phrase lists (no-info and pivot)
+4. Sentiment prompt — 4-field structured output format
+5. URL type detection — 4-priority order including PDF magic bytes
+6. Agent fast paths — summarise (4-term) and sentiment (strip labels)
+7. `@st.cache_resource` — never cause re-initialization on Streamlit rerun
+8. Deferred `_needs_rerun` flag — prevents column rendering cutoff
+9. Chunk truncation: 300 words OR 1200 chars (whichever shorter)
+10. Embed truncation: 200 words AND 1200 chars (both enforced)
+11. BM25 rebuild after every URL/file upload
+12. DOCX table extraction with merged cell deduplication
+13. Benchmark stopword sets — two separate sets
+14. IBM Plex Mono CSS — every rule, every class name
+15. `ollama.embed(...)['embeddings'][0]` — not `ollama.embeddings`
 
 ---
 
 ## What NOT to Do
 
-- Do not change any retrieval logic, prompt text, or scoring formulas
-- Do not rename public-facing functions that are called from Streamlit session state
-- Do not remove the misplaced file detection
-- Do not remove the chunk truncation step
-- Do not call real Ollama models in tests
+- Do not modify `rag_app.py` — it is the source of truth, read-only
+- Do not change any logic, prompt text, formula, or constant value
+- Do not add packages to `requirements.txt` (lxml only exception)
+- Do not make logger, theme, or session into classes
+- Do not create extra classes beyond the 4
 - Do not put business logic in `app.py` or `main.py`
-- Do not merge multiple class extractions into a single commit
+- Do not merge multiple extractions into one commit
+- Do not commit without my "UI looks good, commit"
+- Do not skip TDD cycle for any file
+- Do not proceed without my "continue"
+- Do not mock `ollama.embeddings` — mock `ollama.embed`
+- Do not remove the deferred `_needs_rerun` pattern
+- Do not hardcode constants — always import from `config.py`
