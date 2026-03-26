@@ -51,15 +51,16 @@ def _get_cross_encoder():
     return _CROSS_ENCODER
 
 
-def _llm_call(prompt, max_tokens=512, temperature=0.1):
-    """Call HF Inference via InferenceClient. Tries providers then models in order."""
+def _llm_call(messages, max_tokens=512, temperature=0.1):
+    """Call HF Inference via InferenceClient. Tries providers then models in order.
+    messages: list of {'role': ..., 'content': ...} dicts (OpenAI format).
+    """
     from huggingface_hub import InferenceClient
     token = os.getenv("HF_TOKEN", "").strip()
     if not token:
         print("[WARNING] HF_TOKEN not set.")
         return "[LLM error: HF_TOKEN not set]"
 
-    messages = [{"role": "user", "content": prompt}]
     last_error = ""
 
     # Try each provider × model combination until one works
@@ -204,11 +205,7 @@ class VectorStore:
     def _llm_chat(self, messages, temperature=0.0, max_tokens=512):
         """Single point of contact for all LLM calls via HF Inference API."""
         try:
-            prompt = "\n".join(
-                f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
-                for m in messages
-            ) + "\nAssistant:"
-            content = _llm_call(prompt, max_tokens=max_tokens, temperature=temperature)
+            content = _llm_call(messages, max_tokens=max_tokens, temperature=temperature)
             if not content:
                 print("[WARNING] LLM returned empty response.")
                 return "[LLM error: empty response from model]"
