@@ -111,7 +111,7 @@ class VectorStore:
                 'reranked':     reranked,
             }
 
-        instruction_prompt = self._build_instruction_prompt(context)
+        instruction_prompt = self._build_instruction_prompt(context, qtype)
 
         self.conversation_history.append({'role': 'user', 'content': query})
         stream = ollama.chat(
@@ -348,7 +348,14 @@ class VectorStore:
 
     # ── Private — response ───────────────────────────────────────────────────
 
-    def _build_instruction_prompt(self, context):
+    def _build_instruction_prompt(self, context, query_type='factual'):
+        _length_hints = {
+            'factual':    '2-3 sentences',
+            'general':    '3-4 sentences',
+            'comparison': '4-6 sentences covering each item being compared',
+            'summarise':  '6-8 sentences covering all key points',
+        }
+        length_hint = _length_hints.get(query_type, '2-3 sentences')
         return (
             "You are a document question-answering assistant.\n"
             "Answer the question using ONLY the context passages provided below.\n"
@@ -357,6 +364,7 @@ class VectorStore:
             "- If the context does not contain the answer, say exactly: "
             "'The provided documents do not contain information about this topic.'\n"
             "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
+            f"- Answer in {length_hint}.\n"
             "- At the end of your answer, cite ONLY the bracketed source labels from the context "
             "(e.g. [filename.pdf p3] or [example.com/page s12]). "
             "Do NOT copy any bibliographic references, footnotes, or citations that appear "
