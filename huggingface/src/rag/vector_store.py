@@ -26,18 +26,8 @@ def _load_st_model():
     return SentenceTransformer(EMBEDDING_MODEL, device='cpu')
 
 
-def _load_llm_client():
-    """Load HF InferenceClient once at module level."""
-    from huggingface_hub import InferenceClient
-    token = os.getenv("HF_TOKEN", "").strip()
-    if not token:
-        print("[WARNING] HF_TOKEN not set — LLM calls will fail. Set it in Space secrets.")
-    return InferenceClient(model=LANGUAGE_MODEL, token=token if token else None)
-
-
 # Module-level singletons — loaded once when the module is first imported
-_ST_MODEL   = None
-_LLM_CLIENT = None
+_ST_MODEL = None
 
 
 def _get_st_model():
@@ -47,11 +37,29 @@ def _get_st_model():
     return _ST_MODEL
 
 
-def _get_llm_client():
-    global _LLM_CLIENT
-    if _LLM_CLIENT is None:
-        _LLM_CLIENT = _load_llm_client()
-    return _LLM_CLIENT
+def _llm_call(prompt, max_tokens=512, temperature=0.01):
+    """Call HF Inference API directly via requests."""
+    import requests
+    token = os.getenv("HF_TOKEN", "").strip()
+    if not token:
+        print("[WARNING] HF_TOKEN not set.")
+        return "[LLM error: HF_TOKEN not set]"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": max_tokens,
+            "temperature": max(temperature, 0.01),
+            "return_full_text": False,
+        }
+    }
+    url = f"https://api-inference.huggingface.co/models/{LANGUAGE_MODEL}"
+    resp = requests.post(url, headers=headers, json=payload, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    if isinstance(data, list) and data:
+        return data[0].get("generated_text", "").strip()
+    return ""
 
 
 class VectorStore:
@@ -171,20 +179,11 @@ class VectorStore:
     def _llm_chat(self, messages, temperature=0.0, max_tokens=512):
         """Single point of contact for all LLM calls via HF Inference API."""
         try:
-            client = _get_llm_client()
-            # Format prompt from messages for text_generation
             prompt = "\n".join(
                 f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
                 for m in messages
             ) + "\nAssistant:"
-            result = client.text_generation(
-                prompt,
-                max_new_tokens=max_tokens,
-                temperature=max(temperature, 0.01),
-                do_sample=True,
-                stream=False,
-            )
-            content = result if isinstance(result, str) else ''.join(result)
+            content = _llm_call(prompt, max_tokens=max_tokens, temperature=temperature)
             if not content:
                 print("[WARNING] LLM returned empty response.")
                 return "[LLM error: empty response from model]"
