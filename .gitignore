@@ -6,7 +6,6 @@ chroma_db/
 
 # Generated logs and results
 rag_logs.json
-benchmark_results.json
 
 # Python cache
 __pycache__/

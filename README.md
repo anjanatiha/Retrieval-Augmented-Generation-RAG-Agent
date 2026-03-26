@@ -28,7 +28,7 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 | 14 | **Logging & analytics** | Every query logged to `rag_logs.json` with similarity scores, query type, and response length |
 | 15 | **Streaming with typing indicator** | Token-level streaming with animated typing indicator in terminal |
 | 16 | **Benchmarking** | Automated eval suite with faithfulness, answer relevancy, keyword recall, and context relevance scores — with before/after run comparison |
-| 17 | **Agent with tool calling** | Agentic mode with `rag_search`, `calculator`, `summarise`, and `finish` tools; robust tool-call parsing and auto-finish logic |
+| 17 | **Agent with tool calling** | Agentic mode with `rag_search`, `calculator`, `summarise`, `sentiment`, and `finish` tools; ReAct loop with robust format recovery and auto-finish logic |
 | 18 | **Streamlit UI** | Ocean Blue web UI with native chat bubbles, agent mode toggle, URL ingestion panel, file upload panel, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
 | 19 | **URL ingestion** | Paste any public URL — webpage, PDF, DOCX, XLSX, CSV, PPTX — and it is fetched, auto-detected by type, chunked through the correct chunker, and added to the index alongside local files |
 | 20 | **File upload ingestion** | Upload any supported file directly through the UI — chunked, embedded, and added to the live knowledge base without restarting |
@@ -58,48 +58,51 @@ This makes the system capable of accurately answering queries like *"What is the
 
 ## Architecture
 
+The codebase is structured around **4 classes** and **4 modules**. Classes own state; modules own constants and stateless functions. See [DESIGN.md](DESIGN.md) for full architectural rationale.
+
+| Class | Owns |
+|-------|------|
+| `DocumentLoader` | All ingestion — 9 format chunkers, misplaced file detection, URL fetching |
+| `VectorStore` | ChromaDB, BM25, hybrid retrieval, reranking, query pipeline, response generation, conversation history |
+| `Agent` | ReAct loop, all 5 tools as private methods, fast paths for summarise and sentiment |
+| `Benchmarker` | 4-metric evaluation, run comparison, result persistence |
+
 ```
 Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
 + URLs  (any public webpage or document link)
         │
         ▼
-  Smart File Scanner + URL Fetcher
-  ├── Scans all subfolders under ./docs/
-  ├── Detects real file type by extension (not by folder)
-  ├── Flags misplaced files with [MISPLACED] notice; processes anyway
-  └── URL fetcher detects type by extension or Content-Type header
+  DocumentLoader
+  ├── scan_all_files() — scans ./docs/, detects type by extension, flags misplaced
+  ├── chunk_url() — fetches URL, detects type (Content-Type → extension → magic bytes → html)
+  └── Chunking dispatch (9 format-specific chunkers)
+      ├── TXT / MD:  sliding window (line-based; MD syntax stripped)
+      ├── PDF:       page extraction → sentence-based chunks (PyMuPDF)
+      ├── DOCX:      paragraph groups + table rows, merged cell dedup (python-docx)
+      ├── XLSX/XLS:  row → key=value pair chunks (openpyxl / xlrd)
+      ├── CSV:       row → key=value pair chunks (stdlib csv)
+      ├── PPTX:      slide text shape extraction (python-pptx)
+      └── HTML/URL:  tag-stripped → sentence-based chunks (BeautifulSoup)
         │
         ▼
-  Chunking Layer (type-aware dispatch)
-  ├── TXT / MD:  sliding window (line-based; MD syntax stripped)
-  ├── PDF:       page extraction → sentence-based chunks (PyMuPDF)
-  ├── DOCX:      paragraph-based chunks (python-docx)
-  ├── XLSX/XLS:  row → key=value pair chunks (openpyxl / xlrd)
-  ├── CSV:       row → key=value pair chunks (stdlib csv)
-  ├── PPTX:      slide text shape extraction (python-pptx)
-  └── HTML/URL:  tag-stripped → sentence-based chunks (BeautifulSoup)
+  Truncation (300 words OR 1200 chars, whichever shorter)
         │
         ▼
-  Truncation (300 words max per chunk → within 512 token limit)
+  VectorStore.build_or_load()
+  ├── ChromaDB PersistentClient (cosine similarity)
+  └── BM25Okapi index (in-memory, rebuilt on URL/file upload)
         │
         ▼
-  ChromaDB (persistent vector store)
-  + BM25 index (in-memory lexical index)
+  VectorStore.run_pipeline()
+  ├── _classify_query()     — summarise → comparison → factual → general
+  ├── _expand_query()       — LLM generates 2 rewrites + original = 3 queries
+  ├── _hybrid_retrieve()    — BM25 + dense fusion (alpha=0.5), top-N per type
+  ├── _check_confidence()   — similarity threshold guard (skips LLM if low)
+  ├── _rerank()             — type-aware LLM reranker (7 prompt variants)
+  └── _synthesize()         — anti-hallucination context injection + streaming
         │
         ▼
-  Query Pipeline
-  ├── Query classification (factual / comparison / general)
-  ├── Query expansion (LLM-generated rewrites)
-  ├── Hybrid retrieval (BM25 + dense vector, top-N)
-  ├── Confidence filter (similarity threshold)
-  └── Document type-aware LLM reranker (top-K)
-        │
-        ▼
-  Response Generation
-  ├── Context injection with type-aware source citations
-  ├── Conversation memory (multi-turn)
-  ├── Streaming output
-  └── Logging
+  Response with type-aware source citations, conversation memory, logging
 ```
 
 ---
@@ -118,24 +121,46 @@ All models run **locally via Ollama** — no internet connection or API key need
 ## Folder Structure
 
 ```
-project/
-├── docs/                   ← root documents folder (auto-created, git-ignored)
-│   ├── pdfs/               ← drop .pdf files here
-│   ├── txts/               ← drop .txt files here
-│   ├── docx/               ← drop .docx / .doc files here
-│   ├── xlsx/               ← drop .xlsx / .xls files here
-│   ├── pptx/               ← drop .pptx / .ppt files here
-│   ├── csv/                ← drop .csv files here
-│   ├── md/                 ← drop .md / .markdown files here
-│   └── html/               ← drop .html / .htm files here
-├── chroma_db/              ← persistent vector store (auto-created, git-ignored)
+rag/
+├── src/
+│   └── rag/
+│       ├── __init__.py
+│       ├── config.py              ← all constants (models, paths, thresholds)
+│       ├── logger.py              ← stateless interaction logging
+│       ├── document_loader.py     ← DocumentLoader class — all ingestion
+│       ├── vector_store.py        ← VectorStore class — retrieval + generation
+│       ├── agent.py               ← Agent class — ReAct loop + 5 tools
+│       └── benchmarker.py         ← Benchmarker class — evaluation
+├── ui/
+│   ├── __init__.py
+│   ├── theme.py                   ← CSS + style constants (Ocean Blue)
+│   └── session.py                 ← Streamlit session state helpers
+├── tests/
+│   ├── test_document_loader.py
+│   ├── test_vector_store.py
+│   ├── test_agent.py
+│   ├── test_benchmarker.py
+│   └── test_integration.py
+├── docs/                          ← root documents folder (auto-created, git-ignored)
+│   ├── pdfs/                      ← drop .pdf files here
+│   ├── txts/                      ← drop .txt files here
+│   ├── docx/                      ← drop .docx / .doc files here
+│   ├── xlsx/                      ← drop .xlsx / .xls files here
+│   ├── pptx/                      ← drop .pptx / .ppt files here
+│   ├── csv/                       ← drop .csv files here
+│   ├── md/                        ← drop .md / .markdown files here
+│   └── html/                      ← drop .html / .htm files here
+├── chroma_db/                     ← persistent vector store (auto-created, git-ignored)
+├── app.py                         ← Streamlit UI entry point (<50 lines)
+├── main.py                        ← CLI entry point (<50 lines)
+├── pyproject.toml                 ← package config + dev dependencies
+├── requirements.txt               ← runtime dependencies
 ├── .streamlit/
-│   └── config.toml         ← Streamlit theme (Ocean Blue)
-├── rag_app.py              ← main application
-├── requirements.txt        ← Python dependencies
-├── .gitignore              ← excludes env, chroma_db, and docs from git
-├── rag_logs.json           ← interaction logs (auto-generated)
-└── benchmark_results.json  ← benchmark history (auto-generated)
+│   └── config.toml                ← Streamlit theme (Ocean Blue)
+├── DESIGN.md                      ← architectural decisions and tradeoffs
+├── .gitignore                     ← excludes env, chroma_db, and docs from git
+├── rag_logs.json                  ← interaction logs (auto-generated)
+└── benchmark_results.json         ← benchmark history (auto-generated)
 ```
 
 > **Tip:** All subfolders are created automatically on first run. You can drop a file into any subfolder — the smart file scanner will detect the correct type by extension and process it accordingly, printing a `[MISPLACED]` notice if the folder doesn't match.
@@ -236,31 +261,31 @@ Drop your documents into the appropriate subfolder under `./docs/`, then choose 
 **macOS**
 ```bash
 # Standard chatbot (terminal)
-python3 rag_app.py
+python3 main.py
 
 # Agent mode — uses tool calling (terminal)
-python3 rag_app.py --agent
+python3 main.py --agent
 
 # Benchmark evaluation
-python3 rag_app.py --benchmark
+python3 main.py --benchmark
 
 # Streamlit web UI (chat + agent toggle)
-streamlit run rag_app.py
+streamlit run app.py
 ```
 
 **Windows**
 ```cmd
 # Standard chatbot (terminal)
-python rag_app.py
+python main.py
 
 # Agent mode — uses tool calling (terminal)
-python rag_app.py --agent
+python main.py --agent
 
 # Benchmark evaluation
-python rag_app.py --benchmark
+python main.py --benchmark
 
 # Streamlit web UI (chat + agent toggle)
-streamlit run rag_app.py
+streamlit run app.py
 ```
 
 ---
@@ -307,10 +332,15 @@ In agent mode the system acts as an autonomous agent with access to tools:
 |------|-------------|
 | `rag_search` | Searches the knowledge base using the full retrieval pipeline |
 | `calculator` | Evaluates safe arithmetic expressions |
-| `summarise` | Summarises a passage using the LLM |
+| `summarise` | Summarises a passage with adaptive length hints (2–3 / 4–5 / 6–8 sentences) |
+| `sentiment` | Analyses sentiment with structured 4-field output (Sentiment, Tone, Key phrases, Explanation) |
 | `finish` | Returns the final answer to the user |
 
 The agent runs a ReAct-style loop — calling tools, observing results, and deciding next steps — up to a configurable step limit. Includes robust format recovery and auto-finish logic to handle small model limitations.
+
+**Fast paths** speed up common queries:
+- **Summarise** — detected by keyword; runs 4 targeted searches (`work experience`, `education`, `skills projects`, `summary contact`) then synthesises
+- **Sentiment** — detected by keyword; strips metadata labels from retrieved chunks before analysis
 
 ---
 
@@ -384,5 +414,5 @@ Your testing and feedback help make this system more robust — thank you for ta
 
 ## Related
 
-- **ragdoll** — refactored version of this codebase using `DocumentLoader`, `Retriever`, and `Agent` classes
-- **HF Spaces demo** — Gradio-based version running on Hugging Face with file upload UI (no Ollama required)
+- **HF Spaces demo** — [ragdoll on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/ragdoll) — runs in your browser with file upload UI, no Ollama or local setup required
+- **DESIGN.md** — full architectural rationale: why 4 classes, class ownership, tradeoffs (ChromaDB vs Pinecone, local vs API, BM25+dense hybrid), benchmark metric definitions, and production scaling path

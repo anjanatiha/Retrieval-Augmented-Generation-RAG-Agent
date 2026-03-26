@@ -1,0 +1,13 @@
+gradio>=4.44.1
+rank_bm25
+chromadb
+requests
+pymupdf
+python-docx
+openpyxl
+xlrd
+python-pptx
+beautifulsoup4
+lxml
+sentence-transformers
+huggingface_hub>=0.24.0
