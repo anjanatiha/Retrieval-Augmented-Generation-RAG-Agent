@@ -176,6 +176,7 @@ class VectorStore:
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=max(temperature, 0.01),
+                stream=False,
             )
             content = response.choices[0].message.content
             if not content:
