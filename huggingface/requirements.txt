@@ -1,4 +1,4 @@
-gradio>=4.44.1
+gradio==5.23.0
 rank_bm25
 chromadb
 requests
@@ -10,4 +10,4 @@ python-pptx
 beautifulsoup4
 lxml
 sentence-transformers
-huggingface_hub>=0.24.0
+huggingface_hub>=0.27.0
