@@ -78,7 +78,7 @@ def chat(message, history, mode):
         return history, ""
 
     if store.collection is None or store.collection.count() == 0:
-        history = history + [(message, "⚠️ No documents in the knowledge base yet. Please upload a file or add a URL first.")]
+        history = history + [{"role": "user", "content": message}, {"role": "assistant", "content": "⚠️ No documents in the knowledge base yet. Please upload a file or add a URL first."}]
         return history, ""
 
     pipeline_info = ""
@@ -95,7 +95,7 @@ def chat(message, history, mode):
         response = res['response']
         pipeline_info = _pipeline_summary(res)
 
-    history = history + [(message, response)]
+    history = history + [{"role": "user", "content": message}, {"role": "assistant", "content": response}]
     return history, pipeline_info
 
 
@@ -179,8 +179,8 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
             chatbot = gr.Chatbot(
                 label="Conversation",
                 height=480,
-                bubble_full_width=False,
                 show_copy_button=True,
+                type='messages',
             )
 
             with gr.Row():
