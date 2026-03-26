@@ -2,7 +2,7 @@
 
 A production-grade, fully local RAG chatbot and agent built incrementally with an advanced retrieval pipeline. Supports **PDF, TXT, DOCX, XLSX, PPTX, CSV, Markdown, and HTML documents**, including structured/tabular formats like resumes, with hybrid search, LLM reranking, agentic tool calling, benchmarking, and a Streamlit UI — all running **100% on-device** with no API keys required.
 
-**Live demo:** [ragdoll on Hugging Face Spaces](https://huggingface.co/spaces/anjanatiha2024/ragdoll) — upload any document and try it in your browser, no setup needed.
+**Live demo:** [RAG Agent on Hugging Face Spaces](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent) — upload any document and try it in your browser, no setup needed.
 
 ![Hugging Face Demo](assets/huggingface_ragdoll.png)
 
@@ -443,5 +443,5 @@ Your testing and feedback help make this system more robust — thank you for ta
 
 ## Related
 
-- **HF Spaces demo** — [ragdoll on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/ragdoll) — runs in your browser with file upload UI, no Ollama or local setup required
+- **HF Spaces demo** — [RAG Agent on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent) — runs in your browser with file upload UI, no Ollama or local setup required
 - **DESIGN.md** — full architectural rationale: why 4 classes, class ownership, tradeoffs (ChromaDB vs Pinecone, local vs API, BM25+dense hybrid), benchmark metric definitions, and production scaling path

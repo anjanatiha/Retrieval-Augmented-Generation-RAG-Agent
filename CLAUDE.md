@@ -11,7 +11,7 @@ RAG Agent is a fully local, production-grade Retrieval-Augmented Generation syst
 It ingests documents in 8 formats, retrieves using hybrid BM25 + dense vector search,
 reranks with a type-aware LLM reranker, and answers via LLaMA 3.2 — all on-device via Ollama.
 
-**Live demo:** https://huggingface.co/spaces/anjanatiha2024/ragdoll
+**Live demo:** https://huggingface.co/spaces/anjanatiha2024/Rag-Agent
 **GitHub:** https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent
 
 **Entry points (current — before refactor):**

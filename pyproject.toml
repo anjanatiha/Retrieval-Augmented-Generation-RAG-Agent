@@ -19,7 +19,7 @@ dev = ["pytest", "pytest-cov", "pytest-mock"]
 
 [project.urls]
 Homepage = "https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent"
-Demo = "https://huggingface.co/spaces/anjanatiha2024/ragdoll"
+Demo = "https://huggingface.co/spaces/anjanatiha2024/Rag-Agent"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
