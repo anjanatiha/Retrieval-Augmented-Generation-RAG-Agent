@@ -177,9 +177,14 @@ class VectorStore:
                 max_tokens=max_tokens,
                 temperature=max(temperature, 0.01),
             )
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content
+            if not content:
+                print(f"[WARNING] LLM returned empty response. Full response: {response}")
+                return "[LLM error: empty response from model]"
+            return content.strip()
         except Exception as e:
-            return f"[LLM error: {e}]"
+            print(f"[ERROR] LLM call failed: {type(e).__name__}: {e}")
+            return f"[LLM error: {type(e).__name__}: {e}]"
 
     # ── Private — vector/search ──────────────────────────────────────────────
 
