@@ -2,7 +2,7 @@
 
 Replaces Ollama with:
   - sentence-transformers (BAAI/bge-base-en-v1.5) for embeddings
-  - HF Serverless Inference API (Mistral-7B) for LLM calls
+  - HF Inference Providers router (OpenAI-compatible) for LLM calls
   - chromadb.EphemeralClient for in-memory vector store
 """
 
@@ -38,28 +38,31 @@ def _get_st_model():
 
 
 def _llm_call(prompt, max_tokens=512, temperature=0.01):
-    """Call HF Inference API directly via requests."""
+    """Call HF Inference Providers router (OpenAI-compatible) via requests."""
     import requests
     token = os.getenv("HF_TOKEN", "").strip()
     if not token:
         print("[WARNING] HF_TOKEN not set.")
         return "[LLM error: HF_TOKEN not set]"
-    headers = {"Authorization": f"Bearer {token}"}
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": max_tokens,
-            "temperature": max(temperature, 0.01),
-            "return_full_text": False,
-        }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
     }
-    url = f"https://api-inference.huggingface.co/models/{LANGUAGE_MODEL}"
-    resp = requests.post(url, headers=headers, json=payload, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
-    if isinstance(data, list) and data:
-        return data[0].get("generated_text", "").strip()
-    return ""
+    payload = {
+        "model": LANGUAGE_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": max(temperature, 0.01),
+    }
+    url = "https://router.huggingface.co/v1/chat/completions"
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"[LLM error: {type(e).__name__}: {e}]")
+        return f"[LLM error: {type(e).__name__}]"
 
 
 class VectorStore:
