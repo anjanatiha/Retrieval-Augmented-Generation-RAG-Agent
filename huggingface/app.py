@@ -97,7 +97,7 @@ def chat(message, history, mode):
     return history, pipeline_info
 
 
-def upload_file(file_obj):
+def upload_file(file_obj, progress=gr.Progress()):
     """Index an uploaded file into the knowledge base."""
     loader, store = _initialize()
     if file_obj is None:
@@ -110,6 +110,7 @@ def upload_file(file_obj):
     dtype    = loader.ext_to_type.get(ext, 'txt')
 
     try:
+        progress(0.2, desc="Reading file...")
         file_info = {
             'filepath':      filepath,
             'filename':      filename,
@@ -118,8 +119,11 @@ def upload_file(file_obj):
         }
         new_chunks = loader._dispatch_chunker(file_info)
         if new_chunks:
+            progress(0.6, desc="Indexing chunks...")
             store.add_chunks(new_chunks, id_prefix='file')
+            progress(0.9, desc="Rebuilding search index...")
             store.rebuild_bm25(store.chunks)
+            progress(1.0, desc="Done")
             return (f"✅ Indexed **{filename}** — {len(new_chunks)} chunks added.",
                     f"Chunks in knowledge base: **{_chunk_count()}**")
         else:
@@ -128,16 +132,20 @@ def upload_file(file_obj):
         return f"❌ Error indexing **{filename}**: {e}", f"Chunks in knowledge base: {_chunk_count()}"
 
 
-def fetch_url(url):
+def fetch_url(url, progress=gr.Progress()):
     """Fetch and index a URL into the knowledge base."""
     loader, store = _initialize()
     if not url or not url.strip():
         return "No URL provided.", f"Chunks in knowledge base: {_chunk_count()}"
     try:
+        progress(0.2, desc="Fetching URL...")
         new_chunks = loader.chunk_url(url.strip())
         if new_chunks:
+            progress(0.6, desc="Indexing chunks...")
             store.add_chunks(new_chunks, id_prefix='url')
+            progress(0.9, desc="Rebuilding search index...")
             store.rebuild_bm25(store.chunks)
+            progress(1.0, desc="Done")
             return (f"✅ Indexed **{url.strip()[:60]}** — {len(new_chunks)} chunks added.",
                     f"Chunks in knowledge base: **{_chunk_count()}**")
         else:
