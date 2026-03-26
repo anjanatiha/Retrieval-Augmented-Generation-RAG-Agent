@@ -12,7 +12,7 @@ __all__ = [
 # sentence-transformers model (runs locally in the Space)
 EMBEDDING_MODEL      = 'BAAI/bge-base-en-v1.5'
 # HF Serverless Inference API model
-LANGUAGE_MODEL       = 'HuggingFaceH4/zephyr-7b-beta'
+LANGUAGE_MODEL       = 'Qwen/Qwen2.5-3B-Instruct'
 
 CHROMA_COLLECTION    = 'rag_docs'
 SIMILARITY_THRESHOLD = 0.40
