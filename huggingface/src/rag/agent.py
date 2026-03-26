@@ -270,11 +270,12 @@ Rules:
 
         prompt = (
             "Analyse the sentiment and tone of the following text.\n\n"
-            "Respond in this exact format:\n"
+            "Respond ONLY in this exact format — nothing else, no extra text, no examples:\n"
             "Sentiment: <Positive / Negative / Neutral / Mixed>\n"
             "Tone: <one short phrase describing the tone, e.g. 'professional and confident'>\n"
             "Key phrases: <2-4 phrases from the text that drove this assessment>\n"
             "Explanation: <1-2 sentences explaining the sentiment>\n\n"
+            "Do NOT add any additional text, examples, or commentary after the Explanation line.\n\n"
             f"Text:\n{text_to_analyse}"
         )
         try:

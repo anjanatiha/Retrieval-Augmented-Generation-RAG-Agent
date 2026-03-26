@@ -394,6 +394,8 @@ class VectorStore:
             "- If the context does not contain the answer, say exactly: "
             "'The provided documents do not contain information about this topic.'\n"
             "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
+            "- Do NOT generate examples, hypothetical scenarios, or additional text.\n"
+            "- Stop writing immediately after your answer. Do not add anything after.\n"
             "- At the end of your answer, cite ONLY the bracketed source labels from the context "
             "(e.g. [filename.pdf p3] or [example.com/page s12]). "
             "Do NOT copy any bibliographic references, footnotes, or citations that appear "
