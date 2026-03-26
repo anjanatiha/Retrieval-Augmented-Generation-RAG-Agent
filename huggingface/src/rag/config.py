@@ -12,12 +12,12 @@ __all__ = [
 # sentence-transformers model (runs locally in the Space)
 EMBEDDING_MODEL      = 'BAAI/bge-base-en-v1.5'
 # Primary LLM — tried in order until one succeeds
-LANGUAGE_MODEL       = 'HuggingFaceH4/zephyr-7b-beta'
+LANGUAGE_MODEL       = 'mistralai/Mistral-7B-Instruct-v0.3'
 LANGUAGE_MODEL_FALLBACKS = [
-    'HuggingFaceH4/zephyr-7b-beta',
-    'mistralai/Mistral-7B-Instruct-v0.3',
-    'google/gemma-2-2b-it',
-    'meta-llama/Llama-3.2-3B-Instruct',
+    'mistralai/Mistral-7B-Instruct-v0.3',   # strong instruction following, good for RAG
+    'HuggingFaceH4/zephyr-7b-beta',          # fine-tuned on helpful QA
+    'meta-llama/Llama-3.2-3B-Instruct',      # Meta instruction model
+    'google/gemma-2-2b-it',                  # small but capable
 ]
 
 CHROMA_COLLECTION    = 'rag_docs'
