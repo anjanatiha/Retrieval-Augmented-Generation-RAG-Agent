@@ -15,7 +15,7 @@ EMBEDDING_MODEL      = 'BAAI/bge-base-en-v1.5'
 LANGUAGE_MODEL       = 'mistralai/Mistral-7B-Instruct-v0.3'
 
 CHROMA_COLLECTION    = 'rag_docs'
-SIMILARITY_THRESHOLD = 0.45
+SIMILARITY_THRESHOLD = 0.40
 TOP_RETRIEVE         = 20
 TOP_RERANK           = 5
 
