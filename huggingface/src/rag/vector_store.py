@@ -12,7 +12,7 @@ import chromadb
 from rank_bm25 import BM25Okapi
 
 from src.rag.config import (
-    EMBEDDING_MODEL, LANGUAGE_MODEL,
+    EMBEDDING_MODEL, LANGUAGE_MODEL, LANGUAGE_MODEL_FALLBACKS,
     CHROMA_COLLECTION,
     SIMILARITY_THRESHOLD, TOP_RETRIEVE, TOP_RERANK,
 )
@@ -38,7 +38,8 @@ def _get_st_model():
 
 
 def _llm_call(prompt, max_tokens=512, temperature=0.01):
-    """Call HF Inference Providers router (OpenAI-compatible) via requests."""
+    """Call HF Inference Providers router (OpenAI-compatible) via requests.
+    Tries each model in LANGUAGE_MODEL_FALLBACKS until one succeeds."""
     import requests
     token = os.getenv("HF_TOKEN", "").strip()
     if not token:
@@ -48,21 +49,28 @@ def _llm_call(prompt, max_tokens=512, temperature=0.01):
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "model": LANGUAGE_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": max(temperature, 0.01),
-    }
     url = "https://router.huggingface.co/v1/chat/completions"
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"[LLM error: {type(e).__name__}: {e}]")
-        return f"[LLM error: {type(e).__name__}]"
+    last_error = ""
+    for model in LANGUAGE_MODEL_FALLBACKS:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": max(temperature, 0.01),
+        }
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            result = data["choices"][0]["message"]["content"].strip()
+            if result:
+                print(f"[LLM] Used model: {model}")
+                return result
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            print(f"[LLM] {model} failed: {last_error} — trying next model")
+            continue
+    return f"[LLM error: all models failed. Last error: {last_error}]"
 
 
 class VectorStore:

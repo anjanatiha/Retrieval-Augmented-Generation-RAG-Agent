@@ -1,7 +1,7 @@
 """config.py — constants only, no functions, no classes. HF Space version."""
 
 __all__ = [
-    'EMBEDDING_MODEL', 'LANGUAGE_MODEL',
+    'EMBEDDING_MODEL', 'LANGUAGE_MODEL', 'LANGUAGE_MODEL_FALLBACKS',
     'CHROMA_COLLECTION',
     'EXT_TO_TYPE',
     'SIMILARITY_THRESHOLD', 'TOP_RETRIEVE', 'TOP_RERANK',
@@ -11,8 +11,14 @@ __all__ = [
 
 # sentence-transformers model (runs locally in the Space)
 EMBEDDING_MODEL      = 'BAAI/bge-base-en-v1.5'
-# HF Serverless Inference API model
+# Primary LLM — tried in order until one succeeds
 LANGUAGE_MODEL       = 'HuggingFaceH4/zephyr-7b-beta'
+LANGUAGE_MODEL_FALLBACKS = [
+    'HuggingFaceH4/zephyr-7b-beta',
+    'mistralai/Mistral-7B-Instruct-v0.3',
+    'google/gemma-2-2b-it',
+    'meta-llama/Llama-3.2-3B-Instruct',
+]
 
 CHROMA_COLLECTION    = 'rag_docs'
 SIMILARITY_THRESHOLD = 0.40
