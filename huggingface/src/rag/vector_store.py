@@ -61,7 +61,10 @@ def _llm_call(prompt, max_tokens=512, temperature=0.01):
         }
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=60)
-            resp.raise_for_status()
+            if not resp.ok:
+                print(f"[LLM] {model} HTTP {resp.status_code}: {resp.text[:300]}")
+                last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                continue
             data = resp.json()
             result = data["choices"][0]["message"]["content"].strip()
             if result:
