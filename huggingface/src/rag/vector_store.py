@@ -38,72 +38,39 @@ def _get_st_model():
 
 
 def _llm_call(prompt, max_tokens=512, temperature=0.1):
-    """Call HF Inference API. Tries chat completions first, then text-generation fallback."""
-    import requests
+    """Call HF Inference via InferenceClient. Tries providers then models in order."""
+    from huggingface_hub import InferenceClient
     token = os.getenv("HF_TOKEN", "").strip()
     if not token:
         print("[WARNING] HF_TOKEN not set.")
         return "[LLM error: HF_TOKEN not set]"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
+
+    messages = [{"role": "user", "content": prompt}]
     last_error = ""
 
-    for model in LANGUAGE_MODEL_FALLBACKS:
-        # ── Try 1: router chat completions — explicitly via Featherless AI ──
-        chat_url = "https://router.huggingface.co/featherless-ai/v1/chat/completions"
-        chat_payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-            "temperature": max(temperature, 0.1),
-            "stream": False,
-        }
-        try:
-            resp = requests.post(chat_url, headers=headers, json=chat_payload, timeout=60)
-            if resp.ok:
-                result = resp.json()["choices"][0]["message"]["content"].strip()
-                if result:
-                    print(f"[LLM] Used model (chat): {model}")
-                    return result
-            error_body = resp.text[:300]
-            print(f"[LLM] {model} chat HTTP {resp.status_code}: {error_body}")
-            # If not a chat model, try text-generation format on the same model
-            if "not a chat model" not in error_body:
-                last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+    # Try each provider × model combination until one works
+    providers = ["featherless-ai", "novita", "hf-inference"]
+    for provider in providers:
+        for model in LANGUAGE_MODEL_FALLBACKS:
+            try:
+                client = InferenceClient(provider=provider, api_key=token)
+                result = client.chat_completion(
+                    messages=messages,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=max(temperature, 0.1),
+                    stream=False,
+                )
+                content = result.choices[0].message.content
+                if content and content.strip():
+                    print(f"[LLM] Used {provider}/{model}")
+                    return content.strip()
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+                print(f"[LLM] {provider}/{model} failed: {last_error}")
                 continue
-        except Exception as e:
-            last_error = f"{type(e).__name__}: {e}"
-            print(f"[LLM] {model} chat failed: {last_error}")
-            continue
 
-        # ── Try 2: text-generation endpoint (for non-chat models) ───────────
-        gen_url = f"https://api-inference.huggingface.co/models/{model}"
-        gen_payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": max_tokens,
-                "temperature": max(temperature, 0.1),
-                "return_full_text": False,
-            },
-        }
-        try:
-            resp = requests.post(gen_url, headers=headers, json=gen_payload, timeout=60)
-            if resp.ok:
-                data = resp.json()
-                if isinstance(data, list) and data:
-                    result = data[0].get("generated_text", "").strip()
-                    if result:
-                        print(f"[LLM] Used model (text-gen): {model}")
-                        return result
-            print(f"[LLM] {model} text-gen HTTP {resp.status_code}: {resp.text[:200]}")
-            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
-        except Exception as e:
-            last_error = f"{type(e).__name__}: {e}"
-            print(f"[LLM] {model} text-gen failed: {last_error}")
-
-    return f"[LLM error: all models failed. Last: {last_error}]"
+    return f"[LLM error: all providers/models failed. Last: {last_error}]"
 
 
 class VectorStore:
