@@ -70,7 +70,7 @@ This Space uses the same 4-class architecture as the local version:
 
 **Models used:**
 - **Embeddings**: `BAAI/bge-base-en-v1.5` via `sentence-transformers` (runs locally in the Space)
-- **LLM**: `mistralai/Mistral-7B-Instruct-v0.3` via HF Serverless Inference API
+- **LLM**: `Qwen/Qwen2.5-3B-Instruct` via HF Serverless Inference API
 
 **Differences from local version:**
 - No Ollama — uses `sentence-transformers` + HF Inference API instead
