@@ -106,7 +106,7 @@ CHROMA_DIR           = './chroma_db'
 CHROMA_COLLECTION    = 'rag_docs'
 LOG_FILE             = 'rag_logs.json'
 BENCHMARK_FILE       = 'benchmark_results.json'
-SIMILARITY_THRESHOLD = 0.55
+SIMILARITY_THRESHOLD = 0.45
 TOP_RETRIEVE         = 20
 TOP_RERANK           = 5
 # TXT / MD: 1 line per chunk — original behaviour, do not change
