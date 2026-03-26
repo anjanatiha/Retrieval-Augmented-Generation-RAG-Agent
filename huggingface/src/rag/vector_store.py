@@ -26,8 +26,15 @@ def _load_st_model():
     return SentenceTransformer(EMBEDDING_MODEL, device='cpu')
 
 
+def _load_cross_encoder():
+    """Load cross-encoder reranker once at module level."""
+    from sentence_transformers import CrossEncoder
+    return CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512)
+
+
 # Module-level singletons — loaded once when the module is first imported
 _ST_MODEL = None
+_CROSS_ENCODER = None
 
 
 def _get_st_model():
@@ -35,6 +42,13 @@ def _get_st_model():
     if _ST_MODEL is None:
         _ST_MODEL = _load_st_model()
     return _ST_MODEL
+
+
+def _get_cross_encoder():
+    global _CROSS_ENCODER
+    if _CROSS_ENCODER is None:
+        _CROSS_ENCODER = _load_cross_encoder()
+    return _CROSS_ENCODER
 
 
 def _llm_call(prompt, max_tokens=512, temperature=0.1):
@@ -270,9 +284,16 @@ class VectorStore:
         return sorted(fused.values(), key=lambda x: x[1], reverse=True)[:top_n]
 
     def _rerank(self, query, candidates, top_n):
-        # LLM reranking disabled on HF free CPU — too slow (N × API call = timeout).
-        # Use hybrid similarity score directly instead.
-        scored = [(entry, sim, sim) for entry, sim in candidates]
+        """Cross-encoder reranking — runs locally, no LLM API calls."""
+        try:
+            ce     = _get_cross_encoder()
+            pairs  = [(query, entry['text']) for entry, sim in candidates]
+            scores = ce.predict(pairs)
+            scored = [(entry, sim, float(score))
+                      for (entry, sim), score in zip(candidates, scores)]
+        except Exception as e:
+            print(f"[Rerank] Cross-encoder failed: {e} — using similarity score")
+            scored = [(entry, sim, sim) for entry, sim in candidates]
         scored.sort(key=lambda x: x[2], reverse=True)
         return scored[:top_n]
 
