@@ -34,13 +34,7 @@ reranks with a type-aware LLM reranker, and answers via LLaMA 3.2 — all on-dev
 **Live demo:** https://huggingface.co/spaces/anjanatiha2024/Rag-Agent
 **GitHub:** https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent
 
-**Entry points (current — before refactor):**
-- `python3 rag_app.py` — terminal chatbot
-- `python3 rag_app.py --agent` — agent mode
-- `python3 rag_app.py --benchmark` — benchmark evaluation
-- `streamlit run rag_app.py` — Streamlit web UI
-
-**Entry points (after refactor):**
+**Entry points:**
 - `python main.py` — terminal chatbot
 - `python main.py --agent` — agent mode
 - `python main.py --benchmark` — benchmark evaluation
@@ -68,7 +62,7 @@ This reduces indirection, keeps related logic together, and makes the codebase
 navigable without sacrificing clarity.
 
 **Classes own state. Modules own constants and stateless functions.**
-This distinction is strict and must be preserved throughout the refactor.
+This distinction is strict and must always be preserved.
 
 ---
 
@@ -668,8 +662,8 @@ Step 2:  Extract logger.py (module)
          STOP: wait for "continue"
          commit: "refactor: extract logger module"
 
-Step 3:  Extract ui/theme.py + ui/session.py (modules)
-         → CSS string, badge/avatar dicts, init_session_state, get_active_bm25
+Step 3:  Extract src/ui/theme.py + src/ui/session.py + src/ui/handlers.py (modules)
+         → CSS string, badge/avatar dicts, init_session_state, get_active_bm25, all Streamlit handlers
          → run streamlit → confirm UI identical
          STOP: "please check UI looks the same in browser"
          → wait for "UI looks good, commit"

@@ -422,7 +422,7 @@ The web UI features:
 
 ## Testing
 
-The project includes a full automated test suite — **540 tests** for the local version and **262 tests** for the Hugging Face version — covering all 4 classes, all 8 file formats, URL ingestion, all 5 agent tools, the full retrieval pipeline, and a complete mode × document-type combination matrix.
+The project includes a full automated test suite — **560 tests** for the local version and **262 tests** for the Hugging Face version — covering all 4 classes, all 8 file formats, URL ingestion, all 5 agent tools, the full retrieval pipeline, and a complete mode × document-type combination matrix.
 
 ### Test types
 
@@ -454,7 +454,7 @@ cd huggingface && pytest
 
 ### Test files
 
-**Local suite (`tests/`)** — 540 tests across 22 files:
+**Local suite (`tests/`)** — 560 tests across 23 files:
 
 | File | What it covers |
 |------|---------------|
@@ -479,6 +479,7 @@ cd huggingface && pytest
 | `test_combinations_url.py` | URL × all content types (parametrized) |
 | `test_combinations_analysis.py` | Query classification × all types |
 | `test_theme_session.py` | UI session state helpers |
+| `test_handlers.py` | Streamlit handlers and CLI runner |
 | `test_logger.py` | Interaction logging |
 
 **HF suite (`huggingface/tests/`)** — 262 tests across 13 files covering the same categories adapted for the Hugging Face deployment (uses `InferenceClient` instead of Ollama, `EphemeralClient` instead of persistent ChromaDB).
