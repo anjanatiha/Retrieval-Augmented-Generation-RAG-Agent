@@ -1,7 +1,7 @@
 """main.py — Command-line entry point (under 50 lines).
 
 This file only parses arguments and calls the right runner function.
-All actual logic lives in cli/runner.py.
+All actual logic lives in src/cli/runner.py.
 
 Usage:
     python main.py               # interactive chat mode
@@ -11,7 +11,7 @@ Usage:
 
 import argparse
 
-from cli.runner import initialize, run_agent, run_benchmark, run_chat
+from src.cli.runner import initialize, run_agent, run_benchmark, run_chat
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='RAG Agent — Ask your documents')

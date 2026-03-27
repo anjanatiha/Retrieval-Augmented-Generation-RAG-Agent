@@ -283,7 +283,7 @@ class TestAppHandlers:
         return make_store_with_chunks(sample_chunks(3))
 
     def _import_handlers(self):
-        """Import src.rag.handlers with Gradio components mocked out.
+        """Import src.handlers with Gradio components mocked out.
 
         Returns:
             The imported handlers module, or skips the test if import fails.
@@ -297,11 +297,11 @@ class TestAppHandlers:
              um.patch('gradio.File'), um.patch('gradio.Markdown'), \
              um.patch('gradio.HTML'), um.patch('gradio.Progress'):
             try:
-                import src.rag.handlers as handlers_module
+                import src.handlers as handlers_module
                 importlib.reload(handlers_module)
                 return handlers_module
             except Exception:
-                pytest.skip("Could not import src.rag.handlers in test environment")
+                pytest.skip("Could not import src.handlers in test environment")
 
     def test_pipeline_summary_format(self):
         """_pipeline_summary produces markdown with Query type and Confidence score."""

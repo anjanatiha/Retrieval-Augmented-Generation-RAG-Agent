@@ -1,7 +1,7 @@
 """app.py — Streamlit UI entry point (under 50 lines).
 
 This file only wires things together.
-All rendering and event logic lives in ui/handlers.py.
+All rendering and event logic lives in src/ui/handlers.py.
 All constants live in src/rag/config.py.
 """
 
@@ -9,13 +9,13 @@ import streamlit as st
 
 from src.rag.document_loader import DocumentLoader
 from src.rag.vector_store import VectorStore
-from ui.handlers import (
+from src.ui.handlers import (
     handle_file_upload, handle_url_ingestion, handle_user_input,
     render_chat_history, render_clear_button, render_header,
     render_mode_selector, render_sidebar,
 )
-from ui.session import get_active_bm25, init_session_state
-from ui.theme import CSS
+from src.ui.session import get_active_bm25, init_session_state
+from src.ui.theme import CSS
 
 
 @st.cache_resource
