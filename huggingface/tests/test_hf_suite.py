@@ -441,13 +441,23 @@ class TestDocumentLoaderHtml:
         return f.name
 
     def test_chunk_html_strips_tags(self):
-        """HTML tags are fully removed — no angle brackets appear in chunk text."""
-        path = self._make_html("<html><body><h1>Title</h1><p>Some text here. More text.</p></body></html>")
+        """HTML tags are fully removed — no angle brackets appear in chunk text.
+
+        The HF chunker filters lines shorter than 40 chars, so the content must
+        be long enough to survive that threshold.
+        """
+        long_html = (
+            "<html><body>"
+            "<p>This is the first sentence with enough words to pass the filter threshold.</p>"
+            "<p>This is the second sentence also long enough to survive the forty-character filter.</p>"
+            "</body></html>"
+        )
+        path = self._make_html(long_html)
         try:
             chunks = self.loader._chunk_html(path, 'page.html')
         finally:
             os.unlink(path)
-        assert chunks
+        assert chunks, "Expected at least one chunk from content > 40 chars per line"
         combined = ' '.join(c['text'] for c in chunks)
         assert '<' not in combined
 
@@ -889,13 +899,13 @@ class TestQueryExpand:
     """Tests for VectorStore._expand_query — LLM-based query rewriting."""
 
     def test_expand_returns_3_queries(self):
-        """LLM returns 2 rewrites → original + 2 rewrites = 3 queries total."""
-        with patch('src.rag.vector_store._llm_call', return_value="feline sleep\ncat nap duration"):
-            from src.rag.vector_store import VectorStore
-            store = VectorStore()
-            store.build_or_load([])
-            results = store._expand_query("how long do cats sleep")
-        assert len(results) == 3
+        """HF version disables query expansion (saves LLM calls on free CPU) — always returns [original]."""
+        # The local version expands to 3 queries; HF is intentionally disabled to reduce API calls.
+        from src.rag.vector_store import VectorStore
+        store = VectorStore()
+        store.build_or_load([])
+        results = store._expand_query("how long do cats sleep")
+        assert len(results) == 1
         assert results[0] == "how long do cats sleep"
 
     def test_expand_fallback_on_llm_error(self):
@@ -1157,14 +1167,19 @@ class TestAgentFastPaths:
         self.agent = Agent(store)
 
     def test_fast_path_summarise_does_4_searches(self):
-        """Summarise fast path fires exactly 4 rag_search calls with fixed terms."""
+        """Summarise fast path fires exactly 4 rag_search calls with resume-specific terms.
+
+        Resume terms are triggered when the query contains 'resume' or 'cv'.
+        A generic query produces 4 topic-derived terms instead.
+        """
         search_calls = []
         def mock_search(q):
             search_calls.append(q)
             return f"result for {q}"
+        # Use a resume query to trigger the fixed 4-term search terms
         with patch.object(self.agent, '_tool_rag_search', side_effect=mock_search), \
              patch.object(self.agent, '_synthesize_final_answer', return_value="summary"):
-            result = self.agent._fast_path_summarise("summarise the document")
+            result = self.agent._fast_path_summarise("summarise the resume")
         assert len(search_calls) == 4
         assert 'work experience' in search_calls
         assert 'education' in search_calls
@@ -1369,52 +1384,46 @@ class TestLlmCallFallback:
         assert "HF_TOKEN not set" in result
 
     def test_first_model_success_returns_immediately(self):
-        """Successful first-model response is returned without trying fallback models."""
-        import requests as req_module
-        mock_resp = MagicMock()
-        mock_resp.ok = True
-        mock_resp.json.return_value = {
-            "choices": [{"message": {"content": "hello from model"}}]
-        }
+        """Successful first InferenceClient call returns content without trying other models."""
+        # HF version uses InferenceClient, not requests.post — mock at the SDK level
+        mock_result = MagicMock()
+        mock_result.choices[0].message.content = "hello from model"
+        mock_client = MagicMock()
+        mock_client.chat_completion.return_value = mock_result
         with patch.dict(os.environ, {'HF_TOKEN': 'hf_fake'}), \
-             patch('requests.post', return_value=mock_resp):
+             patch('huggingface_hub.InferenceClient', return_value=mock_client):
             import src.rag.vector_store as vs_module
-            result = vs_module._llm_call("test prompt")
+            result = vs_module._llm_call([{"role": "user", "content": "test"}])
         assert result == "hello from model"
 
     def test_first_fails_tries_second(self):
-        """HTTP 410 from first model triggers retry with the second model in the list."""
+        """Exception on first InferenceClient call triggers retry with the next provider/model."""
         call_count = {'n': 0}
-        def fake_post(url, **kwargs):
+        def fake_chat(**kwargs):
             call_count['n'] += 1
             if call_count['n'] == 1:
-                resp = MagicMock()
-                resp.ok = False
-                resp.status_code = 410
-                resp.text = "Gone"
-                return resp
-            resp = MagicMock()
-            resp.ok = True
-            resp.json.return_value = {"choices": [{"message": {"content": "second model"}}]}
-            return resp
+                raise Exception("Service unavailable")
+            mock_result = MagicMock()
+            mock_result.choices[0].message.content = "second model"
+            return mock_result
+        mock_client = MagicMock()
+        mock_client.chat_completion.side_effect = fake_chat
         with patch.dict(os.environ, {'HF_TOKEN': 'hf_fake'}), \
-             patch('requests.post', side_effect=fake_post):
+             patch('huggingface_hub.InferenceClient', return_value=mock_client):
             import src.rag.vector_store as vs_module
-            result = vs_module._llm_call("test prompt")
+            result = vs_module._llm_call([{"role": "user", "content": "test"}])
         assert call_count['n'] == 2
         assert result == "second model"
 
     def test_all_models_fail_returns_error_message(self):
-        """All models returning HTTP 410 produces an 'all models failed' error string."""
-        mock_resp = MagicMock()
-        mock_resp.ok = False
-        mock_resp.status_code = 410
-        mock_resp.text = "Gone"
+        """All InferenceClient calls raising produces an 'all providers/models failed' string."""
+        mock_client = MagicMock()
+        mock_client.chat_completion.side_effect = Exception("Service unavailable")
         with patch.dict(os.environ, {'HF_TOKEN': 'hf_fake'}), \
-             patch('requests.post', return_value=mock_resp):
+             patch('huggingface_hub.InferenceClient', return_value=mock_client):
             import src.rag.vector_store as vs_module
-            result = vs_module._llm_call("test prompt")
-        assert "all models failed" in result
+            result = vs_module._llm_call([{"role": "user", "content": "test"}])
+        assert "all providers/models failed" in result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
