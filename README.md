@@ -136,7 +136,23 @@ This section explains every algorithm in the pipeline in detail — what it does
 │  ⑧ HALLUCINATION FILTER ── scan for no-info + pivot phrases       │
 │       │                     truncate at pivot if both found         │
 │       ▼                                                             │
-│  Answer with citations: "Cats sleep 12–16 hours [cat_facts.pdf p1]"│
+│  ⑪ SOURCE CITATIONS ─── type-aware label per chunk                 │
+│       │               pdf→p3, xlsx→row12, pptx→slide4, html→s2     │
+│       ▼                                                             │
+│  Answer: "Cats sleep 12–16 hours [cat_facts.pdf p1]"               │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                    STARTUP / INDEX MANAGEMENT                       │
+│                                                                     │
+│  ⑫ REBUILD DECISION                                                │
+│       ├── existing >= current → SKIP (load from disk, ~1 sec)      │
+│       ├── existing > 0, stale → DELETE all → RE-EMBED all          │
+│       └── existing == 0      → EMBED all (batches of 50)           │
+│                                                                     │
+│  ⑬ BM25 REBUILD                                                    │
+│       ├── Built at startup from all local chunks                    │
+│       └── Rebuilt after every URL/file upload (once per batch)     │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -154,6 +170,11 @@ This section explains every algorithm in the pipeline in detail — what it does
 │       └── ACT:   TOOL: finish(20% of $95,000 = $19,000)           │
 │                                                                     │
 │  Tools: rag_search │ calculator │ summarise │ sentiment │ finish    │
+│                                                                     │
+│  ⑭ CONVERSATION MEMORY                                             │
+│       ├── Every Q&A turn stored as {role, content}                 │
+│       ├── Full history prepended to every LLM synthesis call       │
+│       └── Cleared by user (Clear button) or on restart             │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -168,7 +189,7 @@ This section explains every algorithm in the pipeline in detail — what it does
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The circled numbers ① – ⑩ match the algorithm sections below.
+The circled numbers ① – ⑭ match the algorithm sections below.
 
 ---
 
@@ -632,6 +653,188 @@ PDF is the most commonly mis-served binary format. The PDF specification mandate
 **After type detection:**
 
 Binary formats (PDF, DOCX, XLSX, PPTX, XLS) are written to a temporary file, processed by the appropriate format-specific chunker, and then the temporary file is deleted. Text formats (HTML, Markdown, CSV, TXT) are decoded from the response bytes and processed in memory without writing to disk.
+
+---
+
+### 11. Source Citation Labels — Locating Answers in Documents
+
+**What it is:** A type-aware label generator that produces a human-readable location reference for every chunk used in an answer.
+
+**Why citations need to be type-aware:**
+
+"Page 3" is a meaningful location in a PDF. It is meaningless in a spreadsheet. "Row 47" is meaningful in a spreadsheet. It is meaningless in a PDF. A single generic citation format cannot work across 9 document types with fundamentally different structures.
+
+**How the label is constructed — one rule per document type:**
+
+```
+PDF   → "report.pdf p3"          ← page number from metadata
+XLSX  → "data.xlsx row12"         ← row index within the sheet
+CSV   → "contacts.csv row8"       ← row index (DictReader line number)
+PPTX  → "deck.pptx slide4"        ← slide number
+HTML  → "article.html s2"         ← sentence-window index
+DOCX  → "resume.docx L4-6"        ← paragraph line range (start–end)
+TXT   → "notes.txt L10-14"        ← line range
+MD    → "readme.md L22-25"        ← line range
+URL   → "https://example.com/..."  ← URL truncated to 60 characters
+```
+
+**What a citation looks like in the final answer:**
+
+```
+"Cats typically sleep 12 to 16 hours per day. [cat_facts.pdf p1]"
+
+"Alice Chen holds the title of Senior ML Engineer. [employees.xlsx row5]"
+
+"The company was founded in 2018. [about.html s3]"
+```
+
+The label is appended to the answer text so the user can open the exact source document and navigate directly to the relevant location — without having to search the whole file.
+
+**URL source truncation:**
+
+URLs are truncated to 60 characters in citations to keep answers readable. A URL like `https://example.com/very/long/path/to/some/document?id=123456` becomes `https://example.com/very/long/path/to/some/document?id...` in the citation. The full URL is still stored in the chunk metadata and is accessible from the sidebar.
+
+---
+
+### 12. Embedding Rebuild Decision — When to Re-embed vs Skip
+
+**What it is:** A startup check that decides whether to reuse existing embeddings from disk or rebuild the vector index from scratch.
+
+**Why this matters:**
+
+Embedding is the most expensive operation in the pipeline. Each chunk requires one round-trip call to the Ollama embedding model. For 500 chunks across 50 documents, this takes 30–60 seconds. Doing this every time the application starts would make startup unbearably slow.
+
+The system avoids unnecessary re-embedding by comparing the number of chunks in the existing ChromaDB collection against the number of chunks found on disk:
+
+**The three cases and what happens in each:**
+
+```
+Case 1 — No changes since last run
+  existing_count >= current_chunk_count
+  → The database has at least as many entries as the current document set.
+  → SKIP embedding. Load existing collection. Start in ~1 second.
+
+Case 2 — New documents were added to ./docs/
+  existing_count > 0  AND  existing_count < current_chunk_count
+  → The database is stale — it has fewer chunks than the document set.
+  → DELETE all existing embeddings.
+  → RE-EMBED all chunks from scratch.
+  → Why delete all instead of adding only the new ones?
+    Because BM25 (which runs in memory) must be rebuilt over the complete chunk
+    set anyway. Doing a targeted delta update for ChromaDB while BM25 rebuilds
+    fully would leave the two indexes in different states. A full rebuild keeps
+    them in sync.
+
+Case 3 — First run / database was deleted
+  existing_count == 0
+  → No database exists yet.
+  → EMBED all chunks in batches of 50.
+  → Store to disk. ChromaDB persists automatically.
+```
+
+**Why batches of 50:**
+
+The Ollama embedding API processes one text at a time, but wrapping calls in batches of 50 provides two benefits: it limits the number of open connections at any moment, and it gives a natural progress-reporting boundary — the UI can update a progress bar every 50 chunks without needing per-chunk callbacks.
+
+**The >= comparison in Case 1 (not ==):**
+
+The condition is `existing >= current`, not `existing == current`. This handles the case where URL chunks have been added at runtime during a previous session. URL chunks are added to ChromaDB live (without restarting) and are counted in the existing total. On the next startup, `existing` is higher than `current` (the local file chunk count), so the system correctly skips re-embedding and keeps the URL chunks that were previously indexed.
+
+---
+
+### 13. BM25 Index — Rebuilding After Every Upload
+
+**What it is:** An in-memory keyword search index that is rebuilt from scratch every time new documents or URLs are added.
+
+**Why BM25 is rebuilt instead of updated incrementally:**
+
+BM25 is a statistical model — its scores for every existing chunk change whenever the document collection changes. This is because BM25 uses IDF (Inverse Document Frequency), which depends on how rare a word is **across the entire collection**:
+
+```
+IDF(word) = log( total_chunks / chunks_containing_word )
+```
+
+If the word "salary" appears in 5 out of 100 chunks, its IDF is `log(100/5) = log(20) ≈ 3.0`.
+
+Now suppose 50 new chunks are added that all mention "salary". Suddenly "salary" appears in 55 out of 150 chunks. Its IDF drops to `log(150/55) ≈ 1.0`. Every existing chunk that contains "salary" now has a lower BM25 score — even though the chunk itself has not changed.
+
+This global dependency means there is no valid "insert one chunk and update IDF" operation. The entire index must be rebuilt with the new complete chunk list.
+
+**When BM25 is rebuilt:**
+
+```
+1. Application startup        → built once from all local document chunks
+2. URL ingestion              → rebuilt after the URL chunks are added
+3. File upload via UI         → rebuilt after all uploaded files are processed
+                                (once for the whole batch, not once per file)
+```
+
+**Rebuilding once per batch (not per file):**
+
+When a user uploads 10 files at once, BM25 is rebuilt once — after all 10 files are processed — not 10 times. This is an efficiency decision. Each rebuild is O(n) in the number of chunks (it must tokenise every chunk). Rebuilding after every file when uploading 10 would do 10× as much work for the same end result.
+
+**What "rebuild" involves:**
+
+```python
+# Every chunk's text is tokenised into a list of lowercase words
+tokenised_chunks = [chunk['text'].lower().split() for chunk in all_chunks]
+
+# BM25Okapi builds its TF and IDF tables from the full token list
+bm25_index = BM25Okapi(tokenised_chunks)
+```
+
+The resulting `bm25_index` object is stored in memory on the `VectorStore` instance. It is not persisted to disk — ChromaDB handles persistence, and BM25 is rebuilt from the persisted chunk texts on every startup.
+
+---
+
+### 14. Conversation Memory — Multi-Turn Context
+
+**What it is:** A rolling list of previous messages that is included in every LLM call so the model can answer follow-up questions that refer to earlier exchanges.
+
+**Why it is needed:**
+
+Without conversation memory, every question is answered in isolation. The user cannot ask:
+- *"What is her salary?"* (referring to a person mentioned in the previous answer)
+- *"Summarise that in 2 sentences"* (referring to the previous response)
+- *"What about the other candidate?"* (continuing a comparison thread)
+
+These follow-up patterns are natural in conversation but require the model to remember what was said.
+
+**How the conversation history is structured:**
+
+Each turn is stored as a dictionary with a `role` and `content`:
+
+```python
+conversation = [
+    {'role': 'user',      'content': "What is Alice's job title?"},
+    {'role': 'assistant', 'content': "Alice holds the title of Senior ML Engineer. [resume.pdf p2]"},
+    {'role': 'user',      'content': "What is her salary?"},
+    # ↑ "her" refers to Alice — the model knows this because the previous turn is included
+]
+```
+
+When the LLM is called to synthesize an answer, the full conversation history is prepended to the prompt. The model sees the entire exchange and can resolve pronouns and contextual references.
+
+**What is stored and what is not:**
+
+```
+Stored:   every user question and every assistant response (the final answer text)
+Not stored: retrieved chunks, reranker scores, intermediate pipeline steps
+```
+
+The conversation stores only the visible exchange — not the internal pipeline state. Retrieved chunks are included in the synthesis prompt for the current turn only; they are not carried forward into history. This keeps the context window manageable as the conversation grows.
+
+**Session scope and limits:**
+
+Conversation history lives entirely in memory on the `VectorStore` instance. It persists for the duration of the session and resets when:
+- The user clicks the **Clear** button in the UI
+- The application restarts
+
+There is no cross-session memory persistence in the current version. Every new session starts with a blank history.
+
+**The clear operation:**
+
+Clearing the conversation only wipes the history list — it does not touch ChromaDB, BM25, or the indexed documents. Documents remain indexed after a clear; only the conversational context is lost.
 
 ---
 
