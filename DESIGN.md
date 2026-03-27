@@ -190,11 +190,17 @@ i += 1  # skip the header row
 ```
 
 ### Naming
-- Classes: `PascalCase` — `DocumentLoader`, `VectorStore`
-- Public methods and functions: `snake_case` — `run_pipeline`, `chunk_url`
-- Private methods: `_snake_case` — `_embed`, `_hybrid_retrieve`
-- Constants: `UPPER_SNAKE_CASE` — `EMBEDDING_MODEL`, `TOP_RETRIEVE`
-- Local variables: `snake_case`, always use full plain English names — `chunk_size` not `cs`, `query_type` not `qt`, `best_score` not `bs`
+
+Follow **[PEP 8](https://peps.python.org/pep-0008/)** (Python's official style guide) and the **[Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)** for all naming. The table below is a quick reference — PEP 8 is authoritative when in doubt.
+
+| Kind | Convention | PEP 8 reference | Example |
+|------|-----------|-----------------|---------|
+| Classes | `UpperCamelCase` (a.k.a. `PascalCase`) | [Class Names](https://peps.python.org/pep-0008/#class-names) | `DocumentLoader`, `VectorStore` |
+| Public functions / methods | `lower_case_with_underscores` | [Function and Variable Names](https://peps.python.org/pep-0008/#function-and-variable-names) | `run_pipeline`, `chunk_url` |
+| Private methods | `_lower_case_with_underscores` | [Naming Conventions — single leading underscore](https://peps.python.org/pep-0008/#naming-conventions) | `_embed`, `_hybrid_retrieve` |
+| Module-level constants | `ALL_CAPS_WITH_UNDERSCORES` | [Constants](https://peps.python.org/pep-0008/#constants) | `EMBEDDING_MODEL`, `TOP_RETRIEVE` |
+| Local variables / parameters | `lower_case_with_underscores`, full plain English names | [Function and Variable Names](https://peps.python.org/pep-0008/#function-and-variable-names) | `chunk_size` not `cs`, `query_type` not `qt` |
+| Modules / files | `lower_case_with_underscores` | [Package and Module Names](https://peps.python.org/pep-0008/#package-and-module-names) | `document_loader.py`, `vector_store.py` |
 
 ### Readability — write for non-technical readers
 

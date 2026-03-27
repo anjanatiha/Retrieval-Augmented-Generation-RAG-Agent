@@ -787,13 +787,17 @@ i += 1  # increment i by 1             ← BAD (restates the code)
 ```
 
 ### Naming
+
+Follow **PEP 8** and the **Google Python Style Guide** for all naming. Quick reference:
+
 | Kind | Convention | Example |
 |------|-----------|---------|
-| Classes | `PascalCase` | `DocumentLoader` |
-| Public methods / functions | `snake_case` | `run_pipeline` |
-| Private methods | `_snake_case` | `_embed` |
-| Constants | `UPPER_SNAKE_CASE` | `EMBEDDING_MODEL` |
-| Local variables | `snake_case` | `top_n`, `qt` |
+| Classes | `UpperCamelCase` | `DocumentLoader`, `VectorStore` |
+| Public methods / functions | `lower_case_with_underscores` | `run_pipeline`, `chunk_url` |
+| Private methods | `_lower_case_with_underscores` | `_embed`, `_hybrid_retrieve` |
+| Module-level constants | `ALL_CAPS_WITH_UNDERSCORES` | `EMBEDDING_MODEL`, `TOP_RETRIEVE` |
+| Local variables / parameters | `lower_case_with_underscores`, full plain English names | `chunk_size` not `cs`, `query_type` not `qt` |
+| Modules / files | `lower_case_with_underscores` | `document_loader.py`, `vector_store.py` |
 
 ### Readability — write for non-technical readers
 All code must be readable by someone who is not a software engineer.
