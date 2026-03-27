@@ -170,12 +170,15 @@ def chat(message: str, history: list, mode: str):
     return updated_history, pipeline_info
 
 
-def upload_file(file_obj, progress=None):
-    """Chunk and index an uploaded file into the live knowledge base.
+def upload_file(file_objs, progress=None):
+    """Chunk and index one or more uploaded files into the live knowledge base.
+
+    Accepts a single file or a list of files so users can select multiple files
+    (or all files from a folder) in one pick.
 
     Args:
-        file_obj: Gradio 5 filepath string, or legacy file-like with a .name attribute.
-        progress: Optional gr.Progress() for showing a progress bar.
+        file_objs: A single Gradio filepath string / file-like object, or a list of them.
+        progress:  Optional gr.Progress() for showing a progress bar.
 
     Returns:
         Tuple of (status_message, chunk_counter_markdown).
@@ -185,47 +188,63 @@ def upload_file(file_obj, progress=None):
 
     loader, store = _initialize()
 
-    if file_obj is None:
+    if file_objs is None:
         return "No file selected.", f"Chunks in knowledge base: {_chunk_count()}"
 
-    # Gradio 5 passes a plain filepath string; older versions pass a file-like object
-    filepath  = file_obj if isinstance(file_obj, str) else file_obj.name
-    filename  = os.path.basename(filepath)
-    extension = os.path.splitext(filename)[1].lower()
-    doc_type  = loader.ext_to_type.get(extension, 'txt')
+    # Normalise to a list so single-file and multi-file uploads use the same code path
+    if not isinstance(file_objs, list):
+        file_objs = [file_objs]
 
-    try:
-        progress(0.2, desc="Reading file...")
-        file_info = {
-            'filepath':      filepath,
-            'filename':      filename,
-            'detected_type': doc_type,
-            'is_misplaced':  False,
-        }
-        new_chunks = loader._dispatch_chunker(file_info)
+    total_chunks  = 0
+    indexed_names = []
+    errors        = []
 
-        if new_chunks:
-            progress(0.5, desc=f"Embedding {len(new_chunks)} chunks on CPU — please wait...")
-            store.add_chunks(new_chunks, id_prefix='file')
-            progress(0.9, desc="Rebuilding search index...")
-            store.rebuild_bm25(store.chunks)
-            progress(1.0, desc="Done")
-            return (
-                f"✅ Indexed **{filename}** — {len(new_chunks)} chunks added.",
-                f"Chunks in knowledge base: **{_chunk_count()}**",
-            )
-        else:
-            return (
-                f"⚠️ No text extracted from **{filename}**.",
-                f"Chunks in knowledge base: {_chunk_count()}",
-            )
+    for i, file_obj in enumerate(file_objs):
+        # Gradio 5 passes a plain filepath string; older versions pass a file-like object
+        filepath  = file_obj if isinstance(file_obj, str) else file_obj.name
+        filename  = os.path.basename(filepath)
+        extension = os.path.splitext(filename)[1].lower()
+        doc_type  = loader.ext_to_type.get(extension, 'txt')
 
-    except Exception as error:
-        logger.error("File upload failed for '%s': %s", filename, error, exc_info=True)
-        return (
-            f"❌ Error indexing **{filename}**: {error}",
-            f"Chunks in knowledge base: {_chunk_count()}",
-        )
+        step = (i + 1) / len(file_objs)
+        progress(step * 0.5, desc=f"Reading {filename}...")
+
+        try:
+            file_info = {
+                'filepath':      filepath,
+                'filename':      filename,
+                'detected_type': doc_type,
+                'is_misplaced':  False,
+            }
+            new_chunks = loader._dispatch_chunker(file_info)
+
+            if new_chunks:
+                progress(step * 0.5 + 0.4, desc=f"Embedding {len(new_chunks)} chunks from {filename}...")
+                store.add_chunks(new_chunks, id_prefix='file')
+                total_chunks += len(new_chunks)
+                indexed_names.append(filename)
+            else:
+                errors.append(f"⚠️ No text extracted from **{filename}**.")
+
+        except Exception as error:
+            logger.error("File upload failed for '%s': %s", filename, error, exc_info=True)
+            errors.append(f"❌ Error indexing **{filename}**: {error}")
+
+    if total_chunks > 0:
+        # Rebuild BM25 once after all files are indexed (more efficient than per-file)
+        progress(0.95, desc="Rebuilding search index...")
+        store.rebuild_bm25(store.chunks)
+        progress(1.0, desc="Done")
+
+    # Build a readable status message summarising the whole batch
+    parts = []
+    if indexed_names:
+        names_str = ", ".join(f"**{n}**" for n in indexed_names)
+        parts.append(f"✅ Indexed {names_str} — {total_chunks} chunks added.")
+    parts.extend(errors)
+
+    status = "\n".join(parts) if parts else "No files processed."
+    return status, f"Chunks in knowledge base: **{_chunk_count()}**"
 
 
 def fetch_url(url: str, progress=None):
@@ -384,15 +403,17 @@ def build_demo():
 
                 gr.Markdown("---")
 
-                with gr.Accordion("📎 Upload a document", open=False):
+                with gr.Accordion("📎 Upload files or a folder", open=False):
+                    gr.Markdown("Select one file, multiple files, or all files from a folder.")
                     file_upload = gr.File(
                         label="Supported: PDF, TXT, DOCX, XLSX, XLS, PPTX, CSV, MD, HTML",
                         file_types=[
                             ".pdf", ".txt", ".docx", ".doc", ".xlsx", ".xls",
                             ".pptx", ".ppt", ".csv", ".md", ".markdown", ".html", ".htm",
                         ],
+                        file_count="multiple",
                     )
-                    upload_btn = gr.Button("Index file →", variant="secondary")
+                    upload_btn = gr.Button("Index files →", variant="secondary")
                     upload_msg = gr.Markdown("")
 
                 with gr.Accordion("🌐 Add a URL", open=False):
@@ -452,9 +473,9 @@ def build_demo():
         )
         clear_btn.click(fn=clear_chat, outputs=[chatbot, pipeline_box])
 
-        def _upload(file_obj):
+        def _upload(file_objs):
             """Thin wrapper to map upload_file outputs to Gradio components."""
-            status_message, counter_text = upload_file(file_obj)
+            status_message, counter_text = upload_file(file_objs)
             return status_message, counter_text
 
         upload_btn.click(
