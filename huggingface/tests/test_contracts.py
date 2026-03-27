@@ -29,6 +29,11 @@ if HF_ROOT not in sys.path:
 
 from tests.conftest import sample_chunks, make_store_with_chunks
 
+from src.rag.chunkers import (
+    chunk_txt, chunk_md, chunk_pdf, chunk_docx,
+    chunk_xlsx, chunk_csv, chunk_pptx, chunk_html,
+)
+
 
 # ---------------------------------------------------------------------------
 # Chunk-dict contract helper
@@ -93,7 +98,7 @@ class TestChunkerContracts:
         """_chunk_txt chunks satisfy the 5-key contract."""
         f = tmp_path / 'test.txt'
         f.write_text("Cats sleep 16 hours.\nDogs are loyal companions.\n")
-        chunks = loader._chunk_txt(str(f), 'test.txt')
+        chunks = chunk_txt(str(f), 'test.txt')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -103,7 +108,7 @@ class TestChunkerContracts:
         """_chunk_md chunks satisfy the 5-key contract."""
         f = tmp_path / 'test.md'
         f.write_text("# Animals\nCats sleep 16 hours.\nDogs are loyal.\n")
-        chunks = loader._chunk_md(str(f), 'test.md')
+        chunks = chunk_md(str(f), 'test.md')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -117,7 +122,7 @@ class TestChunkerContracts:
         page.insert_text((50, 50), "Cats sleep sixteen hours. They hunt at night.")
         path = str(tmp_path / 'test.pdf')
         doc.save(path); doc.close()
-        chunks = loader._chunk_pdf(path, 'test.pdf')
+        chunks = chunk_pdf(path, 'test.pdf')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -131,7 +136,7 @@ class TestChunkerContracts:
         doc.add_paragraph("They are excellent nocturnal hunters.")
         path = str(tmp_path / 'test.docx')
         doc.save(path)
-        chunks = loader._chunk_docx(path, 'test.docx')
+        chunks = chunk_docx(path, 'test.docx')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -146,7 +151,7 @@ class TestChunkerContracts:
         ws.append(['cat', 'sleeps 16 hours'])
         path = str(tmp_path / 'test.xlsx')
         wb.save(path)
-        chunks = loader._chunk_xlsx(path, 'test.xlsx')
+        chunks = chunk_xlsx(path, 'test.xlsx')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -156,7 +161,7 @@ class TestChunkerContracts:
         """_chunk_csv chunks satisfy the 5-key contract."""
         f = tmp_path / 'test.csv'
         f.write_text("animal,fact\ncat,sleeps 16 hours\ndog,loyal\n")
-        chunks = loader._chunk_csv(str(f), 'test.csv')
+        chunks = chunk_csv(str(f), 'test.csv')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -171,7 +176,7 @@ class TestChunkerContracts:
         slide.placeholders[1].text_frame.text = "Cats sleep 16 hours a day."
         path  = str(tmp_path / 'test.pptx')
         prs.save(path)
-        chunks = loader._chunk_pptx(path, 'test.pptx')
+        chunks = chunk_pptx(path, 'test.pptx')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -184,7 +189,7 @@ class TestChunkerContracts:
             "<html><body><p>Cats sleep 16 hours a day. "
             "They are nocturnal hunters.</p></body></html>"
         )
-        chunks = loader._chunk_html(str(f), 'test.html')
+        chunks = chunk_html(str(f), 'test.html')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):

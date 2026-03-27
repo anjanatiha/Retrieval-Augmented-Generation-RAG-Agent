@@ -12,6 +12,8 @@ No mocking needed — these tests exercise pure functions with no I/O or LLM cal
 
 import pytest
 
+from src.rag.chunkers import truncate_chunk
+
 
 # ---------------------------------------------------------------------------
 # 1. Truncation boundary × parametrize
@@ -45,9 +47,7 @@ class TestTruncationCombinations:
             expected_word_lte:  Result word count must be ≤ this.
             expected_char_lte:  Result char count must be ≤ this.
         """
-        from src.rag.document_loader import DocumentLoader
-        loader = DocumentLoader()
-        result = loader._truncate_chunk(text)
+        result = truncate_chunk(text)
         assert len(result.split()) <= expected_word_lte, (
             f"Word count {len(result.split())} exceeds limit {expected_word_lte}"
         )

@@ -18,6 +18,13 @@ import tempfile
 import pytest
 from unittest.mock import MagicMock, patch
 
+# ── Chunker functions are now standalone module-level functions ───────────────
+from src.rag.chunkers import (
+    chunk_txt, chunk_md, chunk_pdf, chunk_docx,
+    chunk_xlsx, chunk_xls, chunk_csv, chunk_pptx,
+    chunk_html, truncate_chunk,
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -49,8 +56,7 @@ class TestLoadPdf:
         page.insert_text((50, 50), "Cats sleep sixteen hours a day. They are nocturnal hunters.")
         path = str(tmp_path / 'test.pdf')
         doc.save(path); doc.close()
-        loader = DocumentLoader()
-        chunks = loader._chunk_pdf(path, 'test.pdf')
+        chunks = chunk_pdf(path, 'test.pdf')
         assert len(chunks) >= 1
         assert all(c['type'] == 'pdf' for c in chunks)
         assert any('cats' in c['text'].lower() for c in chunks)
@@ -64,8 +70,7 @@ class TestLoadTxt:
         from src.rag.document_loader import DocumentLoader
         f = tmp_path / 'test.txt'
         f.write_text('Cats sleep sixteen hours a day.\nThey are nocturnal hunters.\n')
-        loader = DocumentLoader()
-        chunks = loader._chunk_txt(str(f), 'test.txt')
+        chunks = chunk_txt(str(f), 'test.txt')
         assert len(chunks) == 2
         assert all(c['type'] == 'txt' for c in chunks)
 
@@ -82,8 +87,7 @@ class TestLoadDocx:
         doc.add_paragraph('They are excellent hunters.')
         path = str(tmp_path / 'test.docx')
         doc.save(path)
-        loader = DocumentLoader()
-        chunks = loader._chunk_docx(path, 'test.docx')
+        chunks = chunk_docx(path, 'test.docx')
         assert len(chunks) >= 1
         assert all(c['type'] == 'docx' for c in chunks)
 
@@ -99,8 +103,7 @@ class TestLoadDocx:
         table.rows[1].cells[1].text = 'Engineer'
         path = str(tmp_path / 'table.docx')
         doc.save(path)
-        loader = DocumentLoader()
-        chunks = loader._chunk_docx(path, 'table.docx')
+        chunks = chunk_docx(path, 'table.docx')
         full   = ' '.join(c['text'] for c in chunks)
         assert 'Alice' in full or 'Name' in full
 
@@ -115,8 +118,7 @@ class TestLoadDocx:
         table.rows[0].cells[2].text = 'Different'
         path = str(tmp_path / 'merged.docx')
         doc.save(path)
-        loader = DocumentLoader()
-        chunks = loader._chunk_docx(path, 'merged.docx')
+        chunks = chunk_docx(path, 'merged.docx')
         full   = ' '.join(c['text'] for c in chunks)
         assert full.count('Merged') == 1
 
@@ -135,8 +137,7 @@ class TestLoadXlsx:
         ws.append(['Bob', 25])
         path = str(tmp_path / 'test.xlsx')
         wb.save(path)
-        loader = DocumentLoader()
-        chunks = loader._chunk_xlsx(path, 'test.xlsx')
+        chunks = chunk_xlsx(path, 'test.xlsx')
         assert len(chunks) == 2
         assert all(c['type'] == 'xlsx' for c in chunks)
         assert 'Alice' in chunks[0]['text']
@@ -155,8 +156,7 @@ class TestLoadXls:
         ws.write(1, 0, 'Alice'); ws.write(1, 1, 95)
         path = str(tmp_path / 'test.xls')
         wb.save(path)
-        loader = DocumentLoader()
-        chunks = loader._chunk_xls(path, 'test.xls')
+        chunks = chunk_xls(path, 'test.xls')
         assert len(chunks) == 1
         assert 'Alice' in chunks[0]['text']
 
@@ -175,8 +175,7 @@ class TestLoadPptx:
         txBox.text_frame.text = 'Cats are wonderful nocturnal hunters.'
         path  = str(tmp_path / 'test.pptx')
         prs.save(path)
-        loader = DocumentLoader()
-        chunks = loader._chunk_pptx(path, 'test.pptx')
+        chunks = chunk_pptx(path, 'test.pptx')
         assert len(chunks) >= 1
         assert all(c['type'] == 'pptx' for c in chunks)
         assert 'Cats' in chunks[0]['text']
@@ -190,8 +189,7 @@ class TestLoadCsv:
         from src.rag.document_loader import DocumentLoader
         f = tmp_path / 'test.csv'
         f.write_text('name,age\nAlice,30\nBob,25\n')
-        loader = DocumentLoader()
-        chunks = loader._chunk_csv(str(f), 'test.csv')
+        chunks = chunk_csv(str(f), 'test.csv')
         assert len(chunks) == 2
         assert all(c['type'] == 'csv' for c in chunks)
 
@@ -204,8 +202,7 @@ class TestLoadMd:
         from src.rag.document_loader import DocumentLoader
         f = tmp_path / 'test.md'
         f.write_text('# Title\n**bold** cats sleep a lot\n')
-        loader = DocumentLoader()
-        chunks = loader._chunk_md(str(f), 'test.md')
+        chunks = chunk_md(str(f), 'test.md')
         assert len(chunks) >= 1
         assert all(c['type'] == 'md' for c in chunks)
         assert all('**' not in c['text'] for c in chunks)
@@ -220,8 +217,7 @@ class TestLoadHtml:
         from src.rag.document_loader import DocumentLoader
         f = tmp_path / 'test.html'
         f.write_text('<html><body><p>Cats sleep. They hunt at night. Amazing animals.</p></body></html>')
-        loader = DocumentLoader()
-        chunks = loader._chunk_html(str(f), 'test.html')
+        chunks = chunk_html(str(f), 'test.html')
         assert len(chunks) >= 1
         assert all(c['type'] == 'html' for c in chunks)
         assert all('<' not in c['text'] for c in chunks)
@@ -258,19 +254,15 @@ class TestTruncateChunk:
     """Integration tests for _truncate_chunk enforcing 300-word and 1200-char limits."""
 
     def test_truncate_chunk_300_words(self):
-        """400-word input: _truncate_chunk returns at most 300 words."""
-        from src.rag.document_loader import DocumentLoader
-        loader = DocumentLoader()
+        """400-word input: truncate_chunk returns at most 300 words."""
         text   = ' '.join(['word'] * 400)
-        result = loader._truncate_chunk(text)
+        result = truncate_chunk(text)
         assert len(result.split()) <= 300
 
     def test_truncate_chunk_1200_chars(self):
-        """2000-char input: _truncate_chunk returns at most 1200 characters."""
-        from src.rag.document_loader import DocumentLoader
-        loader = DocumentLoader()
+        """2000-char input: truncate_chunk returns at most 1200 characters."""
         text   = 'a' * 2000
-        result = loader._truncate_chunk(text)
+        result = truncate_chunk(text)
         assert len(result) <= 1200
 
 

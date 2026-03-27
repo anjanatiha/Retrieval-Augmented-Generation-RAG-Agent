@@ -1,17 +1,18 @@
-"""test_document_loader.py — file-type chunker tests for the HF Space version.
+"""test_document_loader.py — File-type chunker tests for the HF Space version.
 
-Covers file-type chunkers: TXT, CSV, PDF, DOCX, XLSX, XLS, PPTX.
-HTML chunker, URL ingestion, _truncate_chunk, and _dispatch_chunker
+Covers file-type chunkers: TXT, CSV, MD, PDF, DOCX, XLSX, XLS, PPTX.
+HTML chunker, URL ingestion, truncate_chunk, and _dispatch_chunker
 are in test_url_ingestion.py.
 
 Mock strategy:
   - requests.get is mocked only where needed (none in this file).
   - Never mock: fitz, python-docx, openpyxl, xlrd, python-pptx, beautifulsoup4,
-    BM25Okapi, or _truncate_chunk itself.
+    BM25Okapi, or truncate_chunk itself.
 
 HF differences from local:
   - No DOC_FOLDERS / scan_all_files / ensure_folders in HF version.
   - HTML chunker filters lines shorter than 40 chars (boilerplate filter).
+  - Chunker functions are imported directly from src.rag.chunkers.
 """
 
 import os
@@ -24,6 +25,14 @@ import pytest
 HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
+
+# ── Chunker functions are standalone module-level functions in src.rag.chunkers ─
+from src.rag.chunkers import (
+    chunk_txt, chunk_md, chunk_csv,
+    chunk_pdf, chunk_docx,
+    chunk_xlsx, chunk_xls,
+    chunk_pptx, truncate_chunk,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -43,22 +52,17 @@ def _write_tmp(content: str, suffix: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TXT and CSV (plain-text chunkers)
+# TXT, MD, and CSV (plain-text chunkers)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDocumentLoaderTxt:
-    """Tests for plain-text and Markdown chunkers in DocumentLoader."""
-
-    def setup_method(self):
-        """Instantiate a fresh DocumentLoader before each test."""
-        from src.rag.document_loader import DocumentLoader
-        self.loader = DocumentLoader()
+    """Tests for plain-text, Markdown, and CSV chunkers from src.rag.chunkers."""
 
     def test_chunk_txt_basic(self):
         """Three non-empty lines → three txt chunks with correct source and type."""
         path = _write_tmp("Line one\nLine two\nLine three\n", '.txt')
         try:
-            chunks = self.loader._chunk_txt(path, 'test.txt')
+            chunks = chunk_txt(path, 'test.txt')
         finally:
             os.unlink(path)
         assert len(chunks) == 3
@@ -69,7 +73,7 @@ class TestDocumentLoaderTxt:
         """Blank lines are silently dropped — only non-empty lines produce chunks."""
         path = _write_tmp("Hello\n\n\nWorld\n", '.txt')
         try:
-            chunks = self.loader._chunk_txt(path, 'test.txt')
+            chunks = chunk_txt(path, 'test.txt')
         finally:
             os.unlink(path)
         assert len(chunks) == 2
@@ -78,7 +82,7 @@ class TestDocumentLoaderTxt:
         """The first chunk from a txt file has start_line equal to 1."""
         path = _write_tmp("a\nb\nc\n", '.txt')
         try:
-            chunks = self.loader._chunk_txt(path, 'test.txt')
+            chunks = chunk_txt(path, 'test.txt')
         finally:
             os.unlink(path)
         assert chunks[0]['start_line'] == 1
@@ -88,7 +92,7 @@ class TestDocumentLoaderTxt:
         md = "# Heading\n**bold** and _italic_ and `code`\n[link](http://x.com)\n"
         path = _write_tmp(md, '.md')
         try:
-            chunks = self.loader._chunk_md(path, 'test.md')
+            chunks = chunk_md(path, 'test.md')
         finally:
             os.unlink(path)
         assert chunks
@@ -98,10 +102,10 @@ class TestDocumentLoaderTxt:
         assert '[link]' not in combined
 
     def test_chunk_md_type_is_md(self):
-        """Chunks produced by _chunk_md always carry type='md'."""
+        """Chunks produced by chunk_md always carry type='md'."""
         path = _write_tmp("Some markdown content\n", '.md')
         try:
-            chunks = self.loader._chunk_md(path, 'test.md')
+            chunks = chunk_md(path, 'test.md')
         finally:
             os.unlink(path)
         assert all(c['type'] == 'md' for c in chunks)
@@ -111,7 +115,7 @@ class TestDocumentLoaderTxt:
         csv_content = "name,age,city\nAlice,30,NYC\nBob,25,LA\n"
         path = _write_tmp(csv_content, '.csv')
         try:
-            chunks = self.loader._chunk_csv(path, 'data.csv')
+            chunks = chunk_csv(path, 'data.csv')
         finally:
             os.unlink(path)
         assert len(chunks) == 2
@@ -124,7 +128,7 @@ class TestDocumentLoaderTxt:
         csv_content = "name,age\nAlice,30\n,\nBob,25\n"
         path = _write_tmp(csv_content, '.csv')
         try:
-            chunks = self.loader._chunk_csv(path, 'data.csv')
+            chunks = chunk_csv(path, 'data.csv')
         finally:
             os.unlink(path)
         texts = [c['text'] for c in chunks]
@@ -138,11 +142,6 @@ class TestDocumentLoaderTxt:
 
 class TestDocumentLoaderPdf:
     """Tests for the PDF chunker using real fitz (pymupdf)."""
-
-    def setup_method(self):
-        """Instantiate a fresh DocumentLoader before each test."""
-        from src.rag.document_loader import DocumentLoader
-        self.loader = DocumentLoader()
 
     def _make_pdf(self, text="Hello world. This is a test sentence. Another sentence here."):
         """Create a minimal single-page PDF in a temp file and return its path.
@@ -166,7 +165,7 @@ class TestDocumentLoaderPdf:
         """Real PDF → at least one chunk with type='pdf' and correct source."""
         path = self._make_pdf()
         try:
-            chunks = self.loader._chunk_pdf(path, 'test.pdf')
+            chunks = chunk_pdf(path, 'test.pdf')
         finally:
             os.unlink(path)
         assert len(chunks) > 0
@@ -177,7 +176,7 @@ class TestDocumentLoaderPdf:
         """start_line on each PDF chunk equals the 1-based page number."""
         path = self._make_pdf()
         try:
-            chunks = self.loader._chunk_pdf(path, 'test.pdf')
+            chunks = chunk_pdf(path, 'test.pdf')
         finally:
             os.unlink(path)
         assert chunks[0]['start_line'] == 1
@@ -189,7 +188,7 @@ class TestDocumentLoaderPdf:
         tmp.write("not a pdf")
         tmp.close()
         try:
-            chunks = self.loader._chunk_pdf(tmp.name, 'bad.pdf')
+            chunks = chunk_pdf(tmp.name, 'bad.pdf')
         finally:
             os.unlink(tmp.name)
         assert chunks == []
@@ -201,11 +200,6 @@ class TestDocumentLoaderPdf:
 
 class TestDocumentLoaderDocx:
     """Tests for the DOCX chunker including table extraction and merged-cell deduplication."""
-
-    def setup_method(self):
-        """Instantiate a fresh DocumentLoader before each test."""
-        from src.rag.document_loader import DocumentLoader
-        self.loader = DocumentLoader()
 
     def _make_docx(self, paragraphs=None, table_rows=None):
         """Create a minimal DOCX file with given paragraphs and optional table rows.
@@ -233,7 +227,7 @@ class TestDocumentLoaderDocx:
         """DOCX with three paragraphs → at least one chunk with type='docx'."""
         path = self._make_docx()
         try:
-            chunks = self.loader._chunk_docx(path, 'test.docx')
+            chunks = chunk_docx(path, 'test.docx')
         finally:
             os.unlink(path)
         assert len(chunks) > 0
@@ -243,7 +237,7 @@ class TestDocumentLoaderDocx:
         """Table row values appear in the combined chunk text."""
         path = self._make_docx(table_rows=[["Name", "Age"], ["Alice", "30"]])
         try:
-            chunks = self.loader._chunk_docx(path, 'test.docx')
+            chunks = chunk_docx(path, 'test.docx')
         finally:
             os.unlink(path)
         all_text = ' '.join(c['text'] for c in chunks)
@@ -264,7 +258,7 @@ class TestDocumentLoaderDocx:
         doc.save(tmp.name)
         tmp.close()
         try:
-            chunks = self.loader._chunk_docx(tmp.name, 'test.docx')
+            chunks = chunk_docx(tmp.name, 'test.docx')
         finally:
             os.unlink(tmp.name)
         all_text = ' '.join(c['text'] for c in chunks)
@@ -278,11 +272,6 @@ class TestDocumentLoaderDocx:
 
 class TestDocumentLoaderXlsx:
     """Tests for the XLSX chunker using openpyxl."""
-
-    def setup_method(self):
-        """Instantiate a fresh DocumentLoader before each test."""
-        from src.rag.document_loader import DocumentLoader
-        self.loader = DocumentLoader()
 
     def _make_xlsx(self, rows=None):
         """Create a minimal XLSX workbook with the given rows and return its path.
@@ -308,7 +297,7 @@ class TestDocumentLoaderXlsx:
         """Each data row becomes a chunk with header=value pairs in the text."""
         path = self._make_xlsx()
         try:
-            chunks = self.loader._chunk_xlsx(path, 'data.xlsx')
+            chunks = chunk_xlsx(path, 'data.xlsx')
         finally:
             os.unlink(path)
         assert len(chunks) == 2
@@ -319,17 +308,17 @@ class TestDocumentLoaderXlsx:
         """start_line for the first data row is 2 because row 1 is the header."""
         path = self._make_xlsx()
         try:
-            chunks = self.loader._chunk_xlsx(path, 'data.xlsx')
+            chunks = chunk_xlsx(path, 'data.xlsx')
         finally:
             os.unlink(path)
-        # Row 1 is the header, so first data row → start_line == 2
+        # Row 1 is the header, so the first data row has start_line == 2
         assert chunks[0]['start_line'] == 2
 
     def test_chunk_xlsx_sheet_name_in_text(self):
         """Sheet name is prefixed in brackets in each chunk's text field."""
         path = self._make_xlsx()
         try:
-            chunks = self.loader._chunk_xlsx(path, 'data.xlsx')
+            chunks = chunk_xlsx(path, 'data.xlsx')
         finally:
             os.unlink(path)
         assert all('[Sheet1]' in c['text'] for c in chunks)
@@ -349,7 +338,7 @@ class TestDocumentLoaderXlsx:
         wb.save(tmp.name)
         tmp.close()
         try:
-            chunks = self.loader._chunk_xlsx(tmp.name, 'data.xlsx')
+            chunks = chunk_xlsx(tmp.name, 'data.xlsx')
         finally:
             os.unlink(tmp.name)
         assert len(chunks) == 1
@@ -361,11 +350,6 @@ class TestDocumentLoaderXlsx:
 
 class TestDocumentLoaderXls:
     """Tests for the legacy .xls chunker (xlrd path)."""
-
-    def setup_method(self):
-        """Instantiate a fresh DocumentLoader before each test."""
-        from src.rag.document_loader import DocumentLoader
-        self.loader = DocumentLoader()
 
     def test_chunk_xls_basic(self):
         """Legacy .xls file is readable via xlrd and produces correct chunks."""
@@ -385,7 +369,7 @@ class TestDocumentLoaderXls:
         wb.save(tmp.name)
         tmp.close()
         try:
-            chunks = self.loader._chunk_xls(tmp.name, 'data.xls')
+            chunks = chunk_xls(tmp.name, 'data.xls')
         finally:
             os.unlink(tmp.name)
         assert len(chunks) >= 1
@@ -398,11 +382,6 @@ class TestDocumentLoaderXls:
 
 class TestDocumentLoaderPptx:
     """Tests for the PPTX chunker using python-pptx."""
-
-    def setup_method(self):
-        """Instantiate a fresh DocumentLoader before each test."""
-        from src.rag.document_loader import DocumentLoader
-        self.loader = DocumentLoader()
 
     def _make_pptx(self, slides_text=None):
         """Create a minimal PPTX presentation with one textbox per slide.
@@ -429,7 +408,7 @@ class TestDocumentLoaderPptx:
         """Three slides → three chunks when PPTX_CHUNK_SLIDES is 1."""
         path = self._make_pptx(["Slide one.", "Slide two.", "Slide three."])
         try:
-            chunks = self.loader._chunk_pptx(path, 'deck.pptx')
+            chunks = chunk_pptx(path, 'deck.pptx')
         finally:
             os.unlink(path)
         assert len(chunks) == 3
@@ -439,7 +418,7 @@ class TestDocumentLoaderPptx:
         """start_line on each PPTX chunk equals the 1-based slide index."""
         path = self._make_pptx(["Slide A.", "Slide B."])
         try:
-            chunks = self.loader._chunk_pptx(path, 'deck.pptx')
+            chunks = chunk_pptx(path, 'deck.pptx')
         finally:
             os.unlink(path)
         assert chunks[0]['start_line'] == 1
@@ -449,9 +428,7 @@ class TestDocumentLoaderPptx:
         """Slide text content appears in the chunk text field."""
         path = self._make_pptx(["Hello from slide one"])
         try:
-            chunks = self.loader._chunk_pptx(path, 'deck.pptx')
+            chunks = chunk_pptx(path, 'deck.pptx')
         finally:
             os.unlink(path)
         assert 'Hello from slide one' in chunks[0]['text']
-
-

@@ -33,6 +33,8 @@ HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
+from src.rag.chunkers import chunk_html, truncate_chunk
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -106,7 +108,7 @@ class TestDocumentLoaderHtml:
         )
         path = self._make_html(long_html)
         try:
-            chunks = self.loader._chunk_html(path, 'page.html')
+            chunks = chunk_html(path, 'page.html')
         finally:
             os.unlink(path)
         assert chunks, "Expected at least one chunk from content > 40 chars per line"
@@ -119,7 +121,7 @@ class TestDocumentLoaderHtml:
         # is still valid on whatever chunks are returned.
         path = self._make_html("<p>Hello world.</p>")
         try:
-            chunks = self.loader._chunk_html(path, 'page.html')
+            chunks = chunk_html(path, 'page.html')
         finally:
             os.unlink(path)
         assert all(c['type'] == 'html' for c in chunks)
@@ -140,30 +142,30 @@ class TestTruncateChunk:
     def test_truncate_300_words(self):
         """400-word text is truncated to at most 300 words."""
         text = ' '.join(['word'] * 400)
-        result = self.loader._truncate_chunk(text)
+        result = truncate_chunk(text)
         assert len(result.split()) <= 300
 
     def test_truncate_1200_chars(self):
         """2000-character text is truncated to at most 1200 characters."""
         text = 'a' * 2000
-        result = self.loader._truncate_chunk(text)
+        result = truncate_chunk(text)
         assert len(result) <= 1200
 
     def test_short_text_unchanged(self):
         """Text already within both limits is returned verbatim."""
         text = "Short text."
-        assert self.loader._truncate_chunk(text) == text
+        assert truncate_chunk(text) == text
 
     def test_char_limit_wins_when_words_long(self):
         """50 long tokens (≈1550 chars, under 300 words) are truncated at 1200 chars."""
         text = ' '.join(['a' * 30] * 50)  # 50 * 31 ≈ 1550 chars, only 50 words
-        result = self.loader._truncate_chunk(text)
+        result = truncate_chunk(text)
         assert len(result) <= 1200
 
     def test_word_limit_wins_when_words_short(self):
         """100 short words (600 chars total) hit neither limit and are returned as-is."""
         text = ' '.join(['hello'] * 100)
-        assert self.loader._truncate_chunk(text) == text
+        assert truncate_chunk(text) == text
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

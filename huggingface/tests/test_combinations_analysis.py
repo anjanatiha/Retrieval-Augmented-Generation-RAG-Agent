@@ -22,6 +22,8 @@ HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
+from src.rag.chunkers import truncate_chunk
+
 
 # ---------------------------------------------------------------------------
 # 1. Truncation boundary × parametrize
@@ -54,9 +56,7 @@ class TestTruncationCombinations:
             max_words: Result word count must be ≤ this.
             max_chars: Result char count must be ≤ this.
         """
-        from src.rag.document_loader import DocumentLoader
-        loader = DocumentLoader()
-        result = loader._truncate_chunk(text)
+        result = truncate_chunk(text)
         assert len(result.split()) <= max_words, (
             f"Word count {len(result.split())} exceeds limit {max_words}"
         )

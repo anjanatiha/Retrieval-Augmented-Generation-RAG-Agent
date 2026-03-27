@@ -28,6 +28,23 @@ if HF_ROOT not in sys.path:
 
 from tests.conftest import sample_chunks, make_store_with_chunks
 
+from src.rag.chunkers import (
+    chunk_txt, chunk_md, chunk_csv, chunk_html,
+    chunk_pdf, chunk_docx, chunk_xlsx, chunk_pptx,
+)
+
+# Map doc type string → chunker function (used instead of getattr on loader)
+_CHUNKER_MAP = {
+    'txt':  chunk_txt,
+    'md':   chunk_md,
+    'csv':  chunk_csv,
+    'html': chunk_html,
+    'pdf':  chunk_pdf,
+    'docx': chunk_docx,
+    'xlsx': chunk_xlsx,
+    'pptx': chunk_pptx,
+}
+
 
 # ---------------------------------------------------------------------------
 # Binary file fixture helpers (real parsers — never mocked)
@@ -116,11 +133,9 @@ class TestChatModeAllDocTypes:
             text_content: Raw string written to the temp file.
             filename:     Filename passed to the chunker.
         """
-        from src.rag.document_loader import DocumentLoader
         f = tmp_path / filename
         f.write_text(text_content)
-        loader  = DocumentLoader()
-        chunker = getattr(loader, f'_chunk_{doc_type}')
+        chunker = _CHUNKER_MAP[doc_type]
         chunks  = chunker(str(f), filename)
         assert len(chunks) >= 1, f"No chunks for {doc_type}"
 
@@ -145,11 +160,9 @@ class TestChatModeAllDocTypes:
             doc_type: One of pdf, docx, xlsx, pptx.
             make_fn:  Fixture helper that creates a real binary temp file.
         """
-        from src.rag.document_loader import DocumentLoader
         path     = make_fn(tmp_path)
         filename = os.path.basename(path)
-        loader   = DocumentLoader()
-        chunker  = getattr(loader, f'_chunk_{doc_type}')
+        chunker  = _CHUNKER_MAP[doc_type]
         chunks   = chunker(path, filename)
         assert len(chunks) >= 1, f"No chunks for {doc_type}"
 
@@ -183,13 +196,11 @@ class TestAgentModeAllDocTypes:
             text_content: Raw string written to the temp file.
             filename:     Filename passed to the chunker.
         """
-        from src.rag.document_loader import DocumentLoader
         from src.rag.agent import Agent
 
         f = tmp_path / filename
         f.write_text(text_content)
-        loader  = DocumentLoader()
-        chunker = getattr(loader, f'_chunk_{doc_type}')
+        chunker = _CHUNKER_MAP[doc_type]
         chunks  = chunker(str(f), filename)
         assert len(chunks) >= 1
 
@@ -218,13 +229,11 @@ class TestAgentModeAllDocTypes:
             doc_type: One of pdf, docx, xlsx, pptx.
             make_fn:  Fixture helper that creates a real binary temp file.
         """
-        from src.rag.document_loader import DocumentLoader
         from src.rag.agent import Agent
 
         path     = make_fn(tmp_path)
         filename = os.path.basename(path)
-        loader   = DocumentLoader()
-        chunker  = getattr(loader, f'_chunk_{doc_type}')
+        chunker  = _CHUNKER_MAP[doc_type]
         chunks   = chunker(path, filename)
         assert len(chunks) >= 1
 
@@ -421,11 +430,9 @@ class TestChunkerContractParametrized:
             text_content: Raw string written to the temp file.
             filename:     Filename passed to the chunker.
         """
-        from src.rag.document_loader import DocumentLoader
         f = tmp_path / filename
         f.write_text(text_content)
-        loader  = DocumentLoader()
-        chunker = getattr(loader, f'_chunk_{doc_type}')
+        chunker = _CHUNKER_MAP[doc_type]
         chunks  = chunker(str(f), filename)
 
         assert isinstance(chunks, list),   f"_chunk_{doc_type} did not return a list"
@@ -453,11 +460,9 @@ class TestChunkerContractParametrized:
             doc_type: One of pdf, docx, xlsx, pptx.
             make_fn:  Fixture helper that creates a real binary temp file.
         """
-        from src.rag.document_loader import DocumentLoader
         path     = make_fn(tmp_path)
         filename = os.path.basename(path)
-        loader   = DocumentLoader()
-        chunker  = getattr(loader, f'_chunk_{doc_type}')
+        chunker  = _CHUNKER_MAP[doc_type]
         chunks   = chunker(path, filename)
 
         assert isinstance(chunks, list),   f"_chunk_{doc_type} did not return a list"

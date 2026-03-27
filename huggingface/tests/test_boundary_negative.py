@@ -38,6 +38,8 @@ HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
+from src.rag.chunkers import chunk_xlsx, chunk_docx, chunk_csv, chunk_txt
+
 from tests.conftest import sample_chunks, make_store_with_chunks
 
 
@@ -87,7 +89,7 @@ class TestBoundaryEmptyFiles:
             tmp_path = f.name
         try:
             wb.save(tmp_path)
-            chunks = self.loader._chunk_xlsx(tmp_path, 'header_only.xlsx')
+            chunks = chunk_xlsx(tmp_path, 'header_only.xlsx')
             assert chunks == [], (
                 f"Expected [] for header-only XLSX, got {len(chunks)} chunks"
             )
@@ -107,7 +109,7 @@ class TestBoundaryEmptyFiles:
             tmp_path = f.name
         try:
             doc.save(tmp_path)
-            chunks = self.loader._chunk_docx(tmp_path, 'empty.docx')
+            chunks = chunk_docx(tmp_path, 'empty.docx')
             assert chunks == [], (
                 f"Expected [] for empty DOCX, got {len(chunks)} chunks"
             )
@@ -123,7 +125,7 @@ class TestBoundaryEmptyFiles:
             f.write(content)
             tmp_path = f.name
         try:
-            chunks = self.loader._chunk_csv(tmp_path, 'header_only.csv')
+            chunks = chunk_csv(tmp_path, 'header_only.csv')
             assert chunks == [], (
                 f"Expected [] for header-only CSV, got {len(chunks)} chunks"
             )
@@ -139,7 +141,7 @@ class TestBoundaryEmptyFiles:
             f.write(content)
             tmp_path = f.name
         try:
-            chunks = self.loader._chunk_txt(tmp_path, 'blanks.txt')
+            chunks = chunk_txt(tmp_path, 'blanks.txt')
             assert chunks == [], (
                 f"Expected [] for blank-lines-only TXT, got {len(chunks)} chunks"
             )
@@ -316,7 +318,7 @@ class TestNegativeCsvAllEmpty:
             f.write(content)
             tmp_path = f.name
         try:
-            chunks = self.loader._chunk_csv(tmp_path, 'empty_values.csv')
+            chunks = chunk_csv(tmp_path, 'empty_values.csv')
             # Must be a list (not crash); empty or non-empty both acceptable here
             assert isinstance(chunks, list), (
                 "_chunk_csv must return a list even for all-empty-value rows"

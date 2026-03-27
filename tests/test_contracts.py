@@ -17,6 +17,11 @@ import chromadb
 from rank_bm25 import BM25Okapi
 from unittest.mock import MagicMock, patch
 
+from src.rag.chunkers import (
+    chunk_txt, chunk_md, chunk_pdf, chunk_docx,
+    chunk_xlsx, chunk_xls, chunk_csv, chunk_pptx, chunk_html,
+)
+
 # ---------------------------------------------------------------------------
 # Chunk-dict contract helper
 # ---------------------------------------------------------------------------
@@ -113,7 +118,7 @@ class TestChunkerContracts:
         """_chunk_txt chunks all satisfy the 5-key contract with correct types."""
         f = tmp_path / 'test.txt'
         f.write_text("Cats sleep 16 hours.\nDogs are loyal companions.\n")
-        chunks = loader._chunk_txt(str(f), 'test.txt')
+        chunks = chunk_txt(str(f), 'test.txt')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -123,7 +128,7 @@ class TestChunkerContracts:
         """_chunk_md chunks all satisfy the 5-key contract with correct types."""
         f = tmp_path / 'test.md'
         f.write_text("# Animals\nCats sleep 16 hours.\nDogs are loyal.\n")
-        chunks = loader._chunk_md(str(f), 'test.md')
+        chunks = chunk_md(str(f), 'test.md')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -137,7 +142,7 @@ class TestChunkerContracts:
         page.insert_text((50, 50), "Cats sleep sixteen hours a day. They hunt at night.")
         path = str(tmp_path / 'test.pdf')
         doc.save(path); doc.close()
-        chunks = loader._chunk_pdf(path, 'test.pdf')
+        chunks = chunk_pdf(path, 'test.pdf')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -151,7 +156,7 @@ class TestChunkerContracts:
         doc.add_paragraph("They are excellent nocturnal hunters.")
         path = str(tmp_path / 'test.docx')
         doc.save(path)
-        chunks = loader._chunk_docx(path, 'test.docx')
+        chunks = chunk_docx(path, 'test.docx')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -166,7 +171,7 @@ class TestChunkerContracts:
         ws.append(['cat', 'sleeps 16 hours'])
         path = str(tmp_path / 'test.xlsx')
         wb.save(path)
-        chunks = loader._chunk_xlsx(path, 'test.xlsx')
+        chunks = chunk_xlsx(path, 'test.xlsx')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -176,7 +181,7 @@ class TestChunkerContracts:
         """_chunk_csv chunks all satisfy the 5-key contract with correct types."""
         f = tmp_path / 'test.csv'
         f.write_text("animal,fact\ncat,sleeps 16 hours\ndog,loyal\n")
-        chunks = loader._chunk_csv(str(f), 'test.csv')
+        chunks = chunk_csv(str(f), 'test.csv')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -192,7 +197,7 @@ class TestChunkerContracts:
         slide.placeholders[1].text_frame.text = "Cats sleep 16 hours a day."
         path  = str(tmp_path / 'test.pptx')
         prs.save(path)
-        chunks = loader._chunk_pptx(path, 'test.pptx')
+        chunks = chunk_pptx(path, 'test.pptx')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -205,7 +210,7 @@ class TestChunkerContracts:
             "<html><body><p>Cats sleep 16 hours a day. "
             "They are nocturnal hunters.</p></body></html>"
         )
-        chunks = loader._chunk_html(str(f), 'test.html')
+        chunks = chunk_html(str(f), 'test.html')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
@@ -220,7 +225,7 @@ class TestChunkerContracts:
         ws.write(1, 0, 'cat');    ws.write(1, 1, 'sleeps 16 hours')
         path = str(tmp_path / 'test.xls')
         wb.save(path)
-        chunks = loader._chunk_xls(path, 'test.xls')
+        chunks = chunk_xls(path, 'test.xls')
         assert isinstance(chunks, list)
         assert len(chunks) >= 1
         for i, c in enumerate(chunks):
