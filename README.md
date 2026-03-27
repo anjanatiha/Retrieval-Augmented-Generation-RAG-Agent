@@ -8,6 +8,50 @@ A production-grade, fully local RAG chatbot and autonomous agent. Upload your do
 
 ---
 
+## Table of Contents
+
+**Using the system**
+- [What it does](#what-it-does)
+- [Features](#features)
+- [Try Without Installing](#try-without-installing)
+- [Quick Start](#quick-start)
+- [How to Use](#how-to-use)
+- [Supported File Types](#supported-file-types)
+- [Agent Mode](#agent-mode)
+- [Installation](#installation)
+- [Troubleshooting](#troubleshooting)
+- [Streamlit UI](#streamlit-ui)
+
+**Understanding the system**
+- [How RAG Works](#how-rag-works)
+- [Architecture](#architecture)
+- [How It Works — Algorithms](#how-it-works--algorithms)
+  - [Full Pipeline Diagram](#full-pipeline--how-all-algorithms-connect)
+  - [1. Document Chunking](#1-document-chunking)
+  - [2. Embedding](#2-embedding--turning-text-into-numbers)
+  - [3. Query Expansion](#3-query-expansion--searching-with-multiple-phrasings)
+  - [4. Query Classification](#4-query-classification--adjusting-retrieval-depth)
+  - [5. Hybrid Search](#5-hybrid-search--combining-keyword-and-semantic-retrieval)
+  - [6. Type-Aware LLM Reranking](#6-type-aware-llm-reranking--rescoring-by-document-type)
+  - [7. Confidence Check](#7-confidence-check--deciding-whether-to-answer)
+  - [8. Hallucination Filter](#8-hallucination-filter--catching-mid-response-fabrication)
+  - [9. ReAct Agent Loop](#9-react-agent-loop--autonomous-multi-step-reasoning)
+  - [10. URL Type Detection](#10-url-type-detection--4-priority-pipeline)
+  - [11. Source Citation Labels](#11-source-citation-labels--locating-answers-in-documents)
+  - [12. Embedding Rebuild Decision](#12-embedding-rebuild-decision--when-to-re-embed-vs-skip)
+  - [13. BM25 Index Rebuild](#13-bm25-index--rebuilding-after-every-upload)
+  - [14. Conversation Memory](#14-conversation-memory--multi-turn-context)
+
+**Development**
+- [Folder Structure](#folder-structure)
+- [Contributing](#contributing)
+- [Testing](#testing)
+- [Benchmarking](#benchmarking)
+- [Built With](#built-with)
+- [Related](#related)
+
+---
+
 ## What it does
 
 - **Chat with your documents** — ask questions about any PDF, Word doc, spreadsheet, presentation, CSV, Markdown, or HTML file
