@@ -19,10 +19,22 @@ __all__ = ['DocumentLoader']
 
 
 class DocumentLoader:
-    """Owns all document ingestion — chunkers, URL fetching, misplaced detection."""
+    """Owns all document ingestion: reading files, parsing 9 formats, chunking, URL fetching.
+
+    State:
+        doc_folders:  dict mapping type → folder path (from config)
+        ext_to_type:  dict mapping file extension → document type
+        chunk_sizes:  dict of all chunk-size constants (txt, pdf, docx, pptx, html)
+
+    Public API:
+        ensure_folders()        — create ./docs subfolders if missing
+        scan_all_files()        — find every file under DOCS_ROOT, flag misplaced ones
+        chunk_all_documents()   — scan + dispatch all files → list of chunk dicts
+        chunk_url(url)          — fetch a URL, detect type, return chunks
+    """
 
     def __init__(self) -> None:
-        """Load config constants as instance vars."""
+        """Bind config constants to instance state so chunkers don't import config directly."""
         self.doc_folders = DOC_FOLDERS
         self.ext_to_type = EXT_TO_TYPE
         self.chunk_sizes = {
@@ -301,6 +313,7 @@ class DocumentLoader:
             return []
 
     def _chunk_txt(self, filepath: str, filename: str) -> List[dict]:
+        # Splits on non-empty lines; overlap lets sliding window preserve sentence context.
         chunk_size = self.chunk_sizes['txt_chunk_size']
         overlap    = self.chunk_sizes['txt_chunk_overlap']
         with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
@@ -347,6 +360,7 @@ class DocumentLoader:
         return chunks
 
     def _chunk_pdf(self, filepath: str, filename: str) -> List[dict]:
+        # Page-level isolation: start_line == end_line == page number so source labels are exact.
         sentences_per_chunk = self.chunk_sizes['pdf_chunk_sentences']
         try:
             import fitz
@@ -521,6 +535,7 @@ class DocumentLoader:
         return chunks
 
     def _chunk_pptx(self, filepath: str, filename: str) -> List[dict]:
+        # Collects text from every text shape on each slide; one slide = one chunk by default.
         slides_per_chunk = self.chunk_sizes['pptx_chunk_slides']
         try:
             from pptx import Presentation
@@ -558,6 +573,7 @@ class DocumentLoader:
         return chunks
 
     def _chunk_html(self, filepath: str, filename: str) -> List[dict]:
+        # BeautifulSoup strips all tags; sentence-window chunking then produces coherent text.
         sentences_per_chunk = self.chunk_sizes['html_chunk_sentences']
         try:
             from bs4 import BeautifulSoup

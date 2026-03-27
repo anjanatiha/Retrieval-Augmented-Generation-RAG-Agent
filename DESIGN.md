@@ -115,3 +115,89 @@ A low `faithfulness` with a high `context_relevance` indicates the model is hall
 - **Evaluation dataset**: The 5-question cat facts benchmark is a smoke test. A real evaluation dataset with 50-100 domain-specific questions and human-verified ground truth would give meaningful signal on retrieval quality.
 - **Document update detection**: Currently, if a document changes on disk, the system does not detect it. A file hash comparison at startup would trigger targeted re-embedding of changed files without a full rebuild.
 - **Reranker fine-tuning**: The LLM reranker uses a zero-shot prompt. Fine-tuning a small cross-encoder (e.g. `ms-marco-MiniLM`) on domain-specific relevance pairs would give faster and more accurate reranking than a generative model.
+
+---
+
+## Coding Standards
+
+### File Size
+- **Maximum 500 lines per file.** If a file exceeds 500 lines, it must be split along a clear conceptual boundary.
+- Entry points (`main.py`, `app.py`) must stay under 50 lines — they wire classes together and nothing else.
+- Test files must be split by test category, not by line count alone. Each test file covers one concern: mock-chunk tests, file upload tests, or URL ingestion tests.
+
+### Modularity
+- **One responsibility per file.** A file that does two things should be two files.
+- Classes own state and the operations that depend on that state. Stateless operations belong in modules (functions, not classes).
+- Private methods (prefix `_`) are implementation details. They should not be called from outside the class. If you find yourself needing to call a private method from another class, it is a sign the method belongs in a shared module.
+- Do not create helper classes or utility classes for one-time use. A plain function in a module is clearer and cheaper.
+
+### Commenting Convention (PEP 257 / Google style)
+Every public class and every public method must have a docstring. Private methods get a one-line comment only when the logic is non-obvious.
+
+**Class docstring — describes what state the class owns and its public API:**
+```python
+class VectorStore:
+    """Owns all retrieval, search, and response generation.
+
+    State:
+        client:       chromadb.PersistentClient
+        collection:   ChromaDB collection
+        chunks:       list of all indexed chunks
+        bm25_index:   BM25Okapi index for keyword search
+        conversation: conversation history for multi-turn context
+    """
+```
+
+**Public method docstring — one-line summary, Args, Returns:**
+```python
+def run_pipeline(self, query: str, streamlit_mode: bool = False) -> dict:
+    """Run the full RAG pipeline for a user query.
+
+    Args:
+        query: The user's question.
+        streamlit_mode: If True, return a dict with pipeline metadata
+            (retrieved chunks, reranked chunks, confidence, query type).
+            If False, stream the response to the terminal.
+
+    Returns:
+        dict with keys: response, retrieved, reranked, is_confident,
+        best_score, query_type.
+    """
+```
+
+**Private method — one-line comment only when non-obvious:**
+```python
+def _cosine_similarity(self, a: list, b: list) -> float:
+    # Manual dot product — avoids numpy import for a single operation.
+    dot = sum(x * y for x, y in zip(a, b))
+    ...
+```
+
+**Inline comment — explains WHY, not what:**
+```python
+# Greedy (.+) without DOTALL: captures up to the last ')' on the same line.
+# Non-greedy (.+?) would stop at the first ')' and truncate nested parens.
+match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+)\s*\)', response_text)
+```
+
+Do not add comments that restate what the code does:
+```python
+# BAD — restates the code
+i += 1  # increment i by 1
+
+# GOOD — explains the intent
+i += 1  # skip the header row
+```
+
+### Naming
+- Classes: `PascalCase` — `DocumentLoader`, `VectorStore`
+- Public methods and functions: `snake_case` — `run_pipeline`, `chunk_url`
+- Private methods: `_snake_case` — `_embed`, `_hybrid_retrieve`
+- Constants: `UPPER_SNAKE_CASE` — `EMBEDDING_MODEL`, `TOP_RETRIEVE`
+- Local variables: `snake_case`, short names acceptable in short scopes (`vs`, `qt`, `bs`)
+
+### What to Avoid
+- Do not write more than ~30 lines in a single method. If a method is longer, extract a private helper.
+- Do not nest more than 3 levels of indentation. Flatten with early returns.
+- Do not repeat the same import inside every function. Import once at the top of the file (or once at the top of a method that is conditionally executed to avoid circular imports).
+- Do not add error handling for things that cannot fail in normal operation. Only validate at system boundaries (user input, external APIs, file I/O).

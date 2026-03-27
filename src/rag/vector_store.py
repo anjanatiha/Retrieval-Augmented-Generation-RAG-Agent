@@ -20,7 +20,25 @@ from src.rag import logger
 
 
 class VectorStore:
+    """Owns all retrieval, search, and response generation.
+
+    State:
+        collection:           ChromaDB collection (persistent on disk)
+        chunks:               list of all indexed chunk dicts (local + runtime-added)
+        bm25_index:           BM25Okapi keyword index — rebuilt after every add_chunks call
+        conversation_history: list of {'role', 'content'} dicts for multi-turn context
+
+    Public API:
+        build_or_load(chunks)               — embed and persist, or load from disk
+        add_chunks(chunks, id_prefix)       — add URL/file-upload chunks at runtime
+        rebuild_bm25(all_chunks)            — rebuild keyword index after runtime additions
+        run_pipeline(query, streamlit_mode) — full chat pipeline: expand → retrieve → rerank → respond
+        stream_response(stream)             — print tokens to terminal with typing indicator
+        clear_conversation()                — reset multi-turn history
+    """
+
     def __init__(self):
+        """Initialise all state to empty; call build_or_load() before querying."""
         self.collection          = None
         self.chunks              = []
         self.bm25_index          = None
@@ -29,6 +47,11 @@ class VectorStore:
     # ── Public ──────────────────────────────────────────────────────────────
 
     def build_or_load(self, chunks):
+        """Load existing ChromaDB collection or embed all chunks and persist to disk.
+
+        Args:
+            chunks: list of chunk dicts from DocumentLoader.chunk_all_documents().
+        """
         client     = chromadb.PersistentClient(path=CHROMA_DIR)
         collection = client.get_or_create_collection(
             name=CHROMA_COLLECTION,
@@ -76,9 +99,25 @@ class VectorStore:
         self.chunks = self.chunks + chunks
 
     def rebuild_bm25(self, all_chunks):
+        """Rebuild the BM25 keyword index from scratch after chunks are added at runtime.
+
+        Args:
+            all_chunks: combined list of base chunks + newly added chunks.
+        """
         self.bm25_index = BM25Okapi([c['text'].lower().split() for c in all_chunks])
 
     def run_pipeline(self, query, streamlit_mode=False):
+        """Run the full RAG pipeline for a user query.
+
+        Args:
+            query:          The user's question.
+            streamlit_mode: If True, collect tokens into a string and return a result dict.
+                            If False, stream tokens to the terminal.
+
+        Returns:
+            dict with keys: response, query_type, queries, is_confident,
+            best_score, retrieved, reranked.
+        """
         qtype      = self._classify_query(query)
         top_n      = self._smart_top_n(qtype)
         top_rerank = 10 if qtype == 'summarise' else TOP_RERANK
@@ -142,6 +181,14 @@ class VectorStore:
         }
 
     def stream_response(self, stream):
+        """Print a streaming Ollama response to the terminal token by token.
+
+        Args:
+            stream: the iterable returned by ollama.chat(..., stream=True).
+
+        Returns:
+            The full response string.
+        """
         print("\nChatbot: ", end='', flush=True)
         for _ in range(3):
             print('.', end='', flush=True)
@@ -158,11 +205,13 @@ class VectorStore:
         return full
 
     def clear_conversation(self):
+        """Reset multi-turn conversation history so the next query starts fresh."""
         self.conversation_history = []
 
     # ── Private — vector/search ──────────────────────────────────────────────
 
     def _embed(self, text):
+        # ['embeddings'][0] — ollama.embed returns a list of embedding vectors; we always send one text.
         return ollama.embed(model=EMBEDDING_MODEL, input=text)['embeddings'][0]
 
     def _truncate_for_embedding(self, text, max_words=200, max_chars=1200):
@@ -174,6 +223,7 @@ class VectorStore:
         return truncated[:max_chars] if len(truncated) > max_chars else truncated
 
     def _cosine_similarity(self, a, b):
+        # Manual dot product — avoids a numpy import for this single operation.
         dot = sum(x * y for x, y in zip(a, b))
         na  = sum(x**2 for x in a)**0.5
         nb  = sum(x**2 for x in b)**0.5
@@ -214,6 +264,8 @@ class VectorStore:
                     if c['text'] == doc:
                         bm25_score = bm25_norm[idx]
                         break
+                # alpha=0.5 gives equal weight to semantic (dense) and exact-match (BM25) signals.
+                # Keeping the best score per doc across all expanded queries avoids double-counting.
                 score = alpha * dense_score + (1 - alpha) * bm25_score
                 if doc not in fused or score > fused[doc][1]:
                     fused[doc] = (entry, score)
@@ -221,6 +273,8 @@ class VectorStore:
         return sorted(fused.values(), key=lambda x: x[1], reverse=True)[:top_n]
 
     def _rerank(self, query, candidates, top_n):
+        # LLM gives a 1–10 relevance score; divide by 10 to normalise to [0, 1].
+        # Falls back to the hybrid similarity score if the LLM call fails.
         scored = []
         for entry, sim in candidates:
             prompt = self._rerank_prompt(query, entry)
@@ -337,18 +391,22 @@ class VectorStore:
             return [query]
 
     def _check_confidence(self, results):
+        # Skip LLM call entirely when no chunk clears the threshold — prevents hallucination on empty context.
         if not results:
             return False, 0.0
         best = results[0][1]
         return best >= SIMILARITY_THRESHOLD, best
 
     def _smart_top_n(self, query_type):
+        # Comparison and summarise queries need more candidates to cover multiple aspects.
         return {'factual': 5, 'comparison': 15, 'general': 10,
                 'summarise': TOP_RETRIEVE}.get(query_type, TOP_RETRIEVE)
 
     # ── Private — response ───────────────────────────────────────────────────
 
     def _build_instruction_prompt(self, context, query_type='factual'):
+        # Length hints keep answers proportional to query complexity — factual stays short,
+        # summarise gets room to cover all key points.
         _length_hints = {
             'factual':    '2-3 sentences',
             'general':    '3-4 sentences',
@@ -407,7 +465,13 @@ class VectorStore:
             return context
 
     def _filter_hallucination(self, response):
-        """Truncate at hallucination pivot if model admitted no-info then hallucinated."""
+        """Truncate at hallucination pivot if model admitted no-info then hallucinated.
+
+        Pattern: model says "there is no information..." then continues with "however, I can..."
+        We keep the no-info admission and drop everything from the pivot word onward,
+        replacing it with a standard redirect message. This prevents the model from
+        answering from training data after correctly admitting the context is missing.
+        """
         _no_info_phrases = [
             "there is no information",
             "i couldn't find",

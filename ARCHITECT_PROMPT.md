@@ -378,6 +378,99 @@ Step 11: final verification → final UI test → final commit
 
 ---
 
+## Coding Standards
+
+### File size
+- **Maximum 500 lines per file.** Split along a clear conceptual boundary if exceeded.
+- Entry points (`main.py`, `app.py`) must stay under 50 lines — they wire classes together and nothing else.
+- Test files are split by concern: mock-chunk tests, file upload tests, URL ingestion tests.
+
+### Modularity
+- **One responsibility per file.** A file that does two things should be two files.
+- Classes own state and the operations that depend on that state.
+- Stateless operations belong in modules (plain functions, not classes).
+- Private methods (`_prefix`) are implementation details — never called from outside the class.
+- Do not create helper or utility classes for one-time use. A plain function in a module is simpler.
+- Do not write more than ~30 lines in a single method. Extract a private helper if longer.
+- Do not nest more than 3 levels of indentation. Flatten with early returns.
+
+### Commenting — PEP 257 / Google style
+
+Every public class and every public method must have a docstring. Private methods get a
+one-line comment only when the logic is non-obvious.
+
+**Class docstring — what state the class owns and its public API:**
+```python
+class VectorStore:
+    """Owns all retrieval, search, and response generation.
+
+    State:
+        client:       chromadb.PersistentClient
+        collection:   ChromaDB collection
+        chunks:       list of all indexed chunks
+        bm25_index:   BM25Okapi for keyword search
+        conversation: multi-turn conversation history
+    """
+```
+
+**Public method — one-line summary, Args, Returns:**
+```python
+def run_pipeline(self, query: str, streamlit_mode: bool = False) -> dict:
+    """Run the full RAG pipeline for a user query.
+
+    Args:
+        query: The user's question.
+        streamlit_mode: If True, return pipeline metadata dict.
+            If False, stream response to the terminal.
+
+    Returns:
+        dict with keys: response, retrieved, reranked,
+        is_confident, best_score, query_type.
+    """
+```
+
+**Private method — one-line comment only when non-obvious:**
+```python
+def _cosine_similarity(self, a: list, b: list) -> float:
+    # Manual dot product — avoids numpy import for a single call.
+    dot = sum(x * y for x, y in zip(a, b))
+    ...
+```
+
+**Inline comment — explains WHY, not what:**
+```python
+# Greedy (.+) without DOTALL: captures up to the last ')' on the line.
+# Non-greedy (.+?) would stop at the first ')' and truncate nested parens.
+match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+)\s*\)', response_text)
+```
+
+Do not restate the code in comments:
+```python
+# BAD
+i += 1  # increment i by 1
+
+# GOOD
+i += 1  # skip the header row
+```
+
+### Naming
+| Kind | Convention | Example |
+|------|------------|---------|
+| Class | `PascalCase` | `DocumentLoader` |
+| Public method / function | `snake_case` | `run_pipeline` |
+| Private method | `_snake_case` | `_embed` |
+| Constant | `UPPER_SNAKE_CASE` | `TOP_RETRIEVE` |
+| Local variable | `snake_case` | `qt`, `bs`, `vs` |
+
+### What to avoid
+- Do not add error handling for things that cannot fail in normal operation.
+  Only validate at system boundaries: user input, external APIs, file I/O.
+- Do not repeat the same import inside multiple functions. Import once at the top.
+- Do not add docstrings or comments to code you did not write or change.
+- Do not design for hypothetical future requirements. Write the minimum needed now.
+
+---
+
 ## Absolute rules
 
 1. `rag_app.py` is READ-ONLY — never modify it, only extract from it

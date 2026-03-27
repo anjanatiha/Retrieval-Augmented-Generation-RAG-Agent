@@ -11,6 +11,21 @@ from src.rag.vector_store import VectorStore
 
 
 class Agent:
+    """Owns the ReAct reasoning loop and all 5 tools as private methods.
+
+    Tools are private methods — not separate classes — because they have no state
+    of their own and exist only as implementation details of the agent loop.
+
+    State:
+        store:             VectorStore reference for rag_search and sentiment tools
+        messages:          ReAct message history (system + user + tool exchanges)
+        collected_context: accumulated search results used in final synthesis
+        max_steps:         step limit to prevent infinite loops (default 8)
+
+    Public API:
+        run(user_query, streamlit_mode) — execute the ReAct loop and return result dict
+    """
+
     AGENT_SYSTEM_PROMPT = """You are an AI agent. You must ONLY respond with tool calls — no explanations, no extra text.
 
 Available tools:
@@ -47,6 +62,11 @@ Rules:
 """
 
     def __init__(self, store: VectorStore):
+        """Bind VectorStore and initialise per-run state (reset on each run() call).
+
+        Args:
+            store: an initialised VectorStore with build_or_load() already called.
+        """
         self.store             = store
         self.messages          = []
         self.collected_context = []
@@ -55,7 +75,15 @@ Rules:
     # ── Public ──────────────────────────────────────────────────────────────
 
     def run(self, user_query, streamlit_mode=False):
-        """Run the ReAct agent loop for a user query."""
+        """Run the ReAct agent loop for a user query.
+
+        Args:
+            user_query:     The user's question or task.
+            streamlit_mode: If True, suppress terminal prints and return structured result dict.
+
+        Returns:
+            dict with keys: answer (str), steps (list of step dicts with tool/arg/result).
+        """
         self.messages          = [
             {'role': 'system', 'content': self.AGENT_SYSTEM_PROMPT},
             {'role': 'user',   'content': user_query},
@@ -171,6 +199,8 @@ Rules:
         return None, None
 
     def _dispatch_tool(self, tool_name, tool_arg):
+        # Routes to the correct private tool method; accumulates rag_search and sentiment
+        # results in collected_context so the final synthesis has everything.
         if tool_name == 'rag_search':
             result = self._tool_rag_search(tool_arg)
             self.collected_context.append(f"[Search: {tool_arg}]\n{result}")
@@ -266,6 +296,7 @@ Rules:
         return '\n'.join(lines)
 
     def _tool_calculator(self, expression):
+        # Whitelist of safe characters prevents arbitrary code execution via eval().
         try:
             # Normalise percentage expressions before safety check
             # "15% of 85000" → "(15/100*85000)"
@@ -285,6 +316,7 @@ Rules:
             return f"Error: {e}"
 
     def _tool_summarise(self, text):
+        # Adaptive length hint keeps short inputs concise and long inputs thorough.
         word_count = len(text.split())
         if word_count < 100:
             length_hint = "2-3 sentences"

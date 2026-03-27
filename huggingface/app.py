@@ -99,8 +99,10 @@ def chat(message, history, mode):
     return history, pipeline_info
 
 
-def upload_file(file_obj, progress=gr.Progress()):
+def upload_file(file_obj, progress=None):
     """Index an uploaded file into the knowledge base."""
+    if progress is None:
+        progress = gr.Progress()
     loader, store = _initialize()
     if file_obj is None:
         return "No file selected.", f"Chunks in knowledge base: {_chunk_count()}"
@@ -134,8 +136,10 @@ def upload_file(file_obj, progress=gr.Progress()):
         return f"❌ Error indexing **{filename}**: {e}", f"Chunks in knowledge base: {_chunk_count()}"
 
 
-def fetch_url(url, progress=gr.Progress()):
+def fetch_url(url, progress=None):
     """Fetch and index a URL into the knowledge base."""
+    if progress is None:
+        progress = gr.Progress()
     loader, store = _initialize()
     if not url or not url.strip():
         return "No URL provided.", f"Chunks in knowledge base: {_chunk_count()}"
@@ -232,6 +236,11 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
         # ── Right column: pipeline info ────────────────────────────────────
         with gr.Column(scale=1):
 
+            startup_status = gr.Markdown(
+                value="⏳ Initializing...",
+                label="",
+            )
+
             chunk_counter = gr.Markdown(
                 value="Chunks in knowledge base: **0**",
                 label="",
@@ -302,11 +311,25 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
         outputs=[url_msg, chunk_counter, url_input],
     )
 
-    def _on_load():
-        _initialize()
-        return f"Chunks in knowledge base: **{_chunk_count()}**"
+    def _on_load(progress=None):
+        if progress is None:
+            progress = gr.Progress()
+        progress(0.1, desc="Starting up...")
+        global _loader, _store
+        if _loader is None:
+            progress(0.3, desc="Loading document processor...")
+            from src.rag.document_loader import DocumentLoader
+            _loader = DocumentLoader()
+        if _store is None:
+            progress(0.5, desc="Loading embedding model (first run may take 1-2 min)...")
+            from src.rag.vector_store import VectorStore
+            _store = VectorStore()
+            progress(0.8, desc="Initializing vector store...")
+            _store.build_or_load([])
+        progress(1.0, desc="Ready!")
+        return "✅ Ready", f"Chunks in knowledge base: **{_chunk_count()}**"
 
-    demo.load(fn=_on_load, outputs=[chunk_counter])
+    demo.load(fn=_on_load, outputs=[startup_status, chunk_counter])
 
 if __name__ == "__main__":
     demo.launch(ssr_mode=False)

@@ -13,6 +13,19 @@ from src.rag.vector_store import VectorStore
 
 
 class Benchmarker:
+    """Owns all evaluation logic: scoring, run comparison, and result persistence.
+
+    Takes a VectorStore as a dependency so it runs the same pipeline the user runs
+    in production — benchmark results are meaningful, not isolated mock scores.
+
+    State:
+        store:        VectorStore reference (used for expand_query, hybrid_retrieve, rerank)
+        results_file: path to the JSON file where benchmark runs are appended
+
+    Public API:
+        run(test_cases) — run all test cases, print results, save to disk, return summary dict
+    """
+
     DEFAULT_TEST_CASES = [
         {'question': 'How many hours do cats sleep per day?',     'expected_keywords': ['sleep', '16']},
         {'question': 'Can cats see in dim light?',                'expected_keywords': ['dim', 'light', 'see']},
@@ -22,12 +35,27 @@ class Benchmarker:
     ]
 
     def __init__(self, store: VectorStore):
+        """Bind an initialised VectorStore and the results file path.
+
+        Args:
+            store: VectorStore with build_or_load() already called.
+        """
         self.store        = store
         self.results_file = BENCHMARK_FILE
 
     # ── Public ──────────────────────────────────────────────────────────────
 
     def run(self, test_cases=None):
+        """Run evaluation on a list of question/keyword pairs and print a scored summary.
+
+        Args:
+            test_cases: list of dicts with 'question' and 'expected_keywords' keys.
+                        Defaults to DEFAULT_TEST_CASES (5 cat-facts smoke tests).
+
+        Returns:
+            dict with averaged metric scores: faithfulness, answer_relevancy,
+            keyword_recall, context_relevance, overall.
+        """
         test_cases = test_cases or self.DEFAULT_TEST_CASES
         print("\n" + "="*70)
         print("  BENCHMARKING RAG PIPELINE")
@@ -90,6 +118,8 @@ class Benchmarker:
     # ── Private ──────────────────────────────────────────────────────────────
 
     def _score_faithfulness(self, response, reranked):
+        # Word-overlap fraction: how many response words came from the retrieved context.
+        # High faithfulness means the model stayed grounded; low means it likely hallucinated.
         context = ' '.join(e['text'] for e, _, _ in reranked)
         stopwords = {'a','an','the','is','are','was','were','do','does','it','its',
                      'to','of','in','for','and','or','not','with','on','at','by',
@@ -101,6 +131,8 @@ class Benchmarker:
         return min(len(response_words & context_words) / max(len(response_words), 1), 1.0)
 
     def _score_relevancy(self, question, response):
+        # F1 over keyword overlap: balances precision (response stays on topic)
+        # and recall (response actually addresses the question).
         stopwords = {'a','an','the','is','are','was','were','do','does','did','have',
                      'has','can','what','how','why','when','where','who','to','of','in',
                      'it','its','for','and','or','not','with','on','at','by','from'}
@@ -115,22 +147,26 @@ class Benchmarker:
         return min(2 * precision * recall / (precision + recall), 1.0)
 
     def _score_keyword_recall(self, response, keywords):
+        # Fraction of expected keywords found anywhere in the response (case-insensitive).
         if not keywords:
             return 1.0
         rl = response.lower()
         return sum(1 for kw in keywords if kw.lower() in rl) / len(keywords)
 
     def _score_context_relevance(self, reranked):
+        # Mean similarity of top reranked chunks — measures retrieval quality independently of the LLM.
         if not reranked:
             return 0.0
         scores = [sim for _, sim, _ in reranked[:TOP_RERANK]]
         return sum(scores) / len(scores)
 
     def _save_results(self, results):
+        # Overwrites the file with the full run history so the file is always valid JSON.
         with open(self.results_file, 'w') as f:
             json.dump(results, f, indent=2)
 
     def _compare_runs(self, current, previous):
+        # ▲/▼/─ delta indicators make regressions and improvements immediately visible.
         lines = ["\n  vs PREVIOUS RUN"]
         for k in current:
             d = current[k] - previous.get(k, 0)
@@ -141,6 +177,7 @@ class Benchmarker:
         return '\n'.join(lines)
 
     def _read_results(self):
+        # Returns [] on any error so the first run always succeeds even with a corrupt file.
         if not os.path.exists(self.results_file):
             return []
         with open(self.results_file) as f:

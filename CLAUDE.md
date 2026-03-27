@@ -729,6 +729,73 @@ Step 11: Final verification
 
 ---
 
+## Coding Standards
+
+### File Size
+- **Maximum 500 lines per file.** If a file exceeds 500 lines, split it along a clear conceptual boundary before finishing the task — do not wait to be asked.
+- Entry points (`main.py`, `app.py`) must stay under 50 lines — they wire classes together and nothing else.
+- Test files split by concern (not just line count): one file per test category.
+
+### Modularity
+- One responsibility per file. A file that does two things should be two files.
+- Classes own state and the operations that depend on that state. Stateless operations belong in modules.
+- Private methods (`_`) are implementation details — do not call them from outside the class.
+- Do not create helper classes or utility classes for one-time use. A plain function in a module is clearer.
+
+### Commenting Convention (PEP 257 / Google style)
+Every public class and every public method must have a docstring. Private methods get a one-line comment only when the logic is non-obvious.
+
+**Class docstring** — describes what state the class owns and its public API:
+```python
+class VectorStore:
+    """Owns all retrieval, search, and response generation.
+
+    State:
+        client:       chromadb.PersistentClient
+        collection:   ChromaDB collection
+        chunks:       list of all indexed chunks
+        bm25_index:   BM25Okapi index for keyword search
+        conversation: conversation history for multi-turn context
+    """
+```
+
+**Public method docstring** — one-line summary, Args, Returns:
+```python
+def run_pipeline(self, query: str, streamlit_mode: bool = False) -> dict:
+    """Run the full RAG pipeline for a user query.
+
+    Args:
+        query: The user's question.
+        streamlit_mode: If True, return a dict with pipeline metadata.
+
+    Returns:
+        dict with keys: response, retrieved, reranked, is_confident,
+        best_score, query_type.
+    """
+```
+
+**Inline comment** — explains WHY, not what:
+```python
+i += 1  # skip the header row          ← GOOD
+i += 1  # increment i by 1             ← BAD (restates the code)
+```
+
+### Naming
+| Kind | Convention | Example |
+|------|-----------|---------|
+| Classes | `PascalCase` | `DocumentLoader` |
+| Public methods / functions | `snake_case` | `run_pipeline` |
+| Private methods | `_snake_case` | `_embed` |
+| Constants | `UPPER_SNAKE_CASE` | `EMBEDDING_MODEL` |
+| Local variables | `snake_case` | `top_n`, `qt` |
+
+### What to Avoid
+- Do not write more than ~30 lines in a single method. Extract a private helper if longer.
+- Do not nest more than 3 levels of indentation. Flatten with early returns.
+- Do not add error handling for things that cannot fail in normal operation. Only validate at system boundaries.
+
+---
+
 ## What NOT to Do
 
 - Do not modify `rag_app.py` — it is the source of truth, read-only
