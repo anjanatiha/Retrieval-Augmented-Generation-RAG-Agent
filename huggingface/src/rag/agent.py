@@ -78,6 +78,10 @@ Rules:
         if is_summarise:
             return self._fast_path_summarise(user_query, streamlit_mode)
 
+        # Fast path: pure math — skip LLM entirely, evaluate directly
+        if self._is_math_expression(user_query):
+            return self._fast_path_calculator(user_query)
+
         is_sentiment = any(s in _q_lower for s in
                            ['sentiment', 'tone', 'feeling', 'positive', 'negative', 'neutral',
                             'emotion', 'attitude', 'mood'])
@@ -142,7 +146,9 @@ Rules:
     # ── Private — loop ───────────────────────────────────────────────────────
 
     def _parse_tool_call(self, response_text):
-        match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+?)\s*\)', response_text, re.DOTALL)
+        # Greedy (.+) + no DOTALL: captures up to the LAST ')' on the line,
+        # so nested parens in expressions like "7+(9+8)-2*6" are preserved.
+        match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+)\s*\)', response_text)
         if match:
             return match.group(1).strip().lower(), match.group(2).strip()
         match = re.search(r'(?i)TOOL:\s*(\w+)\s+(.+)', response_text)
@@ -170,15 +176,20 @@ Rules:
         prompt = (
             "You are a helpful assistant. Answer the question below using ONLY the "
             "provided context. Be concise and direct. Do not repeat the context — "
-            "just answer the question. Cite the source filename at the end.\n\n"
+            "just answer the question. Cite the source filename at the end.\n"
+            "Stop after answering — do NOT add more examples, more questions, or more context blocks.\n\n"
             f"Context:\n{context}\n\n"
             f"Question: {query}\n\n"
             "Answer:"
         )
         try:
-            return self.store._llm_chat([{'role': 'user', 'content': prompt}], temperature=0)
-        except Exception:
-            return context
+            raw = self.store._llm_chat([{'role': 'user', 'content': prompt}], temperature=0)
+            # Truncate any hallucinated follow-up Q&A blocks the LLM appends
+            raw = re.split(r'\n\n(?:Context:|Question:)', raw, maxsplit=1)[0]
+            return raw.strip()
+        except Exception as e:
+            # Return a clean error rather than dumping raw chunk text
+            return f"(Could not synthesize answer: {e})"
 
     def _fast_path_summarise(self, query, streamlit_mode=False):
         """For summarise queries: extract topic from query, run targeted searches."""
@@ -228,6 +239,22 @@ Rules:
 
     # ── Private — tools ──────────────────────────────────────────────────────
 
+    def _is_math_expression(self, text):
+        """Return True if the query is a pure math expression with no words."""
+        # Strip spaces and check only math chars remain (digits, operators, parens, dot, %)
+        stripped = re.sub(r'\s+', '', text)
+        return bool(re.fullmatch(r'[\d\+\-\*\/\(\)\.\%]+', stripped))
+
+    def _fast_path_calculator(self, user_query):
+        """Evaluate a pure math expression directly — no LLM call."""
+        result = self._tool_calculator(user_query.strip())
+        answer = f"{user_query.strip()} = {result}"
+        steps  = [
+            {'step': 1, 'tool': 'calculator', 'arg': user_query.strip(), 'result': result},
+            {'step': 2, 'tool': 'finish',     'arg': answer,             'result': answer},
+        ]
+        return {'answer': answer, 'steps': steps}
+
     def _tool_rag_search(self, query):
         """Returns retrieved chunks with source labels for grounded synthesis."""
         queries   = self.store._expand_query(query)
@@ -241,10 +268,20 @@ Rules:
 
     def _tool_calculator(self, expression):
         try:
+            # Normalise percentage expressions before safety check
+            # "15% of 85000" → "(15/100*85000)"
+            # "15%" alone → "(15/100)"
+            expr = re.sub(
+                r'(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)',
+                r'(\1/100*\2)',
+                expression,
+                flags=re.IGNORECASE,
+            )
+            expr = re.sub(r'(\d+(?:\.\d+)?)\s*%', r'(\1/100)', expr)
             allowed = set('0123456789+-*/(). ')
-            if not all(c in allowed for c in expression):
+            if not all(c in allowed for c in expr):
                 return "Error: unsafe expression"
-            return str(eval(expression))
+            return str(eval(expr))
         except Exception as e:
             return f"Error: {e}"
 

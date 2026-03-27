@@ -160,7 +160,9 @@ Rules:
     # ── Private — loop ───────────────────────────────────────────────────────
 
     def _parse_tool_call(self, response_text):
-        match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+?)\s*\)', response_text, re.DOTALL)
+        # Greedy (.+) + no DOTALL: captures up to the LAST ')' on the line,
+        # so nested parens in expressions like "7+(9+8)-2*6" are preserved.
+        match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+)\s*\)', response_text)
         if match:
             return match.group(1).strip().lower(), match.group(2).strip()
         match = re.search(r'(?i)TOOL:\s*(\w+)\s+(.+)', response_text)
@@ -265,10 +267,20 @@ Rules:
 
     def _tool_calculator(self, expression):
         try:
+            # Normalise percentage expressions before safety check
+            # "15% of 85000" → "(15/100*85000)"
+            # "15%" alone → "(15/100)"
+            expr = re.sub(
+                r'(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)',
+                r'(\1/100*\2)',
+                expression,
+                flags=re.IGNORECASE,
+            )
+            expr = re.sub(r'(\d+(?:\.\d+)?)\s*%', r'(\1/100)', expr)
             allowed = set('0123456789+-*/(). ')
-            if not all(c in allowed for c in expression):
+            if not all(c in allowed for c in expr):
                 return "Error: unsafe expression"
-            return str(eval(expression))
+            return str(eval(expr))
         except Exception as e:
             return f"Error: {e}"
 

@@ -11,12 +11,10 @@ __all__ = [
 
 # sentence-transformers model (runs locally in the Space)
 EMBEDDING_MODEL      = 'BAAI/bge-base-en-v1.5'
-# Primary LLM — tried in order until one succeeds
-LANGUAGE_MODEL       = 'mistralai/Mistral-7B-Instruct-v0.3'
+# Primary LLM — confirmed working on featherless-ai provider
+LANGUAGE_MODEL       = 'HuggingFaceH4/zephyr-7b-beta'
 LANGUAGE_MODEL_FALLBACKS = [
-    'mistralai/Mistral-7B-Instruct-v0.3',   # strong instruction following, good for RAG
-    'google/gemma-2-2b-it',                  # Google — gated (accept license first)
-    'HuggingFaceH4/zephyr-7b-beta',          # fine-tuned on helpful QA — not gated
+    'HuggingFaceH4/zephyr-7b-beta',          # confirmed working on featherless-ai
     'mistralai/Mistral-7B-Instruct-v0.1',    # older fallback — not gated
 ]
 

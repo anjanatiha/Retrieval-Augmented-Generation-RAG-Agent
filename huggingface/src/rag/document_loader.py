@@ -483,7 +483,23 @@ class DocumentLoader:
             print(f"  [ERROR] Could not open '{filename}': {e}")
             return []
 
-        text      = soup.get_text(separator=' ', strip=True)
+        # Remove navigation boilerplate before extracting text
+        for tag in soup.find_all(['nav', 'header', 'footer', 'aside',
+                                  'script', 'style', 'noscript']):
+            tag.decompose()
+        for tag in soup.find_all(attrs={'role': ['navigation', 'banner', 'complementary']}):
+            tag.decompose()
+        for tag in soup.find_all(attrs={'id': ['mw-navigation', 'mw-head', 'mw-panel',
+                                               'p-navigation', 'p-tb', 'footer',
+                                               'toc', 'catlinks', 'mw-page-base']}):
+            tag.decompose()
+        for tag in soup.find_all(attrs={'class': ['navbox', 'sidebar', 'mw-editsection',
+                                                   'reflist', 'reference', 'noprint']}):
+            tag.decompose()
+        text = soup.get_text(separator=' ', strip=True)
+        # Filter out short repetitive nav lines (e.g. "Upload file", "View history")
+        lines = [ln.strip() for ln in text.splitlines() if len(ln.strip()) > 40]
+        text  = ' '.join(lines)
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
         for i in range(0, len(sentences), sentences_per_chunk):
             window = sentences[i: i + sentences_per_chunk]

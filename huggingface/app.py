@@ -1,6 +1,7 @@
 """app.py — Gradio UI for HF Space. RAG Agent."""
 
 import os
+import re
 import tempfile
 import gradio as gr
 
@@ -75,7 +76,8 @@ def chat(message, history, mode):
     if not message or not message.strip():
         return history, ""
 
-    if store.collection is None or store.collection.count() == 0:
+    _is_math = bool(re.search(r'[\d].*[\+\-\*\/\%]|[\+\-\*\/\%].*[\d]', message))
+    if not _is_math and (store.collection is None or store.collection.count() == 0):
         history = history + [{"role": "user", "content": message}, {"role": "assistant", "content": "⚠️ No documents in the knowledge base yet. Please upload a file or add a URL first."}]
         return history, ""
 
@@ -119,7 +121,7 @@ def upload_file(file_obj, progress=gr.Progress()):
         }
         new_chunks = loader._dispatch_chunker(file_info)
         if new_chunks:
-            progress(0.6, desc="Indexing chunks...")
+            progress(0.5, desc=f"Embedding {len(new_chunks)} chunks on CPU — please wait...")
             store.add_chunks(new_chunks, id_prefix='file')
             progress(0.9, desc="Rebuilding search index...")
             store.rebuild_bm25(store.chunks)
@@ -141,7 +143,7 @@ def fetch_url(url, progress=gr.Progress()):
         progress(0.2, desc="Fetching URL...")
         new_chunks = loader.chunk_url(url.strip())
         if new_chunks:
-            progress(0.6, desc="Indexing chunks...")
+            progress(0.5, desc=f"Embedding {len(new_chunks)} chunks on CPU — please wait...")
             store.add_chunks(new_chunks, id_prefix='url')
             progress(0.9, desc="Rebuilding search index...")
             store.rebuild_bm25(store.chunks)
