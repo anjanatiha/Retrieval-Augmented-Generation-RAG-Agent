@@ -38,6 +38,7 @@ _CROSS_ENCODER = None
 
 
 def _get_st_model():
+    """Return the module-level SentenceTransformer singleton, loading it on first call."""
     global _ST_MODEL
     if _ST_MODEL is None:
         _ST_MODEL = _load_st_model()
@@ -45,6 +46,7 @@ def _get_st_model():
 
 
 def _get_cross_encoder():
+    """Return the module-level CrossEncoder singleton, loading it on first call."""
     global _CROSS_ENCODER
     if _CROSS_ENCODER is None:
         _CROSS_ENCODER = _load_cross_encoder()
@@ -90,9 +92,24 @@ def _llm_call(messages, max_tokens=512, temperature=0.1):
 
 class VectorStore:
     """Owns ChromaDB, BM25, hybrid search, reranking, query pipeline,
-    response generation, and conversation history."""
+    response generation, and conversation history.
+
+    State:
+        collection (chromadb.Collection): In-memory ChromaDB collection.
+        chunks (list): All chunk dicts currently indexed (local + URL/upload).
+        bm25_index (BM25Okapi | None): BM25 index over all chunks; None when empty.
+        conversation_history (list): Multi-turn chat history as role/content dicts.
+
+    Public API:
+        build_or_load(chunks)          -- Initialise collection and embed chunks.
+        add_chunks(chunks, id_prefix)  -- Add new chunks at runtime.
+        rebuild_bm25(all_chunks)       -- Rebuild BM25 after any chunk additions.
+        run_pipeline(query, ...)       -- Full classify→retrieve→rerank→generate pipeline.
+        clear_conversation()           -- Wipe conversation history.
+    """
 
     def __init__(self):
+        """Initialise all state to empty — call build_or_load() before querying."""
         self.collection          = None
         self.chunks              = []
         self.bm25_index          = None
@@ -101,7 +118,12 @@ class VectorStore:
     # ── Public ──────────────────────────────────────────────────────────────
 
     def build_or_load(self, chunks):
-        """Initialize an in-memory ChromaDB collection and embed any provided chunks."""
+        """Initialize an in-memory ChromaDB collection and embed any provided chunks.
+
+        Args:
+            chunks: List of chunk dicts to embed and store.  Pass an empty list to
+                    create a collection without any documents (e.g. at startup).
+        """
         client     = chromadb.EphemeralClient()
         collection = client.get_or_create_collection(
             name=CHROMA_COLLECTION,
@@ -110,6 +132,7 @@ class VectorStore:
 
         if chunks:
             print(f"Embedding {len(chunks)} chunks...")
+            # Batch size of 50 keeps memory usage bounded on CPU
             batch_size = 50
             for i in range(0, len(chunks), batch_size):
                 batch  = chunks[i: i + batch_size]
@@ -127,9 +150,15 @@ class VectorStore:
         self.bm25_index = BM25Okapi([c['text'].lower().split() for c in chunks]) if chunks else None
 
     def add_chunks(self, chunks, id_prefix):
-        """Add new chunks (e.g. from URL / file upload) to the live collection."""
+        """Add new chunks from a URL or file upload to the live collection.
+
+        Args:
+            chunks:    List of chunk dicts to embed and append.
+            id_prefix: String prefix for generated ChromaDB IDs (e.g. 'url', 'file').
+        """
         if not chunks:
             return
+        # Use current count as offset so new IDs never collide with existing ones
         offset = self.collection.count()
         ids    = [f"{id_prefix}_{offset+i}" for i in range(len(chunks))]
         texts  = [c['text'] for c in chunks]
@@ -141,13 +170,31 @@ class VectorStore:
         self.chunks = self.chunks + list(chunks)
 
     def rebuild_bm25(self, all_chunks):
-        """Rebuild the BM25 index after adding new chunks."""
+        """Rebuild the BM25 index over all current chunks after any addition.
+
+        Args:
+            all_chunks: Complete list of chunks (base + newly added).
+        """
         self.bm25_index = BM25Okapi([c['text'].lower().split() for c in all_chunks]) if all_chunks else None
 
     def run_pipeline(self, query, streamlit_mode=False):
-        """Full RAG pipeline: classify → expand → retrieve → rerank → generate."""
+        """Execute the full RAG pipeline for a single user query.
+
+        Steps: classify → expand → hybrid retrieve → confidence check →
+               cross-encoder rerank → build context → LLM synthesize →
+               hallucination filter → return.
+
+        Args:
+            query:          User's question string.
+            streamlit_mode: Unused in the HF version (kept for API compatibility).
+
+        Returns:
+            Dict with keys: response, query_type, queries, is_confident,
+            best_score, retrieved, reranked.
+        """
         qtype      = self._classify_query(query)
         top_n      = self._smart_top_n(qtype)
+        # Use more chunks for summarise to cover the whole document
         top_rerank = 10 if qtype == 'summarise' else TOP_RERANK
         queries    = self._expand_query(query)
         retrieved  = self._hybrid_retrieve(queries, top_n=top_n)
@@ -198,6 +245,7 @@ class VectorStore:
         }
 
     def clear_conversation(self):
+        """Wipe the multi-turn conversation history so the next query starts fresh."""
         self.conversation_history = []
 
     # ── Private — LLM ────────────────────────────────────────────────────────
@@ -228,6 +276,7 @@ class VectorStore:
         return truncated[:max_chars] if len(truncated) > max_chars else truncated
 
     def _cosine_similarity(self, a, b):
+        """Compute cosine similarity between two plain Python float lists."""
         dot = sum(x * y for x, y in zip(a, b))
         na  = sum(x**2 for x in a)**0.5
         nb  = sum(x**2 for x in b)**0.5
@@ -238,15 +287,18 @@ class VectorStore:
         if self.collection is None or self.collection.count() == 0:
             return []
 
+        # fused maps doc_text → (entry, best_score_across_all_queries)
         fused = {}
 
         for query in queries:
             q_emb   = self._embed(query)
+            # Fetch 2× top_n candidates so fusion has room to reshuffle
             results = self.collection.query(
                 query_embeddings=[q_emb],
                 n_results=min(top_n * 2, self.collection.count())
             )
 
+            # ChromaDB returns cosine distance [0,2]; convert to similarity [0,1]
             dense_map = {}
             for doc, meta, dist in zip(results['documents'][0],
                                         results['metadatas'][0],
@@ -263,17 +315,20 @@ class VectorStore:
             if self.bm25_index is not None:
                 tokenized       = query.lower().split()
                 bm25_scores_raw = self.bm25_index.get_scores(tokenized)
+                # Normalise BM25 to [0,1] so it's on the same scale as dense scores
                 bm25_max        = max(bm25_scores_raw) if max(bm25_scores_raw) > 0 else 1.0
                 bm25_norm       = [s / bm25_max for s in bm25_scores_raw]
             else:
                 bm25_norm = [0.0] * len(self.chunks)
 
             for doc, (entry, dense_score) in dense_map.items():
+                # Linear search to map chunk text → BM25 index position
                 bm25_score = 0.0
                 for idx, c in enumerate(self.chunks):
                     if c['text'] == doc:
                         bm25_score = bm25_norm[idx] if idx < len(bm25_norm) else 0.0
                         break
+                # Alpha-weighted fusion: keep the best score this doc ever receives
                 score = alpha * dense_score + (1 - alpha) * bm25_score
                 if doc not in fused or score > fused[doc][1]:
                     fused[doc] = (entry, score)
@@ -281,7 +336,18 @@ class VectorStore:
         return sorted(fused.values(), key=lambda x: x[1], reverse=True)[:top_n]
 
     def _rerank(self, query, candidates, top_n):
-        """Cross-encoder reranking — runs locally, no LLM API calls."""
+        """Rerank candidates using a local cross-encoder (no LLM API call needed).
+
+        Falls back to the original similarity score if the cross-encoder fails.
+
+        Args:
+            query:      The user's question string.
+            candidates: List of (entry, similarity) tuples from _hybrid_retrieve.
+            top_n:      Number of results to return after reranking.
+
+        Returns:
+            List of (entry, similarity, rerank_score) tuples, sorted descending.
+        """
         try:
             ce     = _get_cross_encoder()
             pairs  = [(query, entry['text']) for entry, sim in candidates]
@@ -289,6 +355,7 @@ class VectorStore:
             scored = [(entry, sim, float(score))
                       for (entry, sim), score in zip(candidates, scores)]
         except Exception as e:
+            # Degrade gracefully — cross-encoder is a latency optimisation, not critical
             print(f"[Rerank] Cross-encoder failed: {e} — using similarity score")
             scored = [(entry, sim, sim) for entry, sim in candidates]
         scored.sort(key=lambda x: x[2], reverse=True)
@@ -374,18 +441,28 @@ class VectorStore:
         return [query]
 
     def _check_confidence(self, results):
+        """Return (is_confident, best_score) based on the top-ranked chunk's similarity.
+
+        Args:
+            results: List of (entry, score) tuples from _hybrid_retrieve.
+
+        Returns:
+            Tuple of (bool, float).  False/0.0 when results is empty.
+        """
         if not results:
             return False, 0.0
         best = results[0][1]
         return best >= SIMILARITY_THRESHOLD, best
 
     def _smart_top_n(self, query_type):
+        """Map query type to the number of chunks to retrieve before reranking."""
         return {'factual': 5, 'comparison': 15, 'general': 10,
                 'summarise': TOP_RETRIEVE}.get(query_type, TOP_RETRIEVE)
 
     # ── Private — response ───────────────────────────────────────────────────
 
     def _build_instruction_prompt(self, context):
+        """Build the system-level anti-hallucination instruction that wraps each LLM call."""
         return (
             "You are a document question-answering assistant.\n"
             "Answer the question using ONLY the context passages provided below.\n"
@@ -449,10 +526,13 @@ class VectorStore:
             "nevertheless,", "i can tell you", "i can provide",
         ]
         lower_resp = response.lower()
+        # Only search for pivots when the model has already admitted it couldn't find info;
+        # this avoids false-positive truncation on responses that happen to use pivot words
         if any(p in lower_resp for p in _no_info_phrases):
             for pivot in _hallucination_pivots:
                 idx = lower_resp.find(pivot)
                 if idx != -1:
+                    # Keep the honest "no info" sentence, drop the hallucinated continuation
                     return (
                         response[:idx].strip() + "\n\n"
                         "I can only answer based on the uploaded documents. "

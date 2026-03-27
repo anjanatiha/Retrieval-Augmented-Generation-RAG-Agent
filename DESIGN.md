@@ -194,7 +194,25 @@ i += 1  # skip the header row
 - Public methods and functions: `snake_case` — `run_pipeline`, `chunk_url`
 - Private methods: `_snake_case` — `_embed`, `_hybrid_retrieve`
 - Constants: `UPPER_SNAKE_CASE` — `EMBEDDING_MODEL`, `TOP_RETRIEVE`
-- Local variables: `snake_case`, short names acceptable in short scopes (`vs`, `qt`, `bs`)
+- Local variables: `snake_case`, always use full plain English names — `chunk_size` not `cs`, `query_type` not `qt`, `best_score` not `bs`
+
+### Readability — write for non-technical readers
+
+All code must be readable by someone without a software engineering background.
+
+- **Plain English names** — `chunk_size` not `cs`, `is_confident` not `conf_flag`. Never sacrifice clarity for brevity.
+- **Plain English docstrings** — the first line of every docstring must be understandable without technical background. Avoid jargon.
+- **Plain English inline comments** — explain WHY and WHAT in simple language. Every non-obvious step must have a comment a non-programmer could understand.
+- **No clever one-liners** — prefer clear multi-line code over compact expressions. Code is read far more often than it is written.
+
+```python
+# BAD — saves two lines, hard to follow
+result = [c for c in chunks if c.get('score', 0) >= t][:n]
+
+# GOOD — takes three lines, anyone can follow it
+passing_chunks = [chunk for chunk in chunks if chunk.get('score', 0) >= threshold]
+top_chunks = passing_chunks[:max_results]
+```
 
 ### What to Avoid
 - Do not write more than ~30 lines in a single method. If a method is longer, extract a private helper.

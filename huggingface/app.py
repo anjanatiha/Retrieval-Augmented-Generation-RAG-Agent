@@ -17,6 +17,11 @@ _store:  VectorStore    = None
 
 
 def _initialize():
+    """Lazily create the DocumentLoader and VectorStore singletons.
+
+    Returns:
+        Tuple of (DocumentLoader, VectorStore).
+    """
     global _loader, _store
     if _loader is None:
         _loader = DocumentLoader()
@@ -29,6 +34,7 @@ def _initialize():
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _chunk_count():
+    """Return the current number of chunks indexed in the VectorStore collection."""
     return _store.collection.count() if _store and _store.collection else 0
 
 
@@ -70,12 +76,22 @@ def _agent_steps_md(steps):
 # ── Core handlers ─────────────────────────────────────────────────────────────
 
 def chat(message, history, mode):
-    """Main chat handler. Returns updated history + pipeline info."""
+    """Handle a chat turn: route to Agent or VectorStore pipeline and return results.
+
+    Args:
+        message: User's input string.
+        history: Gradio-format message list (role/content dicts).
+        mode:    'Chat' or 'Agent' — controls which pipeline is used.
+
+    Returns:
+        Tuple of (updated_history, pipeline_info_markdown).
+    """
     loader, store = _initialize()
 
     if not message or not message.strip():
         return history, ""
 
+    # Allow pure-math questions even when the knowledge base is empty
     _is_math = bool(re.search(r'[\d].*[\+\-\*\/\%]|[\+\-\*\/\%].*[\d]', message))
     if not _is_math and (store.collection is None or store.collection.count() == 0):
         history = history + [{"role": "user", "content": message}, {"role": "assistant", "content": "⚠️ No documents in the knowledge base yet. Please upload a file or add a URL first."}]
@@ -100,14 +116,22 @@ def chat(message, history, mode):
 
 
 def upload_file(file_obj, progress=None):
-    """Index an uploaded file into the knowledge base."""
+    """Chunk and index an uploaded file into the live knowledge base.
+
+    Args:
+        file_obj: Gradio 5 filepath string or legacy file-like with a .name attribute.
+        progress: Optional gr.Progress() instance for progress bar updates.
+
+    Returns:
+        Tuple of (status_message, chunk_counter_markdown).
+    """
     if progress is None:
         progress = gr.Progress()
     loader, store = _initialize()
     if file_obj is None:
         return "No file selected.", f"Chunks in knowledge base: {_chunk_count()}"
 
-    # Gradio 5: file_obj is a filepath string
+    # Gradio 5 passes a filepath string; older versions passed a file-like object
     filepath = file_obj if isinstance(file_obj, str) else file_obj.name
     filename = os.path.basename(filepath)
     ext      = os.path.splitext(filename)[1].lower()
@@ -137,7 +161,15 @@ def upload_file(file_obj, progress=None):
 
 
 def fetch_url(url, progress=None):
-    """Fetch and index a URL into the knowledge base."""
+    """Fetch a public URL, chunk its content, and index it into the knowledge base.
+
+    Args:
+        url:      Public HTTP/HTTPS URL string.
+        progress: Optional gr.Progress() instance for progress bar updates.
+
+    Returns:
+        Tuple of (status_message, chunk_counter_markdown).
+    """
     if progress is None:
         progress = gr.Progress()
     loader, store = _initialize()
@@ -273,6 +305,7 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
     # ── Event wiring ──────────────────────────────────────────────────────────
 
     def _submit(message, history, mode):
+        """Wrapper used by both the button click and the Enter-key submit event."""
         new_history, info = chat(message, history, mode)
         return new_history, info, ""   # clear the message box
 
@@ -292,6 +325,7 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
     )
 
     def _upload(f):
+        """Thin wrapper so upload_file's two outputs map to the correct Gradio outputs."""
         msg, counter = upload_file(f)
         return msg, counter
 
@@ -302,6 +336,7 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
     )
 
     def _fetch(url):
+        """Wrapper that also clears the URL input box after a successful fetch."""
         msg, counter = fetch_url(url)
         return msg, counter, ""
 
@@ -312,6 +347,7 @@ with gr.Blocks(css=CSS, title="RAG Agent — Ask Your Documents") as demo:
     )
 
     def _on_load(progress=None):
+        """Eagerly initialise both singletons on demo.load so the first query is fast."""
         if progress is None:
             progress = gr.Progress()
         progress(0.1, desc="Starting up...")

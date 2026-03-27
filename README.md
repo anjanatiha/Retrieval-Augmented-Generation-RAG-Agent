@@ -136,11 +136,28 @@ rag/
 │   ├── theme.py                   ← CSS + style constants (Ocean Blue)
 │   └── session.py                 ← Streamlit session state helpers
 ├── tests/
-│   ├── test_document_loader.py
-│   ├── test_vector_store.py
-│   ├── test_agent.py
-│   ├── test_benchmarker.py
-│   └── test_integration.py
+│   ├── test_document_loader.py        ← file chunkers (unit)
+│   ├── test_vector_store.py           ← retrieval, BM25, build (unit)
+│   ├── test_vector_store_pipeline.py  ← run_pipeline, rerank, LLM (unit)
+│   ├── test_agent.py                  ← ReAct loop, fast paths (unit)
+│   ├── test_benchmarker.py            ← scoring metrics (unit)
+│   ├── test_integration_loader.py     ← document loading end-to-end
+│   ├── test_integration_pipeline.py   ← full RAG pipeline end-to-end
+│   ├── test_doc_types_and_modes.py    ← all 8 formats in chat mode
+│   ├── test_doc_types_agent.py        ← all 8 formats in agent mode
+│   ├── test_url_ingestion.py          ← URL fetch + type detection
+│   ├── test_url_pipeline.py           ← URL → pipeline end-to-end
+│   ├── test_file_upload.py            ← file upload pipeline
+│   ├── test_file_upload_tools.py      ← upload edge cases
+│   ├── test_contracts.py              ← output shape / key contracts
+│   ├── test_contracts_pipeline.py     ← pipeline output contracts
+│   ├── test_regression.py             ← phrase lists, prompts locked down
+│   ├── test_boundary_negative.py      ← empty files, wrong input
+│   ├── test_combinations.py           ← chat/agent × all 8 doc types
+│   ├── test_combinations_url.py       ← URL × all content types
+│   ├── test_combinations_analysis.py  ← query classification × all types
+│   ├── test_theme_session.py          ← UI session state helpers
+│   └── test_logger.py                 ← interaction logging
 ├── docs/                          ← root documents folder (auto-created, git-ignored)
 │   ├── pdfs/                      ← drop .pdf files here
 │   ├── txts/                      ← drop .txt files here
@@ -401,18 +418,66 @@ The web UI features:
 
 ## Testing
 
-The project includes a full automated test suite covering all 4 classes, all 8 file formats, URL ingestion, the full retrieval pipeline, all 5 agent tools, and Streamlit UI behaviour.
+The project includes a full automated test suite — **540 tests** for the local version and **262 tests** for the Hugging Face version — covering all 4 classes, all 8 file formats, URL ingestion, all 5 agent tools, the full retrieval pipeline, and a complete mode × document-type combination matrix.
+
+### Test types
+
+| Type | What it checks |
+|------|---------------|
+| **Unit** | One method at a time with all dependencies mocked |
+| **Contract** | Output shape — correct keys, types, and structure (not exact values) |
+| **Regression** | Exact phrase lists and prompt text locked down — any accidental change breaks the test |
+| **Boundary** | Empty files, single-item inputs, at-limit sizes, max steps reached |
+| **Negative** | Wrong or missing input is handled gracefully without crashing |
+| **Integration** | Two or more real components working together (no mocks for file libraries) |
+| **Combination** | Parametrized matrix — Chat/Agent mode × all 8 document types × all URL content types |
+
+### Run the tests
 
 ```bash
-# Run all tests
+# Run all local tests
 pytest
 
 # Run with coverage
 pytest --cov=src
 
 # Run a specific file
-pytest tests/test_integration.py
+pytest tests/test_contracts.py
+
+# Run HF tests (from huggingface/ directory)
+cd huggingface && pytest
 ```
+
+### Test files
+
+**Local suite (`tests/`)** — 540 tests across 22 files:
+
+| File | What it covers |
+|------|---------------|
+| `test_document_loader.py` | File chunkers (unit) |
+| `test_vector_store.py` | Retrieval, BM25, build (unit) |
+| `test_vector_store_pipeline.py` | run_pipeline, rerank, LLM (unit) |
+| `test_agent.py` | ReAct loop, fast paths (unit) |
+| `test_benchmarker.py` | Scoring metrics (unit) |
+| `test_integration_loader.py` | Document loading end-to-end |
+| `test_integration_pipeline.py` | Full RAG pipeline end-to-end |
+| `test_doc_types_and_modes.py` | All 8 formats in chat mode |
+| `test_doc_types_agent.py` | All 8 formats in agent mode |
+| `test_url_ingestion.py` | URL fetch + type detection |
+| `test_url_pipeline.py` | URL → pipeline end-to-end |
+| `test_file_upload.py` | File upload pipeline |
+| `test_file_upload_tools.py` | Upload edge cases |
+| `test_contracts.py` | Output shape / key contracts |
+| `test_contracts_pipeline.py` | Pipeline output contracts |
+| `test_regression.py` | Phrase lists, prompts locked down |
+| `test_boundary_negative.py` | Empty files, wrong input |
+| `test_combinations.py` | Chat/Agent × all 8 doc types (parametrized) |
+| `test_combinations_url.py` | URL × all content types (parametrized) |
+| `test_combinations_analysis.py` | Query classification × all types |
+| `test_theme_session.py` | UI session state helpers |
+| `test_logger.py` | Interaction logging |
+
+**HF suite (`huggingface/tests/`)** — 262 tests across 13 files covering the same categories adapted for the Hugging Face deployment (uses `InferenceClient` instead of Ollama, `EphemeralClient` instead of persistent ChromaDB).
 
 Dev dependencies (`pytest`, `pytest-cov`, `pytest-mock`) are in `pyproject.toml` and are not part of `requirements.txt`.
 

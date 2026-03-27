@@ -18,10 +18,19 @@ __all__ = ['DocumentLoader']
 
 
 class DocumentLoader:
-    """Owns all document ingestion — chunkers, URL fetching."""
+    """Owns all document ingestion — chunkers, URL fetching.
+
+    State:
+        ext_to_type (dict): Maps file extension strings to canonical type keys.
+        chunk_sizes (dict): All chunk-size constants keyed by config name.
+
+    Public API:
+        chunk_url(url)          -- Fetch a URL and route to the correct chunker.
+        _dispatch_chunker(info) -- Pick and call the right private chunker.
+    """
 
     def __init__(self) -> None:
-        """Load config constants as instance vars."""
+        """Load config constants as instance vars so they're easy to override in tests."""
         self.ext_to_type = EXT_TO_TYPE
         self.chunk_sizes = {
             'txt_chunk_size':        TXT_CHUNK_SIZE,
@@ -35,12 +44,20 @@ class DocumentLoader:
     # ------------------------------------------------------------------ Public
 
     def chunk_url(self, url: str) -> List[dict]:
-        """
-        Fetches a URL and routes it to the correct chunker based on:
-        1. Content-Type header from the response  (most reliable)
-        2. File extension in the URL path         (fallback)
-        3. PDF magic bytes sniff
-        4. Default to HTML
+        """Fetch a URL and produce chunks using the appropriate format handler.
+
+        Type detection uses four priorities in strict order:
+            1. Content-Type response header (most reliable).
+            2. File extension in the URL path (strips query strings first).
+            3. PDF magic bytes sniff (``content[:4] == b'%PDF'``).
+            4. Default to 'html' when no other signal is present.
+
+        Args:
+            url: Public HTTP/HTTPS URL to fetch.
+
+        Returns:
+            List of chunk dicts, each with keys: text, source, start_line,
+            end_line, type.  Returns an empty list on network error.
         """
         try:
             import requests
@@ -62,7 +79,8 @@ class DocumentLoader:
             print(f"  [ERROR] Could not fetch URL: {e}")
             return []
 
-        # ── Type detection ──────────────────────────────────────────
+        # ── Priority 1: exact Content-Type header match ──────────────
+        # Strip charset and boundary params before comparing
         content_type = resp.headers.get('Content-Type', '').lower().split(';')[0].strip()
         dtype = None
 
@@ -82,6 +100,7 @@ class DocumentLoader:
         }
         dtype = CONTENT_TYPE_MAP.get(content_type)
 
+        # Fuzzy fallback for unusual MIME subtypes (e.g. "application/x-pdf")
         if dtype is None:
             if 'pdf'          in content_type: dtype = 'pdf'
             elif 'word'       in content_type: dtype = 'docx'
@@ -89,15 +108,20 @@ class DocumentLoader:
             elif 'powerpoint' in content_type or 'presentation' in content_type: dtype = 'pptx'
             elif 'csv'        in content_type: dtype = 'csv'
 
+        # ── Priority 2: file extension in URL path ───────────────────
+        # Strip query and fragment before extracting extension
         if dtype is None:
             parsed_path = urlparse(url).path.lower()
             clean_path  = re.sub(r'[?#].*$', '', parsed_path)
             ext         = os.path.splitext(clean_path)[1]
             dtype       = self.ext_to_type.get(ext)
 
+        # ── Priority 3: PDF magic bytes ───────────────────────────────
+        # Some servers send application/octet-stream for PDFs
         if dtype is None and content[:4] == b'%PDF':
             dtype = 'pdf'
 
+        # ── Priority 4: default ───────────────────────────────────────
         if dtype is None:
             dtype = 'html'
 
@@ -183,7 +207,14 @@ class DocumentLoader:
     # ----------------------------------------------------------------- Private
 
     def _dispatch_chunker(self, file_info: dict) -> List[dict]:
-        """Picks the right chunker based on detected_type."""
+        """Route a file_info dict to the correct private chunker method.
+
+        Args:
+            file_info: Dict with keys filepath, filename, detected_type, is_misplaced.
+
+        Returns:
+            List of chunk dicts.  Empty list when the type is unrecognised.
+        """
         fp  = file_info['filepath']
         fn  = file_info['filename']
         ext = os.path.splitext(fn)[1].lower()
@@ -198,6 +229,8 @@ class DocumentLoader:
         elif t == 'docx':
             return self._chunk_docx(fp, fn)
         elif t == 'xlsx':
+            # .xls uses xlrd (legacy binary format); .csv despite 'xlsx' type
+            # only arises from misplaced-file detection — route correctly
             if ext == '.xls':
                 return self._chunk_xls(fp, fn)
             elif ext == '.csv':
@@ -215,6 +248,7 @@ class DocumentLoader:
             return []
 
     def _chunk_txt(self, filepath: str, filename: str) -> List[dict]:
+        """Chunk a plain-text file — one logical line per chunk, no overlap by default."""
         chunk_size = self.chunk_sizes['txt_chunk_size']
         overlap    = self.chunk_sizes['txt_chunk_overlap']
         with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
@@ -261,6 +295,7 @@ class DocumentLoader:
         return chunks
 
     def _chunk_pdf(self, filepath: str, filename: str) -> List[dict]:
+        """Chunk a PDF file — sliding sentence windows per page, page number as start_line."""
         sentences_per_chunk = self.chunk_sizes['pdf_chunk_sentences']
         try:
             import fitz
@@ -295,6 +330,7 @@ class DocumentLoader:
         return chunks
 
     def _chunk_docx(self, filepath: str, filename: str) -> List[dict]:
+        """Chunk a DOCX file — paragraphs plus table rows; merged cells are deduplicated."""
         paras_per_chunk = self.chunk_sizes['docx_chunk_paras']
         try:
             from docx import Document
@@ -314,6 +350,8 @@ class DocumentLoader:
         for table in doc.tables:
             for row in table.rows:
                 row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                # python-docx repeats the same cell object for merged cells;
+                # deduplicate by preserving insertion order
                 seen = []
                 for cell in row_cells:
                     if cell not in seen:
@@ -374,7 +412,7 @@ class DocumentLoader:
         return chunks
 
     def _chunk_xls(self, filepath: str, filename: str) -> List[dict]:
-        """Fallback for old .xls via xlrd."""
+        """Fallback chunker for legacy .xls files using xlrd (openpyxl cannot read them)."""
         try:
             import xlrd
         except ImportError:
@@ -431,6 +469,7 @@ class DocumentLoader:
         return chunks
 
     def _chunk_pptx(self, filepath: str, filename: str) -> List[dict]:
+        """Chunk a PPTX file — text shapes from each slide, one chunk per slide."""
         slides_per_chunk = self.chunk_sizes['pptx_chunk_slides']
         try:
             from pptx import Presentation
@@ -468,6 +507,7 @@ class DocumentLoader:
         return chunks
 
     def _chunk_html(self, filepath: str, filename: str) -> List[dict]:
+        """Chunk an HTML file — strip navigation/boilerplate tags, then sentence windows."""
         sentences_per_chunk = self.chunk_sizes['html_chunk_sentences']
         try:
             from bs4 import BeautifulSoup
@@ -497,7 +537,8 @@ class DocumentLoader:
                                                    'reflist', 'reference', 'noprint']}):
             tag.decompose()
         text = soup.get_text(separator=' ', strip=True)
-        # Filter out short repetitive nav lines (e.g. "Upload file", "View history")
+        # 40-char threshold filters single-word nav items and short menu labels
+        # while keeping substantive content lines
         lines = [ln.strip() for ln in text.splitlines() if len(ln.strip()) > 40]
         text  = ' '.join(lines)
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]

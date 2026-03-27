@@ -460,6 +460,7 @@ def get_active_bm25(base_bm25)     # return session bm25 if updated, else base
 - Do **NOT** move to the next step until I say "continue" or "next"
 - If you encounter a decision point, **ask** — do not assume
 - Always run tests and the app before asking me to proceed
+- **When asked to add comments, docstrings, or any improvements — do it completely across ALL relevant files without asking. Do not ask for permission or confirmation mid-task.**
 
 ---
 
@@ -731,6 +732,11 @@ Step 11: Final verification
 
 ## Coding Standards
 
+> **All code must be thoroughly commented at all times.**
+> This applies to source files AND test files, in this repo AND in the huggingface/ folder.
+> Every class, every public method, every private method with non-obvious logic, every fixture, every test method must have a docstring or comment. No exceptions.
+> When writing new code or editing existing code, always add comments as part of the same task — never leave uncommented code behind.
+
 ### File Size
 - **Maximum 500 lines per file.** If a file exceeds 500 lines, split it along a clear conceptual boundary before finishing the task — do not wait to be asked.
 - Entry points (`main.py`, `app.py`) must stay under 50 lines — they wire classes together and nothing else.
@@ -788,6 +794,42 @@ i += 1  # increment i by 1             ← BAD (restates the code)
 | Private methods | `_snake_case` | `_embed` |
 | Constants | `UPPER_SNAKE_CASE` | `EMBEDDING_MODEL` |
 | Local variables | `snake_case` | `top_n`, `qt` |
+
+### Readability — write for non-technical readers
+All code must be readable by someone who is not a software engineer.
+
+- **Plain English names** — `chunk_size` not `cs`, `is_confident` not `conf_flag`, `number_of_chunks` not `n`
+- **Plain English docstrings** — the first line of every docstring must be understandable without technical background
+- **Plain English comments** — explain WHY and WHAT in simple language; avoid jargon
+- **No clever one-liners** — prefer clear multi-line code over compact expressions that need decoding
+- **Every non-obvious step gets a comment** a non-programmer could understand
+
+**Example — BAD (technical, hard to follow):**
+```python
+def _trunc(t, mw=300, mc=1200):
+    w = t.split()
+    r = ' '.join(w[:mw]) if len(w) > mw else t
+    return r[:mc] if len(r) > mc else r
+```
+
+**Example — GOOD (readable by anyone):**
+```python
+def _truncate_chunk(text, max_words=300, max_chars=1200):
+    """Cut text down to a safe size before storing it.
+
+    We limit both word count AND character count because some words
+    are very long. Whichever limit is hit first wins.
+    """
+    # Split the text into individual words
+    words = text.split()
+
+    # If there are too many words, keep only the first 300
+    if len(words) > max_words:
+        text = ' '.join(words[:max_words])
+
+    # If the result is still too long in characters, cut it there too
+    return text[:max_chars]
+```
 
 ### What to Avoid
 - Do not write more than ~30 lines in a single method. Extract a private helper if longer.

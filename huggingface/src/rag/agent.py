@@ -12,6 +12,25 @@ __all__ = ['Agent']
 
 
 class Agent:
+    """Implements a ReAct-style tool-calling loop with five built-in tools.
+
+    State:
+        store (VectorStore):          Reference to the shared vector store and LLM.
+        messages (list):              Running message history for the current ReAct loop.
+        collected_context (list):     Accumulated rag_search results for final synthesis.
+        max_steps (int):              Hard cap on loop iterations to prevent infinite loops.
+
+    Public API:
+        run(user_query, streamlit_mode) -- Execute the ReAct loop and return result dict.
+
+    Tools (private methods):
+        _tool_rag_search   -- Hybrid retrieve + rerank, returns formatted chunk list.
+        _tool_calculator   -- Safe eval of math expressions.
+        _tool_summarise    -- Adaptive-length LLM summarisation.
+        _tool_sentiment    -- 4-field structured sentiment analysis.
+        finish             -- Handled inline in run(); triggers final synthesis.
+    """
+
     AGENT_SYSTEM_PROMPT = """You are an AI agent. You must ONLY respond with tool calls — no explanations, no extra text.
 
 Available tools:
@@ -48,6 +67,11 @@ Rules:
 """
 
     def __init__(self, store: VectorStore):
+        """Initialise the agent with a shared VectorStore.
+
+        Args:
+            store: A fully initialised VectorStore instance.
+        """
         self.store             = store
         self.messages          = []
         self.collected_context = []
@@ -56,7 +80,17 @@ Rules:
     # ── Public ──────────────────────────────────────────────────────────────
 
     def run(self, user_query, streamlit_mode=False):
-        """Run the ReAct agent loop for a user query."""
+        """Execute the ReAct agent loop for a user query.
+
+        Args:
+            user_query:     The user's question or instruction.
+            streamlit_mode: Unused in HF version; kept for API compatibility.
+
+        Returns:
+            Dict with keys:
+                answer (str):       Final answer string.
+                steps  (list):      List of step dicts (step, tool, arg, result).
+        """
         self.messages = [
             {'role': 'system', 'content': self.AGENT_SYSTEM_PROMPT},
             {'role': 'user',   'content': user_query},
@@ -68,6 +102,7 @@ Rules:
         bad_format_count = 0
 
         _q_lower = user_query.lower()
+        # Fast path detection avoids wasting an LLM round-trip for known query shapes
         is_summarise = (
             any(s in _q_lower for s in
                 ['summarise', 'summarize', 'summerise', 'summerize', 'summary',
@@ -94,6 +129,7 @@ Rules:
 
             if not tool_name:
                 bad_format_count += 1
+                # Allow up to 2 correction retries before accepting raw text as answer
                 if bad_format_count <= 2:
                     self.messages.append({'role': 'assistant', 'content': raw_text})
                     self.messages.append({'role': 'user', 'content':
@@ -102,6 +138,7 @@ Rules:
                         'Example: TOOL: rag_search(cat sleep hours)'})
                     continue
                 else:
+                    # Give up correcting; surface whatever the LLM produced
                     answer = raw_text
                     steps.append({'step': step+1, 'tool': 'none', 'arg': '', 'result': raw_text})
                     break
@@ -109,6 +146,8 @@ Rules:
             bad_format_count = 0
 
             if tool_name == 'finish':
+                # Prefer synthesizing from accumulated search context over raw LLM arg;
+                # this produces a grounded answer rather than a hallucinated one
                 if self.collected_context:
                     all_context = '\n'.join(self.collected_context)
                     answer = self._synthesize_final_answer(user_query, all_context)
@@ -120,11 +159,14 @@ Rules:
             result = self._dispatch_tool(tool_name, tool_arg)
             steps.append({'step': step+1, 'tool': tool_name, 'arg': tool_arg, 'result': result})
 
+            # Auto-finish after a successful calculator call — no LLM needed for simple math
             if tool_name == 'calculator' and not result.startswith('Error'):
                 answer = f"{tool_arg} = {result}"
                 steps.append({'step': step+2, 'tool': 'finish', 'arg': answer, 'result': answer})
                 break
 
+            # Auto-finish after the first rag_search for non-summarise queries;
+            # summarise stays in the loop to accumulate multiple searches
             if tool_name == 'rag_search' and not is_summarise:
                 answer = self._synthesize_final_answer(user_query, result)
                 steps.append({'step': step+2, 'tool': 'finish', 'arg': answer, 'result': answer})
@@ -146,8 +188,19 @@ Rules:
     # ── Private — loop ───────────────────────────────────────────────────────
 
     def _parse_tool_call(self, response_text):
-        # Greedy (.+) + no DOTALL: captures up to the LAST ')' on the line,
-        # so nested parens in expressions like "7+(9+8)-2*6" are preserved.
+        """Extract tool name and argument from a raw LLM response line.
+
+        Two patterns are tried in order:
+            1. ``TOOL: name(arg)`` — parenthesised form (preferred).
+            2. ``TOOL: name arg``  — space-separated fallback.
+
+        Greedy (.+) without DOTALL captures up to the LAST ')' on the line,
+        preserving nested parentheses in expressions like "7+(9+8)-2*6".
+
+        Returns:
+            (tool_name, tool_arg) tuple, both lowercased/stripped.
+            (None, None) when no valid TOOL: line is found.
+        """
         match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+)\s*\)', response_text)
         if match:
             return match.group(1).strip().lower(), match.group(2).strip()
@@ -157,6 +210,7 @@ Rules:
         return None, None
 
     def _dispatch_tool(self, tool_name, tool_arg):
+        """Call the tool matching tool_name and return its result string."""
         if tool_name == 'rag_search':
             result = self._tool_rag_search(tool_arg)
             self.collected_context.append(f"[Search: {tool_arg}]\n{result}")
@@ -173,6 +227,7 @@ Rules:
         return result
 
     def _synthesize_final_answer(self, query, context):
+        """Ask the LLM to produce a clean final answer grounded in accumulated context."""
         prompt = (
             "You are a helpful assistant. Answer the question below using ONLY the "
             "provided context. Be concise and direct. Do not repeat the context — "
@@ -184,15 +239,19 @@ Rules:
         )
         try:
             raw = self.store._llm_chat([{'role': 'user', 'content': prompt}], temperature=0)
-            # Truncate any hallucinated follow-up Q&A blocks the LLM appends
+            # Some models append additional fake Q&A blocks after the answer — truncate them
             raw = re.split(r'\n\n(?:Context:|Question:)', raw, maxsplit=1)[0]
             return raw.strip()
         except Exception as e:
-            # Return a clean error rather than dumping raw chunk text
+            # Return a clean error message rather than leaking raw chunk text to the user
             return f"(Could not synthesize answer: {e})"
 
     def _fast_path_summarise(self, query, streamlit_mode=False):
-        """For summarise queries: extract topic from query, run targeted searches."""
+        """Handle summarise queries by running four targeted searches then synthesizing.
+
+        For resume/CV queries the four search terms are fixed to cover standard sections.
+        For other documents the terms are derived from the extracted topic keyword.
+        """
         # Strip summarise keywords to get the actual topic
         topic = re.sub(
             r'\b(summarise|summarize|summerise|summerize|summary|overview|'
@@ -220,14 +279,16 @@ Rules:
         return {'answer': answer, 'steps': fast_steps}
 
     def _fast_path_sentiment(self, query, streamlit_mode=False):
-        """For sentiment queries: search then analyse directly."""
+        """Handle sentiment queries: strip sentiment keywords, search, then analyse text."""
         _q_lower = query.lower()
+        # Remove meta-question words so the search focuses on the actual subject
         search_query = re.sub(
             r'\b(what is the|what\'s the|analyse|analyze|analysis|check|tell me the|'
             r'of the|of|sentiment|tone|feeling|emotion|attitude|mood|the|is|a|an)\b',
             '', _q_lower, flags=re.IGNORECASE
         ).strip() or query
         raw = self._tool_rag_search(search_query)
+        # Strip "- [source label] " prefixes so the LLM sees clean prose, not metadata noise
         clean_text = re.sub(r'-\s*\[[^\]]+\]\s*', '', raw).strip()
         sentiment_result = self._tool_sentiment(clean_text or raw)
         sentiment_steps = [
@@ -256,7 +317,7 @@ Rules:
         return {'answer': answer, 'steps': steps}
 
     def _tool_rag_search(self, query):
-        """Returns retrieved chunks with source labels for grounded synthesis."""
+        """Search the knowledge base and return formatted chunk lines with source labels."""
         queries   = self.store._expand_query(query)
         retrieved = self.store._hybrid_retrieve(queries, top_n=5)
         reranked  = self.store._rerank(query, retrieved, top_n=3)
@@ -267,6 +328,10 @@ Rules:
         return '\n'.join(lines)
 
     def _tool_calculator(self, expression):
+        """Safely evaluate a math expression string using a character whitelist.
+
+        Returns the result as a string, or an error message prefixed with 'Error:'.
+        """
         try:
             # Normalise percentage expressions before safety check
             # "15% of 85000" → "(15/100*85000)"
@@ -278,6 +343,8 @@ Rules:
                 flags=re.IGNORECASE,
             )
             expr = re.sub(r'(\d+(?:\.\d+)?)\s*%', r'(\1/100)', expr)
+            # Whitelist: only digits, arithmetic operators, parens, dot, and space
+            # Blocks any code injection attempts (e.g. __import__, exec, os.system)
             allowed = set('0123456789+-*/(). ')
             if not all(c in allowed for c in expr):
                 return "Error: unsafe expression"
@@ -286,7 +353,9 @@ Rules:
             return f"Error: {e}"
 
     def _tool_summarise(self, text):
+        """Summarise text with an adaptive length hint based on input word count."""
         word_count = len(text.split())
+        # Longer hints for longer texts so the summary stays proportional
         if word_count < 100:
             length_hint = "2-3 sentences"
         elif word_count < 300:
