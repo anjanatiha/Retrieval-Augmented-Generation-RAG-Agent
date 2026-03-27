@@ -1,16 +1,75 @@
 # RAG Agent — Retrieval-Augmented Generation System
 
-A production-grade, fully local RAG chatbot and autonomous agent. Upload your documents, ask questions, and get grounded answers with source citations — all running **100% on your machine** with no API keys or cloud services required.
+A production-grade, fully local RAG system with hybrid search, autonomous agent, and support for 9 document formats. Built end-to-end in Python — no cloud APIs, no external services, everything runs on your machine.
 
-**[Try the live demo on Hugging Face →](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)** — no installation needed.
+**[► Try the live demo on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)** — no installation needed.   **[► GitHub Repository](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent)**
 
 ![Hugging Face Demo](assets/huggingface_ragdoll.png)
 
 ---
 
+## Who is this for?
+
+Jump to the section that fits you:
+
+| I am a... | Start here |
+|-----------|-----------|
+| **Recruiter or hiring manager** evaluating the project | [→ Skills & Technical Highlights](#skills--technical-highlights) |
+| **User** who wants to chat with their documents | [→ Try Without Installing](#try-without-installing) or [→ Quick Start](#quick-start) |
+| **Developer** who wants to understand how it works | [→ How RAG Works](#how-rag-works) · [→ Architecture](#architecture) · [→ Algorithms](#how-it-works--algorithms) |
+| **Contributor** who wants to add a feature or fix a bug | [→ Contributing](#contributing) · [→ Testing](#testing) · [→ Folder Structure](#folder-structure) |
+
+---
+
+## Skills & Technical Highlights
+
+> This section is for **recruiters and hiring managers** reviewing the project as part of a job application.
+
+This project was designed and built from scratch as a demonstration of production-level NLP engineering. It is not a tutorial follow-along or a notebook experiment — it is a fully structured, tested, and deployed system.
+
+### What it demonstrates
+
+| Skill area | What was built |
+|-----------|---------------|
+| **NLP / Information Retrieval** | Hybrid BM25 + dense vector search, query expansion, query classification, type-aware LLM reranking, hallucination filtering |
+| **LLM Application Engineering** | RAG pipeline design, ReAct agent loop with tool calling, prompt engineering for 7 document-type-specific reranker prompts, structured output parsing |
+| **Software Architecture** | 4-class design with strict separation of concerns, stateless module functions vs stateful class methods, no circular dependencies, 500-line file cap enforced |
+| **Testing** | 828 tests across 36 files — unit, integration, contract, regression, boundary, negative, and parametrized combination tests |
+| **MLOps / Deployment** | Fully local Ollama deployment + separate Hugging Face Space deployment using InferenceClient, persistent ChromaDB vector store, CI/CD pipeline |
+| **Python Engineering** | Type hints throughout, Google-style docstrings, structured JSON logging, environment variable config, pinned dependency versions, virtual environment setup |
+| **Data Engineering** | Format-specific chunkers for 9 document types including structured row-level extraction for XLSX/CSV, table extraction with merged cell deduplication for DOCX |
+
+### Key design decisions worth noting
+
+- **Hybrid search over pure dense:** BM25 + dense fusion achieves higher recall than either alone — especially critical for structured documents like spreadsheets where column names must match exactly
+- **Type-aware reranking:** 7 different LLM reranker prompts (one per document type) solve the problem of generic rerankers underscoring structured data — a spreadsheet row gets framed as "a row of structured data", not evaluated as if it were prose
+- **4-class architecture:** All state-carrying logic lives in exactly 4 classes (`DocumentLoader`, `VectorStore`, `Agent`, `Benchmarker`). Stateless operations live in modules. This prevents the circular dependency and indirection problems that come from over-decomposition
+- **Confidence gate before LLM call:** The system checks similarity threshold before calling the language model — skipping the LLM entirely when no relevant chunks exist, rather than letting it hallucinate from irrelevant context
+- **828-test suite:** Tests cover not just happy paths but contract shapes, regression locks on prompt text, boundary conditions, and parametrized matrices of all query modes × all document types
+
+### Benchmark results
+
+| Metric | Score | What it measures |
+|--------|-------|-----------------|
+| Faithfulness | **0.798** | Response stays grounded in retrieved context |
+| Keyword Recall | **1.000** | All expected facts appear in the answer |
+| Context Relevance | **0.719** | Retrieval found the right chunks |
+| Answer Relevancy | **0.369** | Response directly addresses the question |
+| **Overall** | **0.721** | Mean across all four metrics |
+
+### Live deployment
+
+| Deployment | URL | Stack |
+|-----------|-----|-------|
+| Hugging Face Space | [anjanatiha2024/Rag-Agent](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent) | Gradio + InferenceClient |
+| Local (Streamlit) | `streamlit run app.py` | Streamlit + Ollama |
+| Local (CLI) | `python main.py` | argparse + Ollama |
+
+---
+
 ## Table of Contents
 
-**Using the system**
+**For users**
 - [What it does](#what-it-does)
 - [Features](#features)
 - [Try Without Installing](#try-without-installing)
@@ -22,7 +81,7 @@ A production-grade, fully local RAG chatbot and autonomous agent. Upload your do
 - [Troubleshooting](#troubleshooting)
 - [Streamlit UI](#streamlit-ui)
 
-**Understanding the system**
+**For engineers & researchers**
 - [How RAG Works](#how-rag-works)
 - [Architecture](#architecture)
 - [How It Works — Algorithms](#how-it-works--algorithms)
@@ -42,7 +101,7 @@ A production-grade, fully local RAG chatbot and autonomous agent. Upload your do
   - [13. BM25 Index Rebuild](#13-bm25-index--rebuilding-after-every-upload)
   - [14. Conversation Memory](#14-conversation-memory--multi-turn-context)
 
-**Development**
+**For contributors**
 - [Folder Structure](#folder-structure)
 - [Contributing](#contributing)
 - [Testing](#testing)
