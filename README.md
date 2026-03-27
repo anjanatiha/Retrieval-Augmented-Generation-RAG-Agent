@@ -62,7 +62,8 @@ The codebase is structured around **4 classes** and **4 modules**. Classes own s
 
 | Class | Owns |
 |-------|------|
-| `DocumentLoader` | All ingestion — 9 format chunkers, misplaced file detection, URL fetching |
+| `DocumentLoader` | All ingestion — misplaced file detection, URL fetching, chunker dispatch |
+| `chunkers` module | 9 stateless format-specific chunker functions (txt, md, pdf, docx, xlsx, xls, csv, pptx, html) |
 | `VectorStore` | ChromaDB, BM25, hybrid retrieval, reranking, query pipeline, response generation, conversation history |
 | `Agent` | ReAct loop, all 5 tools as private methods, fast paths for summarise and sentiment |
 | `Benchmarker` | 4-metric evaluation, run comparison, result persistence |
@@ -75,7 +76,7 @@ Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
   DocumentLoader
   ├── scan_all_files() — scans ./docs/, detects type by extension, flags misplaced
   ├── chunk_url() — fetches URL, detects type (Content-Type → extension → magic bytes → html)
-  └── Chunking dispatch (9 format-specific chunkers)
+  └── Chunking dispatch → chunkers.py (9 stateless format-specific functions)
       ├── TXT / MD:  sliding window (line-based; MD syntax stripped)
       ├── PDF:       page extraction → sentence-based chunks (PyMuPDF)
       ├── DOCX:      paragraph groups + table rows, merged cell dedup (python-docx)
@@ -127,7 +128,8 @@ rag/
 │   │   ├── __init__.py
 │   │   ├── config.py              ← all constants (models, paths, thresholds)
 │   │   ├── logger.py              ← stateless interaction logging
-│   │   ├── document_loader.py     ← DocumentLoader class — all ingestion
+│   │   ├── document_loader.py     ← DocumentLoader class — ingestion, URL fetch, dispatch
+│   │   ├── chunkers.py            ← MODULE: 9 stateless format chunker functions
 │   │   ├── vector_store.py        ← VectorStore class — retrieval + generation
 │   │   ├── agent.py               ← Agent class — ReAct loop + 5 tools
 │   │   └── benchmarker.py         ← Benchmarker class — evaluation

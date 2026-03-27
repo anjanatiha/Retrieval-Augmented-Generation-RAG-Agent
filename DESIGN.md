@@ -22,7 +22,7 @@ A finer decomposition (e.g. a `QueryExpander` class, a `Reranker` class, a `Hybr
 ## What Each Class Owns and Why
 
 ### `DocumentLoader`
-Owns all ingestion logic: reading files from disk, parsing 9 formats, chunking, misplaced file detection, and URL fetching. These belong together because they all transform raw input into the same output structure (a list of chunk dicts). There is no meaningful reason to separate PDF parsing from DOCX parsing — they are just different implementations of the same operation.
+Owns all ingestion logic: reading files from disk, misplaced file detection, URL fetching, and dispatching to the correct format chunker. The 9 format-specific chunker functions (txt, md, pdf, docx, xlsx, xls, csv, pptx, html) live in `chunkers.py` as stateless module-level functions — they take a file path and return a list of chunk dicts with no class state of their own. `DocumentLoader._dispatch_chunker` routes each file to the right function from `chunkers.py`. This split keeps `DocumentLoader` focused on ingestion orchestration while `chunkers.py` handles format-specific parsing detail.
 
 ### `VectorStore`
 Owns ChromaDB, BM25, hybrid retrieval, reranking, query expansion, query classification, response generation, hallucination filtering, and conversation history. These all operate on the same two data structures — the vector collection and the chunk list. Splitting them would require passing the collection and chunks to every caller, which is worse than grouping them under one owner.
