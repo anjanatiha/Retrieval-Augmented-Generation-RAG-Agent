@@ -501,16 +501,6 @@ Significantly enhanced with: hybrid search, document type-aware LLM reranking, m
 
 ---
 
-## Feedback & Testing
-
-I would greatly appreciate it if others could try out the features and share their feedback. Whether you are testing retrieval quality, multi-format document support, agent tool calling, or the sentiment analysis — any observations, bug reports, or suggestions are welcome.
-
-If you encounter an issue or have an idea for improvement, please open a [GitHub Issue](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/issues). Contributions via pull request are also welcome.
-
-Your testing and feedback help make this system more robust — thank you for taking the time.
-
----
-
 ## Related
 
 - **HF Spaces demo** — [RAG Agent on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent) — runs in your browser with file upload UI, no Ollama or local setup required
