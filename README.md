@@ -18,6 +18,251 @@ A production-grade, fully local RAG chatbot and autonomous agent. Upload your do
 
 ---
 
+## Features
+
+| # | Feature | Details |
+|---|---------|---------|
+| 1 | **9 document formats** | PDF, TXT, DOCX, XLSX, XLS, PPTX, CSV, Markdown, HTML — each with a dedicated format-specific chunker |
+| 2 | **Recursive folder scan** | Drop a folder anywhere under `./docs/` at any depth — every file is detected by extension and indexed automatically |
+| 3 | **Smart misplaced file detection** | Files not in their canonical subfolder are still processed and flagged with a `[MISPLACED]` notice |
+| 4 | **Structured document retrieval** | Row-level XLSX/CSV chunking and type-aware reranking make queries over spreadsheets and resumes accurate |
+| 5 | **Hybrid search** | BM25 (lexical) + dense vector (semantic) retrieval fused for higher recall than either alone |
+| 6 | **Query expansion** | LLM generates 2 rewrites of the query + the original = 3 queries run in parallel for better coverage |
+| 7 | **Query classification** | Queries auto-classified as summarise / comparison / factual / general — retrieval depth adjusts per type |
+| 8 | **Type-aware LLM reranker** | 7 different reranker prompts — one per document type — for more accurate relevance scoring on structured data |
+| 9 | **Confidence / hallucination filter** | Similarity threshold check and pivot-phrase filter prevent low-confidence and hallucinated answers |
+| 10 | **Source citations** | Every answer cites the source file with a type-aware location label (page, row, slide, line) |
+| 11 | **Persistent vector DB** | ChromaDB stores embeddings on disk — no re-embedding on restart |
+| 12 | **Conversation memory** | Full multi-turn memory across the session |
+| 13 | **URL ingestion** | Paste any public URL — webpage, PDF, DOCX, XLSX, CSV, PPTX — auto-detected and indexed |
+| 14 | **Multi-file upload** | Upload one file or many at once; select all files from a folder with Ctrl+A |
+| 15 | **Agent with tool calling** | ReAct loop with `rag_search`, `calculator`, `summarise`, `sentiment`, and `finish` tools |
+| 16 | **Benchmarking** | 4-metric automated evaluation suite with run-over-run comparison |
+| 17 | **Logging & analytics** | Every query logged to `rag_logs.json` with similarity scores, query type, and response length |
+| 18 | **Streamlit UI** | Ocean Blue web UI with chat bubbles, agent mode toggle, live pipeline sidebar, confidence badges |
+| 19 | **HF Space deployment** | Same system deployed on Hugging Face using InferenceClient — no Ollama required |
+| 20 | **Progress bar** | Real-time classify → retrieve → rerank → generate progress bar in the UI |
+
+---
+
+## How RAG Works
+
+RAG stands for **Retrieval-Augmented Generation**. It solves a fundamental problem with large language models: they hallucinate answers when they don't know something, because they can only draw on what they learned during training.
+
+RAG fixes this by giving the model a **reference library** — your documents — and forcing it to look things up before answering:
+
+```
+Without RAG:  Question → LLM → Answer (may be hallucinated)
+With RAG:     Question → Search documents → Find relevant passages
+                      → Feed passages to LLM → Grounded answer with citations
+```
+
+**The three steps:**
+
+1. **Index** — Your documents are split into chunks, converted to numbers (embeddings), and stored in a database. This happens once at startup.
+
+2. **Retrieve** — When you ask a question, the system finds the most relevant chunks from your documents using both keyword search (BM25) and semantic search (vector similarity).
+
+3. **Generate** — The retrieved chunks are given to the LLM as context. The LLM reads them and writes an answer — grounded in your documents, not in its training data.
+
+**Why this system goes further than basic RAG:**
+
+Most RAG systems stop at step 2 — they retrieve and generate. This system adds:
+- **Query expansion** — searches with 3 versions of your question for better recall
+- **Query classification** — adjusts how many chunks to retrieve based on query type
+- **Type-aware reranking** — a second LLM pass re-scores chunks with prompts tailored per document type
+- **Confidence check** — skips the LLM entirely if no relevant chunks are found
+- **Hallucination filter** — catches and truncates responses where the model starts fabricating
+
+---
+
+## How It Works — Algorithms
+
+This section explains every algorithm in the retrieval pipeline, from chunking to the final answer.
+
+### 1. Chunking
+
+Before any search can happen, documents are split into chunks — small pieces of text that can be embedded and retrieved individually.
+
+Each format uses a strategy suited to its structure:
+
+| Format | Strategy | Why |
+|--------|----------|-----|
+| TXT / MD | 1 line per chunk | Each line is typically one fact or sentence |
+| PDF | 5-sentence sliding window per page | Preserves sentence context; page boundaries prevent cross-page noise |
+| DOCX | Groups of 3 paragraphs + table rows | Keeps related paragraphs together; table rows extracted as `key=value` pairs |
+| XLSX / XLS | 1 row per chunk as `col=value \| col=value` | Preserves column context for structured queries |
+| CSV | 1 row per chunk as `col=value \| col=value` | Same as XLSX — column headers give each value meaning |
+| PPTX | 1 slide per chunk | Each slide is a self-contained idea |
+| HTML | 5-sentence sliding window | Tags stripped; boilerplate filtered; sentence windows preserve flow |
+
+All chunks are **truncated to 300 words OR 1200 characters** (whichever is shorter) before embedding — this prevents the BGE model's 512-token context limit from being exceeded on dense text.
+
+---
+
+### 2. Embedding
+
+Each chunk is converted into a **768-dimensional vector** using `bge-base-en-v1.5`, a BERT-based bi-encoder trained on retrieval tasks. Similar text produces vectors that are close together in vector space.
+
+```
+"Cats sleep 16 hours a day" → [0.12, -0.34, 0.89, ..., 0.05]  # 768 numbers
+```
+
+Vectors are stored in **ChromaDB** with cosine similarity as the distance metric. Embeddings are computed in batches of 50 and persist on disk — no re-embedding on restart unless the document set changes.
+
+---
+
+### 3. Query Expansion
+
+Instead of running one query, the system runs **3 queries**:
+
+```
+Original:  "How many hours do cats sleep?"
+Rewrite 1: "What is the daily sleep duration of cats?"
+Rewrite 2: "Cat sleeping habits hours per day"
+```
+
+The LLM generates 2 rewrites using synonyms and alternative phrasings. All 3 queries are run through the full retrieval pipeline and results are merged — the best score for each chunk across all 3 queries is kept.
+
+**Why:** A single query can miss relevant chunks that use different vocabulary. Query expansion increases recall without sacrificing precision.
+
+---
+
+### 4. Query Classification
+
+Before retrieval, the query is classified into one of 4 types:
+
+| Type | Example | Effect |
+|------|---------|--------|
+| `summarise` | "Summarise the resume" | Retrieves top 20 chunks; agent uses fast path with 4 targeted searches |
+| `comparison` | "Compare Python vs JavaScript" | Retrieves top 15 chunks for breadth |
+| `factual` | "What is the candidate's GPA?" | Retrieves top 5 chunks for precision |
+| `general` | "Tell me about machine learning" | Retrieves top 10 chunks |
+
+Classification uses keyword matching in a strict priority order: summarise is checked first, then comparison, then factual, then general.
+
+---
+
+### 5. Hybrid Search
+
+Two retrieval methods run in parallel and their scores are fused:
+
+**Dense retrieval (semantic):**
+- Query is embedded into a 768-dim vector
+- ChromaDB finds the nearest chunks by cosine similarity
+- Score = `1 - cosine_distance` (higher = more similar)
+
+**BM25 retrieval (lexical):**
+- BM25Okapi scores chunks by term frequency weighted by inverse document frequency
+- Exact keyword matches score high even if semantically distant
+- Scores are normalised to [0, 1] by dividing by the max BM25 score
+
+**Fusion:**
+```
+final_score = 0.5 × dense_score + 0.5 × bm25_score
+```
+
+The alpha=0.5 weighting gives equal weight to semantic and lexical signals. The best score per chunk across all 3 expanded queries is kept, then the top 20 chunks are passed to the reranker.
+
+**Why hybrid:** Dense search finds semantically similar text even with different vocabulary. BM25 finds exact keyword matches. Together they achieve higher recall than either alone — especially important for structured documents like spreadsheets where exact column names matter.
+
+---
+
+### 6. Type-Aware LLM Reranking
+
+The top 20 retrieved chunks are reranked by the LLM using a **relevance scoring prompt**. The LLM reads each chunk and the query and returns a score from 1–10.
+
+The key insight: a generic reranker prompt underscores structured data. A spreadsheet row like:
+
+```
+Name=Alice | Role=Engineer | Salary=90000
+```
+
+reads as a data dump — a generic prompt rates it low because it is not fluent prose. Instead, the system uses **7 different prompts**, one per document type:
+
+| Document type | Prompt frames the chunk as... |
+|--------------|------------------------------|
+| PDF | "...this passage from a PDF document..." |
+| DOCX | "...this paragraph from a Word document..." |
+| XLSX / CSV | "...this spreadsheet row containing structured data..." |
+| PPTX | "...this presentation slide..." |
+| HTML | "...this section from a webpage..." |
+| TXT | "...this text passage..." |
+| MD | "...this section from a Markdown document..." |
+
+The top 5 chunks after reranking go to the LLM for answer synthesis.
+
+---
+
+### 7. Confidence Check
+
+Before calling the LLM, the system checks whether the best retrieved chunk is above the similarity threshold:
+
+```
+if best_score >= 0.40:
+    is_confident = True  → proceed to synthesis
+else:
+    is_confident = False → return "I don't have enough information..."
+```
+
+**Why:** Without this check, the LLM would receive irrelevant chunks and hallucinate an answer. The threshold skips the LLM entirely for low-confidence queries.
+
+---
+
+### 8. Hallucination Filter
+
+Even when the LLM is called, its response is checked for hallucination pivot phrases — patterns where the model starts with "I don't have information" but then continues with hallucinated content:
+
+```
+"There is no information in the documents... however, I can tell you that..."
+                                             ↑
+                               Pivot phrase detected → truncate here
+```
+
+The filter maintains two phrase lists: **no-info phrases** (signals the model has no context) and **pivot phrases** (signals it is about to hallucinate). If a no-info phrase is followed by a pivot phrase, the response is truncated at the pivot.
+
+---
+
+### 9. ReAct Agent Loop
+
+The agent follows the **ReAct** (Reason + Act) pattern:
+
+```
+1. THINK  — the LLM decides what to do next
+2. ACT    — it calls a tool: TOOL: rag_search(query)
+3. OBSERVE — the tool result is added to the context
+4. Repeat until TOOL: finish(answer)
+```
+
+Tool calls are parsed using two regex patterns:
+```
+Pattern 1 (with parentheses):   TOOL: tool_name(argument)
+Pattern 2 (without parentheses): TOOL: tool_name argument
+```
+
+If the LLM produces a malformed response (neither pattern matches), the system retries up to 2 times with a correction prompt before falling back to the raw text as the answer.
+
+**Fast paths** bypass the loop for common queries:
+- **Summarise** — detected by keyword; runs 4 targeted searches (`work experience`, `education`, `skills projects`, `summary contact`) and synthesises directly
+- **Sentiment** — detected by keyword; retrieves relevant chunks, strips metadata labels, then analyses sentiment
+
+---
+
+### 10. URL Type Detection — 4-Priority Pipeline
+
+When a URL is fetched, the document type is determined in strict priority order:
+
+```
+1. Content-Type header    → "application/pdf" → pdf
+2. File extension in URL  → "/report.pdf"     → pdf
+3. PDF magic bytes        → content[:4] == b'%PDF' → pdf
+4. Default               → html
+```
+
+This handles edge cases like servers that return `application/octet-stream` for all binary files regardless of actual format.
+
+---
+
 ## Quick Start
 
 > Already have Python 3.11 and Ollama installed? Run these 4 commands:
@@ -356,6 +601,73 @@ src/cli/
 - Follow the existing code style: plain English names, docstrings on every public method, type hints on all signatures
 - No new packages in `requirements.txt` unless genuinely necessary — add dev-only packages to `pyproject.toml`
 - See [DESIGN.md](DESIGN.md) before making architectural changes
+
+---
+
+## Testing
+
+The project has **566 local tests** and **262 HF Space tests** — 828 total. Every part of the system is covered.
+
+### Run the tests
+
+```bash
+# All local tests
+pytest
+
+# With coverage report
+pytest --cov=src
+
+# One specific file
+pytest tests/test_agent.py
+
+# HF Space tests
+cd huggingface && pytest
+```
+
+### Test categories
+
+| Type | What it checks | Example |
+|------|---------------|---------|
+| **Unit** | One method at a time, all dependencies mocked | `test_expand_query_returns_3` |
+| **Integration** | Two or more real components, no mocks for file libraries | `test_load_pdf`, `test_url_html_webpage` |
+| **Contract** | Output shape — correct keys, types, structure | `test_chunk_has_5_keys` |
+| **Regression** | Exact prompt text and phrase lists locked down | `test_hallucination_phrases_unchanged` |
+| **Boundary** | Empty files, single-item inputs, at-limit sizes | `test_xlsx_header_only_returns_empty` |
+| **Negative** | Wrong or missing input handled gracefully | `test_http_404_returns_empty_list` |
+| **Combination** | Parametrized matrix — all modes × all doc types × all URL types | `test_text_doc_type_pipeline[pdf]` |
+
+### Test files
+
+**Local (`tests/`)** — 566 tests across 23 files:
+
+| File | Covers |
+|------|--------|
+| `test_document_loader.py` | Chunkers, scan, misplaced detection (unit) |
+| `test_vector_store.py` | BM25, dense retrieval, build logic (unit) |
+| `test_vector_store_pipeline.py` | Full pipeline, rerank, classify (unit) |
+| `test_agent.py` | ReAct loop, tools, fast paths (unit) |
+| `test_benchmarker.py` | Scoring metrics (unit) |
+| `test_integration_loader.py` | All 9 formats + URL ingestion (integration) |
+| `test_integration_pipeline.py` | Full RAG pipeline end-to-end (integration) |
+| `test_combinations.py` | Chat/Agent × all 8 doc types (parametrized) |
+| `test_combinations_url.py` | URL × all content types (parametrized) |
+| `test_contracts.py` | Output shape contracts |
+| `test_regression.py` | Prompts and phrase lists locked down |
+| `test_boundary_negative.py` | Empty files, wrong input |
+
+**HF Space (`huggingface/tests/`)** — 262 tests across 13 files covering the same categories adapted for the Hugging Face deployment (InferenceClient instead of Ollama, EphemeralClient instead of persistent ChromaDB).
+
+### Mock strategy
+
+```python
+# Always mock — these make network or model calls:
+ollama.embed    → {'embeddings': [[0.1, 0.2, ...]]}
+ollama.chat     → {'message': {'content': 'mock response'}}
+requests.get    → Mock with .content, .headers, .encoding
+
+# Never mock — use real libraries on real temp files:
+fitz (PyMuPDF), python-docx, openpyxl, python-pptx, beautifulsoup4, BM25Okapi
+```
 
 ---
 
