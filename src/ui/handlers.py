@@ -24,7 +24,7 @@ import streamlit as st
 
 from src.rag.agent import Agent
 from src.rag.vector_store import VectorStore
-from ui.theme import BADGE_CLASSES, CONFIDENCE_BADGE
+from src.ui.theme import BADGE_CLASSES, CONFIDENCE_BADGE
 
 # This module's logger — errors go to the logging system, not the terminal
 logger = logging.getLogger(__name__)
