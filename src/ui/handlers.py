@@ -112,13 +112,14 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
 
 
 def handle_file_upload(loader, store: VectorStore) -> bool:
-    """Show the file upload panel and index any file the user uploads.
+    """Show the file upload panel and index any files the user uploads.
 
-    Saves the uploaded file to a temporary path, dispatches it through the
-    correct chunker, embeds the chunks, and adds them to the knowledge base.
+    Accepts one or many files at once. Each file is saved to a temporary
+    path, dispatched through the correct chunker, embedded, and added to
+    the knowledge base. BM25 is rebuilt after every indexed file.
 
     Args:
-        loader: DocumentLoader — handles chunking the file by its type.
+        loader: DocumentLoader — handles chunking each file by its type.
         store:  VectorStore   — stores and indexes the resulting chunks.
 
     Returns:

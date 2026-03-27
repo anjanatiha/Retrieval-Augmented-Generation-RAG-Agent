@@ -413,7 +413,7 @@ The web UI features:
 - Persistent `st.chat_input` bar always visible at the bottom of the page
 - Chat and Agent mode toggle
 - **URL ingestion panel** — paste any public URL to fetch and index it alongside local files
-- **File upload panel** — upload one file, multiple files, or select all files from a folder at once; each is chunked and indexed without restarting
+- **File upload panel** — upload one file or multiple files at once (select all from a folder with Ctrl+A); each is chunked and indexed without restarting. Available in both the local Streamlit UI and the Hugging Face Space
 - **Step-by-step progress bar** — shows classify → retrieve → rerank → generate stages in real time
 - **🗑 Clear button** — appears below conversation to wipe chat history and memory
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores
