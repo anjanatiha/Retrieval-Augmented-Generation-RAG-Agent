@@ -535,6 +535,102 @@ Response with source citations and conversation memory
 
 ---
 
+## Folder Structure
+
+```
+Retrieval-Augmented-Generation-RAG-Agent/
+│
+├── app.py                          ← Streamlit UI entry point (<50 lines — wires classes only)
+├── main.py                         ← CLI entry point (<50 lines — wires classes only)
+├── requirements.txt                ← Runtime dependencies (pinned versions)
+├── pyproject.toml                  ← Package config + dev dependencies (pytest etc.)
+├── DESIGN.md                       ← Architectural decisions and tradeoffs
+├── CLAUDE.md                       ← AI assistant instructions for this codebase
+│
+├── src/                            ← All importable source code
+│   ├── rag/                        ← Core RAG system
+│   │   ├── config.py               ← All constants: models, paths, thresholds, chunk sizes
+│   │   ├── logger.py               ← Stateless interaction logging to rag_logs.json
+│   │   ├── chunkers.py             ← 9 stateless format chunker functions (one per format)
+│   │   ├── document_loader.py      ← DocumentLoader: file scan, URL fetch, chunker dispatch
+│   │   ├── vector_store.py         ← VectorStore: ChromaDB, BM25, retrieval pipeline, generation
+│   │   ├── agent.py                ← Agent: ReAct loop + 5 tools
+│   │   └── benchmarker.py         ← Benchmarker: 4-metric evaluation
+│   │
+│   ├── ui/                         ← Streamlit UI modules
+│   │   ├── handlers.py             ← Event handlers: chat, file upload, URL fetch, clear
+│   │   ├── theme.py                ← Ocean Blue CSS stylesheet + badge/avatar constants
+│   │   └── session.py              ← Session state initialisation and helpers
+│   │
+│   └── cli/                        ← Terminal interface
+│       └── runner.py               ← Chat loop, agent loop, benchmark runner
+│
+├── tests/                          ← Local test suite (566 tests)
+│   ├── test_document_loader.py     ← Chunkers, scan, misplaced detection (unit)
+│   ├── test_vector_store.py        ← BM25, dense retrieval, build logic (unit)
+│   ├── test_vector_store_pipeline.py ← Full pipeline, rerank, classify (unit)
+│   ├── test_agent.py               ← ReAct loop, tools, fast paths (unit)
+│   ├── test_benchmarker.py         ← Scoring metrics (unit)
+│   ├── test_integration_loader.py  ← All 9 formats + URL ingestion (integration)
+│   ├── test_integration_pipeline.py ← Full RAG pipeline end-to-end (integration)
+│   ├── test_combinations.py        ← Chat/Agent × all 8 doc types (parametrized)
+│   ├── test_combinations_url.py    ← URL × all content types (parametrized)
+│   ├── test_combinations_analysis.py ← Query classification × all types
+│   ├── test_contracts.py           ← Output shape and key contracts
+│   ├── test_contracts_pipeline.py  ← Pipeline output contracts
+│   ├── test_regression.py          ← Prompts and phrase lists locked down
+│   ├── test_boundary_negative.py   ← Empty files, wrong input, edge cases
+│   ├── test_doc_types_and_modes.py ← All 8 formats in chat mode
+│   ├── test_doc_types_agent.py     ← All 8 formats in agent mode
+│   ├── test_url_ingestion.py       ← URL fetch + type detection
+│   ├── test_url_pipeline.py        ← URL → pipeline end-to-end
+│   ├── test_file_upload.py         ← File upload pipeline
+│   ├── test_file_upload_tools.py   ← Upload edge cases
+│   ├── test_theme_session.py       ← UI session state helpers
+│   ├── test_handlers.py            ← Streamlit handlers and CLI runner
+│   └── test_logger.py              ← Interaction logging
+│
+├── huggingface/                    ← HF Space deployment (self-contained)
+│   ├── app.py                      ← Gradio entry point
+│   ├── src/
+│   │   ├── handlers.py             ← Gradio UI handlers (uses InferenceClient)
+│   │   └── rag/
+│   │       ├── config.py           ← HF-specific config (no Ollama, no local paths)
+│   │       ├── chunkers.py         ← Same chunkers as local (html strips nav boilerplate)
+│   │       ├── document_loader.py  ← Same as local (no scan_all_files — no local disk)
+│   │       ├── vector_store.py     ← Uses InferenceClient instead of ollama
+│   │       └── agent.py            ← Uses store._llm_chat instead of ollama.chat
+│   └── tests/                      ← HF test suite (262 tests)
+│
+├── docs/                           ← Your documents go here (auto-created, git-ignored)
+│   ├── pdfs/                       ← Drop .pdf files here
+│   ├── txts/                       ← Drop .txt files here
+│   ├── docx/                       ← Drop .docx / .doc files here
+│   ├── xlsx/                       ← Drop .xlsx / .xls files here
+│   ├── pptx/                       ← Drop .pptx files here
+│   ├── csv/                        ← Drop .csv files here
+│   ├── md/                         ← Drop .md / .markdown files here
+│   └── html/                       ← Drop .html files here
+│       (or drop any folder here — recursive scan handles mixed types at any depth)
+│
+├── chroma_db/                      ← Persistent vector index (auto-created, git-ignored)
+├── rag_logs.json                   ← Query logs (auto-generated)
+├── benchmark_results.json          ← Benchmark history (auto-generated)
+└── .streamlit/
+    └── config.toml                 ← Ocean Blue Streamlit theme
+```
+
+**Key design rules reflected in this structure:**
+
+- `app.py` and `main.py` are under 50 lines — they only wire classes together, no logic
+- `src/rag/` contains the core system — importable from anywhere
+- `src/ui/` and `src/cli/` are separate so the core system has no UI dependency
+- `huggingface/` is fully self-contained — it can be deployed independently
+- `tests/` mirrors the structure of `src/` — one test file per concern
+- `docs/`, `chroma_db/`, logs, and benchmark files are git-ignored — never committed
+
+---
+
 ## Contributing
 
 Contributions are welcome. Here is how to get started.
@@ -608,19 +704,36 @@ src/cli/
 
 The project has **566 local tests** and **262 HF Space tests** — 828 total. Every part of the system is covered.
 
+### One command to run everything
+
+```bash
+pytest
+```
+
+That's it. Run this from the project root after activating your virtual environment. All 566 tests run automatically — no setup, no configuration needed.
+
 ### Run the tests
 
 ```bash
-# All local tests
+# All 566 local tests (recommended before any pull request)
 pytest
 
-# With coverage report
-pytest --cov=src
+# With a line-by-line coverage report
+pytest --cov=src --cov-report=term-missing
 
-# One specific file
+# Just one test file (faster for focused debugging)
 pytest tests/test_agent.py
 
-# HF Space tests
+# Just one specific test (fastest for a single check)
+pytest tests/test_agent.py::TestToolCalculator::test_tool_calculator_basic
+
+# Run tests matching a keyword
+pytest -k "calculator"
+
+# Verbose — print each test name as it runs
+pytest -v
+
+# HF Space tests (run from inside the huggingface/ folder)
 cd huggingface && pytest
 ```
 
@@ -673,28 +786,126 @@ fitz (PyMuPDF), python-docx, openpyxl, python-pptx, beautifulsoup4, BM25Okapi
 
 ## Benchmarking
 
+The benchmarking suite measures four aspects of RAG quality automatically — no human labelling required. It runs a set of test questions against the indexed documents, generates answers, and scores each answer on four metrics.
+
+### How to run
+
 ```bash
+# Add documents to ./docs/ first, then:
 python3 main.py --benchmark
 ```
 
-Results are saved to `benchmark_results.json` with run-over-run comparison.
+Results print to the terminal and are saved to `benchmark_results.json`. Every run is compared against the previous run with delta indicators (▲ improved / ▼ regressed / ─ unchanged).
 
-**Current scores (cat-facts.txt test set):**
+### Current scores
 
-| Metric | Score |
-|--------|-------|
-| Faithfulness | 0.798 |
-| Answer Relevancy | 0.369 |
-| Keyword Recall | 1.000 |
-| Context Relevance | 0.719 |
-| **Overall** | **0.721** |
+These scores were measured against the built-in `cat-facts.txt` test set (5 questions, included by default):
 
-| Metric | What it measures |
-|--------|-----------------|
-| **Faithfulness** | How grounded the response is in retrieved context |
-| **Answer Relevancy** | How well the response addresses the question |
-| **Keyword Recall** | Whether expected keywords appear in the response |
-| **Context Relevance** | Average similarity of retrieved chunks to the query |
+| Metric | Score | What "good" looks like |
+|--------|-------|------------------------|
+| Faithfulness | 0.798 | > 0.70 — model is staying grounded in retrieved text |
+| Answer Relevancy | 0.369 | > 0.40 — model is directly addressing the question |
+| Keyword Recall | 1.000 | > 0.80 — all expected facts appear in the answer |
+| Context Relevance | 0.719 | > 0.60 — retrieval is finding the right chunks |
+| **Overall** | **0.721** | **> 0.65 — pipeline is working well** |
+
+> **Why is Answer Relevancy lower than the others?** Answer Relevancy measures keyword overlap between the question and the answer. A fluent answer like *"Cats typically sleep between 12 and 16 hours per day"* overlaps less with *"How many hours do cats sleep?"* than a blunt answer like *"Cats sleep 16 hours"* — even though the fluent answer is better. This metric penalises natural sentence construction.
+
+### How each metric is calculated
+
+**Faithfulness** — measures whether the response stays grounded in the retrieved chunks:
+```
+faithfulness = number of response words that also appear in retrieved chunks
+               ─────────────────────────────────────────────────────────────
+               total number of words in the response
+               (common stopwords like "the", "is", "a" are excluded)
+```
+A high score means the model is answering from the documents. A low score (< 0.50) with a high Context Relevance score means the model is hallucinating despite receiving relevant chunks.
+
+---
+
+**Answer Relevancy** — measures whether the response addresses the question:
+```
+answer_relevancy = F1 overlap between question keywords and response keywords
+                   (common question words like "what", "how", "can" are excluded)
+```
+F1 = harmonic mean of precision (response words that are in the question) and recall (question words that appear in the response). A low score means the model answered something adjacent but not the question directly.
+
+---
+
+**Keyword Recall** — measures factual completeness against expected keywords:
+```
+keyword_recall = number of expected keywords found in the response
+                 ───────────────────────────────────────────────────
+                 total number of expected keywords
+```
+Each test case specifies an `expected_keywords` list. For example, the question *"How many hours do cats sleep?"* expects `['sleep', '16']`. If both words appear in the response, recall = 1.0. If only one does, recall = 0.5.
+
+---
+
+**Context Relevance** — measures whether retrieval found the right chunks:
+```
+context_relevance = mean cosine similarity of the top reranked chunks to the query
+```
+This score comes directly from the retrieval pipeline — it measures retrieval quality independently of how the LLM uses the context. A low score means the problem is upstream in retrieval, not in generation.
+
+---
+
+**Overall** — the single headline metric:
+```
+overall = mean(faithfulness, answer_relevancy, keyword_recall, context_relevance)
+```
+
+### How to interpret the run comparison output
+
+After each benchmark run you will see a comparison against the previous run:
+
+```
+Metric                  Current   Previous  Delta
+──────────────────────────────────────────────────
+faithfulness            0.798     0.741     ▲ +0.057
+answer_relevancy        0.369     0.421     ▼ -0.052
+keyword_recall          1.000     1.000     ─  0.000
+context_relevance       0.719     0.698     ▲ +0.021
+overall                 0.721     0.715     ▲ +0.006
+```
+
+**What a drop means:**
+- **Faithfulness drops** — the LLM is generating content not grounded in documents. Check whether `SIMILARITY_THRESHOLD` is too low (try raising from 0.40 to 0.50).
+- **Context Relevance drops** — retrieval is degraded. This can happen if new documents diluted the BM25 index or if the embedding model produces lower-quality vectors for the new content type.
+- **Answer Relevancy drops** — the model is digressing. This often happens when the test question is ambiguous and the LLM interprets it differently.
+- **Keyword Recall drops** — the model is omitting expected facts. Check whether the expected keywords are present in the indexed documents.
+
+### How to add your own test cases
+
+```python
+# Run with your own test cases from a Python script
+from src.rag.benchmarker import Benchmarker
+from src.rag.vector_store import VectorStore
+
+store = VectorStore()
+bench = Benchmarker(store)
+
+my_test_cases = [
+    {
+        'question': 'What is the candidate\'s most recent job title?',
+        'expected_keywords': ['engineer', 'developer', 'manager'],
+    },
+    {
+        'question': 'What year did the company reach $1M revenue?',
+        'expected_keywords': ['2022', 'million', 'revenue'],
+    },
+]
+
+bench.run(test_cases=my_test_cases)
+```
+
+Or add them permanently by editing the `DEFAULT_TEST_CASES` list in `src/rag/benchmarker.py`.
+
+**Tips for writing good test cases:**
+- Include the exact words or numbers you expect to see in the answer (not synonyms)
+- Keep `expected_keywords` to 2–4 words — too many keywords punish natural language answers
+- Mix factual questions (precise answers), comparison questions, and summarise questions to get a balanced score
 
 ---
 
