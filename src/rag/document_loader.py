@@ -40,6 +40,7 @@ class DocumentLoader:
 
     def __init__(self) -> None:
         """Bind config constants to instance state so they are easy to override in tests."""
+        self.docs_root   = DOCS_ROOT
         self.doc_folders = DOC_FOLDERS
         self.ext_to_type = EXT_TO_TYPE
         self.chunk_sizes = {
@@ -54,45 +55,59 @@ class DocumentLoader:
     # ------------------------------------------------------------------ Public
 
     def ensure_folders(self) -> None:
-        """Create DOCS_ROOT and all subfolders if they do not exist yet."""
-        os.makedirs(DOCS_ROOT, exist_ok=True)
+        """Create docs_root and all subfolders if they do not exist yet."""
+        os.makedirs(self.docs_root, exist_ok=True)
         for folder in self.doc_folders.values():
             if not os.path.exists(folder):
                 os.makedirs(folder)
                 print(f"  Created folder: {folder}/")
 
     def scan_all_files(self) -> List[dict]:
-        """Scan every subfolder under DOCS_ROOT and return a list of file info dicts.
+        """Recursively scan all files under DOCS_ROOT and return a list of file info dicts.
 
-        Files placed in the wrong subfolder are included but flagged as misplaced
-        so they are still processed with a notice to the user.
+        Walks the entire DOCS_ROOT tree at any depth, so a folder dropped anywhere
+        under ./docs/ — with any mix of file types and any number of sublevels —
+        will have all its files detected and processed.
+
+        The relative path from DOCS_ROOT is stored as 'filename' so that two files
+        with the same name in different subfolders can be told apart in source citations
+        (e.g. 'project/data/q1.xlsx' instead of just 'q1.xlsx').
+
+        Files not in their canonical type subfolder are flagged as misplaced but
+        are still processed with a notice.
 
         Returns:
-            List of dicts with keys: filepath, filename, detected_type,
+            List of dicts with keys: filepath, filename (relative path), detected_type,
             found_in, canonical_dir, is_misplaced.
         """
         found = []
-        for folder_type, folder_path in self.doc_folders.items():
-            if not os.path.isdir(folder_path):
-                continue
-            for fname in os.listdir(folder_path):
-                ext          = os.path.splitext(fname)[1].lower()
+        if not os.path.isdir(self.docs_root):
+            return found
+
+        for root, _, files in os.walk(self.docs_root):
+            for fname in files:
+                ext           = os.path.splitext(fname)[1].lower()
                 detected_type = self.ext_to_type.get(ext)
                 if detected_type is None:
                     continue  # unsupported extension — skip silently
-                filepath      = os.path.join(folder_path, fname)
+
+                filepath      = os.path.join(root, fname)
+                # Store path relative to docs_root so source citations are unique
+                # across deeply nested folders (e.g. 'project/data/q1.xlsx')
+                relative_path = os.path.relpath(filepath, self.docs_root)
                 canonical_dir = self.doc_folders[detected_type]
-                is_misplaced  = (folder_path != canonical_dir)
+                is_misplaced  = (root != canonical_dir)
+
                 found.append({
                     'filepath':      filepath,
-                    'filename':      fname,
+                    'filename':      relative_path,
                     'detected_type': detected_type,
-                    'found_in':      folder_path,
+                    'found_in':      root,
                     'canonical_dir': canonical_dir,
                     'is_misplaced':  is_misplaced,
                 })
                 if is_misplaced:
-                    print(f"  [MISPLACED] '{fname}' found in '{folder_path}/' "
+                    print(f"  [MISPLACED] '{relative_path}' "
                           f"— detected as '{detected_type.upper()}', "
                           f"canonical folder is '{canonical_dir}/'. Processing anyway.")
         return found
@@ -110,7 +125,7 @@ class DocumentLoader:
         file_list = self.scan_all_files()
 
         if not file_list:
-            print(f"\nNo supported documents found under '{DOCS_ROOT}/'")
+            print(f"\nNo supported documents found under '{self.docs_root}/'")
             print("Supported types: PDF, TXT, DOCX, XLSX, XLS, PPTX, CSV, MD, HTML")
             print("Place files in the matching subfolder (or any subfolder — smart detection handles the rest).")
             sys.exit(1)

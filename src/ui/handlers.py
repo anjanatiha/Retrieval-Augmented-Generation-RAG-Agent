@@ -126,21 +126,24 @@ def handle_file_upload(loader, store: VectorStore) -> bool:
     """
     needs_rerun = False
 
-    with st.expander("Upload a file to knowledge base", expanded=False):
-        uploaded_file = st.file_uploader(
+    with st.expander("Upload files or a folder to knowledge base", expanded=False):
+        st.caption("Select one file, multiple files, or all files from a folder at once.")
+        uploaded_files = st.file_uploader(
             "Supported: PDF, TXT, DOCX, XLSX, PPTX, CSV, MD, HTML",
             type=[
                 "pdf", "txt", "docx", "doc", "xlsx", "xls",
                 "pptx", "ppt", "csv", "md", "markdown", "html", "htm",
             ],
             key="file_uploader",
+            accept_multiple_files=True,
         )
 
-        if uploaded_file and st.button("Index file →", key="file_index_btn"):
-            _process_uploaded_file(uploaded_file, loader, store)
+        if uploaded_files and st.button("Index files →", key="file_index_btn"):
+            for uploaded_file in uploaded_files:
+                _process_uploaded_file(uploaded_file, loader, store)
             needs_rerun = True
 
-        # Show the result message from the most recent upload
+        # Show the result message from the most recent upload batch
         if st.session_state.get('file_msg'):
             kind, message = st.session_state.file_msg
             st.success(message) if kind == 'ok' else st.error(message)
@@ -298,7 +301,9 @@ def _process_url(url: str, loader, store: VectorStore) -> None:
 def _process_uploaded_file(uploaded_file, loader, store: VectorStore) -> None:
     """Write an uploaded file to a temp path, chunk it, and index the chunks.
 
-    Updates st.session_state.file_msg with 'ok' or 'err' and a message string.
+    Called once per file when the user uploads one or many files at once.
+    Updates st.session_state.file_msg after each file so the user can see
+    rolling progress when a batch of files is being indexed.
 
     Args:
         uploaded_file: Streamlit UploadedFile object.
@@ -324,7 +329,7 @@ def _process_uploaded_file(uploaded_file, loader, store: VectorStore) -> None:
             new_chunks = loader._dispatch_chunker(file_info)
 
         if new_chunks:
-            with st.spinner(f"Embedding {len(new_chunks)} chunks..."):
+            with st.spinner(f"Embedding {len(new_chunks)} chunks from {uploaded_file.name}..."):
                 store.add_chunks(new_chunks, id_prefix='file')
 
             # Rebuild BM25 so the uploaded file appears in keyword search

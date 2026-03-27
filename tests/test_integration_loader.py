@@ -226,15 +226,11 @@ class TestLoadHtml:
 class TestMisplacedFile:
     """Integration tests for misplaced file detection in scan_all_files."""
 
-    def test_misplaced_file_detected_and_chunked(self, tmp_path):
-        """PDF file placed in the txts folder: detected as misplaced with correct detected_type."""
-        from src.rag.document_loader import DocumentLoader
-        txts_dir = tmp_path / 'txts'
-        txts_dir.mkdir()
-        (txts_dir / 'report.pdf').write_bytes(b'%PDF fake')
-        fake_folders = {
+    def _fake_folders(self, tmp_path):
+        """Return a doc_folders dict pointing all type dirs into tmp_path."""
+        return {
             'pdf':  str(tmp_path / 'pdfs'),
-            'txt':  str(txts_dir),
+            'txt':  str(tmp_path / 'txts'),
             'docx': str(tmp_path / 'docx'),
             'xlsx': str(tmp_path / 'xlsx'),
             'pptx': str(tmp_path / 'pptx'),
@@ -242,12 +238,34 @@ class TestMisplacedFile:
             'md':   str(tmp_path / 'md'),
             'html': str(tmp_path / 'html'),
         }
+
+    def test_misplaced_file_detected_and_chunked(self, tmp_path):
+        """PDF file placed in the txts folder: detected as misplaced with correct detected_type."""
+        from src.rag.document_loader import DocumentLoader
+        txts_dir = tmp_path / 'txts'
+        txts_dir.mkdir()
+        (txts_dir / 'report.pdf').write_bytes(b'%PDF fake')
         loader = DocumentLoader()
-        loader.doc_folders = fake_folders
+        loader.docs_root   = str(tmp_path)
+        loader.doc_folders = self._fake_folders(tmp_path)
         files = loader.scan_all_files()
         assert len(files) == 1
         assert files[0]['is_misplaced'] is True
         assert files[0]['detected_type'] == 'pdf'
+
+    def test_recursive_scan_finds_deeply_nested_file(self, tmp_path):
+        """File three levels deep under docs_root is found and has a correct relative path."""
+        from src.rag.document_loader import DocumentLoader
+        deep = tmp_path / 'project' / 'reports' / '2025'
+        deep.mkdir(parents=True)
+        (deep / 'annual.pdf').write_bytes(b'%PDF fake')
+        loader = DocumentLoader()
+        loader.docs_root   = str(tmp_path)
+        loader.doc_folders = self._fake_folders(tmp_path)
+        files = loader.scan_all_files()
+        assert len(files) == 1
+        assert files[0]['filename'] == os.path.join('project', 'reports', '2025', 'annual.pdf')
+        assert files[0]['is_misplaced'] is True  # not in canonical 'pdfs/' folder
 
 
 class TestTruncateChunk:

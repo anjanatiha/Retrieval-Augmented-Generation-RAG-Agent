@@ -387,40 +387,12 @@ class TestChunkHtml:
 # ---------------------------------------------------------------------------
 
 class TestScanAllFiles:
-    """Tests for scan_all_files: detection of files placed in the wrong type folder."""
+    """Tests for scan_all_files: recursive walk, misplaced detection, relative paths."""
 
-    def test_misplaced_file_detected(self, loader, tmp_path):
-        """A .pdf file in the txts/ folder is flagged as misplaced with detected_type 'pdf'."""
-        # Put a .pdf file in the txts/ folder to simulate a user putting it in the wrong place
-        txts_dir = tmp_path / 'txts'
-        txts_dir.mkdir(parents=True)
-        (txts_dir / 'report.pdf').write_bytes(b'%PDF fake')
-
-        fake_folders = {
+    def _fake_folders(self, tmp_path: object) -> dict:
+        """Return a doc_folders dict pointing all type dirs into tmp_path."""
+        return {
             'pdf':  str(tmp_path / 'pdfs'),
-            'txt':  str(txts_dir),
-            'docx': str(tmp_path / 'docx'),
-            'xlsx': str(tmp_path / 'xlsx'),
-            'pptx': str(tmp_path / 'pptx'),
-            'csv':  str(tmp_path / 'csv'),
-            'md':   str(tmp_path / 'md'),
-            'html': str(tmp_path / 'html'),
-        }
-        loader.doc_folders = fake_folders
-        files = loader.scan_all_files()
-        assert len(files) == 1
-        assert files[0]['is_misplaced'] is True
-        assert files[0]['detected_type'] == 'pdf'
-        assert files[0]['filename'] == 'report.pdf'
-
-    def test_correct_folder_not_misplaced(self, loader, tmp_path):
-        """A .pdf file in the pdfs/ folder is not flagged as misplaced."""
-        pdfs_dir = tmp_path / 'pdfs'
-        pdfs_dir.mkdir(parents=True)
-        (pdfs_dir / 'doc.pdf').write_bytes(b'%PDF fake')
-
-        fake_folders = {
-            'pdf':  str(pdfs_dir),
             'txt':  str(tmp_path / 'txts'),
             'docx': str(tmp_path / 'docx'),
             'xlsx': str(tmp_path / 'xlsx'),
@@ -429,10 +401,99 @@ class TestScanAllFiles:
             'md':   str(tmp_path / 'md'),
             'html': str(tmp_path / 'html'),
         }
-        loader.doc_folders = fake_folders
+
+    def test_misplaced_file_detected(self, loader, tmp_path):
+        """A .pdf file in the txts/ folder is flagged as misplaced with detected_type 'pdf'."""
+        txts_dir = tmp_path / 'txts'
+        txts_dir.mkdir(parents=True)
+        (txts_dir / 'report.pdf').write_bytes(b'%PDF fake')
+
+        loader.docs_root   = str(tmp_path)
+        loader.doc_folders = self._fake_folders(tmp_path)
         files = loader.scan_all_files()
+
+        assert len(files) == 1
+        assert files[0]['is_misplaced'] is True
+        assert files[0]['detected_type'] == 'pdf'
+        # filename is now the relative path from docs_root
+        assert files[0]['filename'] == os.path.join('txts', 'report.pdf')
+
+    def test_correct_folder_not_misplaced(self, loader, tmp_path):
+        """A .pdf file in the pdfs/ folder is not flagged as misplaced."""
+        pdfs_dir = tmp_path / 'pdfs'
+        pdfs_dir.mkdir(parents=True)
+        (pdfs_dir / 'doc.pdf').write_bytes(b'%PDF fake')
+
+        loader.docs_root   = str(tmp_path)
+        loader.doc_folders = self._fake_folders(tmp_path)
+        files = loader.scan_all_files()
+
         assert len(files) == 1
         assert files[0]['is_misplaced'] is False
+
+    def test_relative_path_stored_as_filename(self, loader, tmp_path):
+        """filename field holds the path relative to docs_root, not just the bare name."""
+        sub = tmp_path / 'pdfs'
+        sub.mkdir(parents=True)
+        (sub / 'report.pdf').write_bytes(b'%PDF fake')
+
+        loader.docs_root   = str(tmp_path)
+        loader.doc_folders = self._fake_folders(tmp_path)
+        files = loader.scan_all_files()
+
+        assert files[0]['filename'] == os.path.join('pdfs', 'report.pdf')
+
+    def test_recursive_scan_finds_nested_file(self, loader, tmp_path):
+        """File two levels deep under docs_root is found by the recursive walk."""
+        deep = tmp_path / 'pdfs' / 'project' / 'archive'
+        deep.mkdir(parents=True)
+        (deep / 'old.pdf').write_bytes(b'%PDF fake')
+
+        loader.docs_root   = str(tmp_path)
+        loader.doc_folders = self._fake_folders(tmp_path)
+        files = loader.scan_all_files()
+
+        assert len(files) == 1
+        # Relative path reflects the full depth
+        assert files[0]['filename'] == os.path.join('pdfs', 'project', 'archive', 'old.pdf')
+
+    def test_mixed_types_in_one_folder(self, loader, tmp_path):
+        """A folder containing multiple file types has all files detected by extension."""
+        mixed = tmp_path / 'drop_here'
+        mixed.mkdir(parents=True)
+        (mixed / 'resume.pdf').write_bytes(b'%PDF fake')
+        (mixed / 'data.csv').write_text('name,age\nAlice,30\n')
+        (mixed / 'notes.txt').write_text('hello world')
+
+        loader.docs_root   = str(tmp_path)
+        loader.doc_folders = self._fake_folders(tmp_path)
+        files = loader.scan_all_files()
+
+        assert len(files) == 3
+        types = {f['detected_type'] for f in files}
+        assert types == {'pdf', 'csv', 'txt'}
+
+    def test_unsupported_extension_skipped(self, loader, tmp_path):
+        """Files with unsupported extensions are silently skipped."""
+        sub = tmp_path / 'pdfs'
+        sub.mkdir()
+        (sub / 'image.png').write_bytes(b'fake image')
+        (sub / 'doc.pdf').write_bytes(b'%PDF fake')
+
+        loader.docs_root   = str(tmp_path)
+        loader.doc_folders = self._fake_folders(tmp_path)
+        files = loader.scan_all_files()
+
+        # Only the .pdf is returned; .png is skipped
+        assert len(files) == 1
+        assert files[0]['detected_type'] == 'pdf'
+
+    def test_empty_docs_root_returns_empty(self, loader, tmp_path):
+        """docs_root that does not exist returns an empty list without crashing."""
+        loader.docs_root   = str(tmp_path / 'nonexistent')
+        loader.doc_folders = self._fake_folders(tmp_path)
+        files = loader.scan_all_files()
+        assert files == []
 
 
 # ---------------------------------------------------------------------------
