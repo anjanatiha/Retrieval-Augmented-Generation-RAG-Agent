@@ -1,10 +1,12 @@
 """test_file_upload.py — File upload tests for all 8 document types using real
-temp files through DocumentLoader._dispatch_chunker, then chat mode, agent mode,
-and all 5 agent tools.
+temp files through DocumentLoader._dispatch_chunker, then chat mode and agent mode.
 
 Mock strategy:
   Always mock: ollama.embed, ollama.chat, chromadb → EphemeralClient
   Never mock:  fitz, python-docx, openpyxl, python-pptx, BM25Okapi, file I/O
+
+Reason for split: max 500 lines per file per CLAUDE.md.
+All-5-agent-tools tests with real file content are in test_file_upload_tools.py.
 """
 
 import io
@@ -21,10 +23,12 @@ from unittest.mock import patch, MagicMock
 # ---------------------------------------------------------------------------
 
 def _fake_embed(**kwargs):
+    """Return a fixed 4-dim embedding vector to satisfy ollama.embed calls."""
     return {'embeddings': [[0.1, 0.2, 0.3, 0.4]]}
 
 
 def _fake_chat(**kwargs):
+    """Return a canned chat response (stream or single) to satisfy ollama.chat calls."""
     if kwargs.get('stream'):
         return [{'message': {'content': 'mock response'}}]
     return {'message': {'content': 'mock response'}}
@@ -59,6 +63,7 @@ PATCHES = [
 
 
 def _apply_patches(func):
+    """Decorator that applies both ollama.embed and ollama.chat patches to a test method."""
     for p in reversed(PATCHES):
         func = p(func)
     return func
@@ -178,6 +183,7 @@ class TestFileUploadChatModeTxt:
 
     @_apply_patches
     def test_factual(self, mock_chat, mock_embed, tmp_path):
+        """TXT upload: chunks have type 'txt' and run_pipeline returns a non-empty response."""
         chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
         assert len(chunks) >= 1 and all(c['type'] == 'txt' for c in chunks)
         result = _make_store(chunks).run_pipeline('How many dog breeds are there?', streamlit_mode=True)
@@ -185,23 +191,27 @@ class TestFileUploadChatModeTxt:
 
     @_apply_patches
     def test_query_type(self, mock_chat, mock_embed, tmp_path):
+        """TXT upload: query_type in result is one of the 4 valid classifier labels."""
         chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
         result = _make_store(chunks).run_pipeline('How many dog breeds are there?', streamlit_mode=True)
         assert result.get('query_type') in ('factual', 'general', 'comparison', 'summarise')
 
     @_apply_patches
     def test_source_label(self, mock_chat, mock_embed, tmp_path):
+        """TXT upload chunk: _source_label contains 'L' (line range) marker."""
         chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
         assert 'L' in _make_store(chunks)._source_label(chunks[0])   # txt → L{s}-{e}
 
     @_apply_patches
     def test_source_cited(self, mock_chat, mock_embed, tmp_path):
+        """TXT upload: retrieved chunks list includes the dogs.txt filename as source."""
         chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
         result = _make_store(chunks).run_pipeline('How many dog breeds are there?', streamlit_mode=True)
         assert any('dogs.txt' in e['source'] for e, _ in result['retrieved'])
 
     @_apply_patches
     def test_confidence_present(self, mock_chat, mock_embed, tmp_path):
+        """TXT upload: is_confident key is present and is a boolean in the pipeline result."""
         chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
         result = _make_store(chunks).run_pipeline('How many dog breeds are there?', streamlit_mode=True)
         assert 'is_confident' in result and result['is_confident'] in (True, False)
@@ -212,6 +222,7 @@ class TestFileUploadChatModePdf:
 
     @_apply_patches
     def test_factual(self, mock_chat, mock_embed, tmp_path):
+        """PDF upload: chunks have type 'pdf' and run_pipeline returns a response key."""
         chunks = _upload_chunks(tmp_path, 'nutrition.pdf', _write_pdf)
         assert len(chunks) >= 1 and all(c['type'] == 'pdf' for c in chunks)
         result = _make_store(chunks).run_pipeline('How many calories in bananas?', streamlit_mode=True)
@@ -219,18 +230,21 @@ class TestFileUploadChatModePdf:
 
     @_apply_patches
     def test_source_label(self, mock_chat, mock_embed, tmp_path):
+        """PDF upload chunk: _source_label contains 'p' (page) or 'L' marker."""
         chunks = _upload_chunks(tmp_path, 'nutrition.pdf', _write_pdf)
         label  = _make_store(chunks)._source_label(chunks[0])
         assert 'p' in label or 'L' in label   # pdf → p{n}
 
     @_apply_patches
     def test_reranked(self, mock_chat, mock_embed, tmp_path):
+        """PDF upload: reranked key is present in the pipeline result."""
         chunks = _upload_chunks(tmp_path, 'nutrition.pdf', _write_pdf)
         result = _make_store(chunks).run_pipeline('How many calories in bananas?', streamlit_mode=True)
         assert 'reranked' in result
 
     @_apply_patches
     def test_source_cited(self, mock_chat, mock_embed, tmp_path):
+        """PDF upload: retrieved chunks list includes nutrition.pdf filename as source."""
         chunks = _upload_chunks(tmp_path, 'nutrition.pdf', _write_pdf)
         result = _make_store(chunks).run_pipeline('How many calories in bananas?', streamlit_mode=True)
         assert any('nutrition.pdf' in e['source'] for e, _ in result['retrieved'])
@@ -241,6 +255,7 @@ class TestFileUploadChatModeDocx:
 
     @_apply_patches
     def test_factual(self, mock_chat, mock_embed, tmp_path):
+        """DOCX upload: chunks have type 'docx' and run_pipeline returns a response key."""
         chunks = _upload_chunks(tmp_path, 'languages.docx', _write_docx)
         assert len(chunks) >= 1 and all(c['type'] == 'docx' for c in chunks)
         result = _make_store(chunks).run_pipeline('Who created Python?', streamlit_mode=True)
@@ -248,12 +263,14 @@ class TestFileUploadChatModeDocx:
 
     @_apply_patches
     def test_reranked(self, mock_chat, mock_embed, tmp_path):
+        """DOCX upload: reranked list is present and contains at least one entry."""
         chunks = _upload_chunks(tmp_path, 'languages.docx', _write_docx)
         result = _make_store(chunks).run_pipeline('Who created Python?', streamlit_mode=True)
         assert 'reranked' in result and len(result['reranked']) >= 1
 
     @_apply_patches
     def test_confidence(self, mock_chat, mock_embed, tmp_path):
+        """DOCX upload: is_confident key is present and is a boolean in the pipeline result."""
         chunks = _upload_chunks(tmp_path, 'languages.docx', _write_docx)
         result = _make_store(chunks).run_pipeline('Who created Python?', streamlit_mode=True)
         assert 'is_confident' in result and result['is_confident'] in (True, False)
@@ -264,6 +281,7 @@ class TestFileUploadChatModeXlsx:
 
     @_apply_patches
     def test_factual(self, mock_chat, mock_embed, tmp_path):
+        """XLSX upload: chunks have type 'xlsx' and run_pipeline returns a response key."""
         chunks = _upload_chunks(tmp_path, 'countries.xlsx', _write_xlsx)
         assert len(chunks) >= 1 and all(c['type'] == 'xlsx' for c in chunks)
         result = _make_store(chunks).run_pipeline('What is the capital of Brazil?', streamlit_mode=True)
@@ -271,12 +289,14 @@ class TestFileUploadChatModeXlsx:
 
     @_apply_patches
     def test_source_label_row(self, mock_chat, mock_embed, tmp_path):
+        """XLSX upload chunk: _source_label contains 'row' or 'L' marker."""
         chunks = _upload_chunks(tmp_path, 'countries.xlsx', _write_xlsx)
         label  = _make_store(chunks)._source_label(chunks[0])
         assert 'row' in label or 'L' in label   # xlsx → row{n}
 
     @_apply_patches
     def test_source_cited(self, mock_chat, mock_embed, tmp_path):
+        """XLSX upload: retrieved chunks list includes the countries.xlsx filename as source."""
         chunks = _upload_chunks(tmp_path, 'countries.xlsx', _write_xlsx)
         result = _make_store(chunks).run_pipeline('What is the capital of Brazil?', streamlit_mode=True)
         assert any('countries.xlsx' in e['source'] for e, _ in result['retrieved'])
@@ -287,6 +307,7 @@ class TestFileUploadChatModeCsv:
 
     @_apply_patches
     def test_factual(self, mock_chat, mock_embed, tmp_path):
+        """CSV upload: chunks have type 'csv' and run_pipeline returns a response key."""
         chunks = _upload_chunks(tmp_path, 'languages.csv', _write_csv)
         assert len(chunks) >= 1 and all(c['type'] == 'csv' for c in chunks)
         result = _make_store(chunks).run_pipeline('Who created Python?', streamlit_mode=True)
@@ -294,12 +315,14 @@ class TestFileUploadChatModeCsv:
 
     @_apply_patches
     def test_source_label_row(self, mock_chat, mock_embed, tmp_path):
+        """CSV upload chunk: _source_label contains 'row' or 'L' marker."""
         chunks = _upload_chunks(tmp_path, 'languages.csv', _write_csv)
         label  = _make_store(chunks)._source_label(chunks[0])
         assert 'row' in label or 'L' in label   # csv → row{n}
 
     @_apply_patches
     def test_query_type(self, mock_chat, mock_embed, tmp_path):
+        """CSV upload: query_type in result is one of the 4 valid classifier labels."""
         chunks = _upload_chunks(tmp_path, 'languages.csv', _write_csv)
         result = _make_store(chunks).run_pipeline('Who created Python?', streamlit_mode=True)
         assert result.get('query_type') in ('factual', 'general', 'comparison', 'summarise')
@@ -310,6 +333,7 @@ class TestFileUploadChatModePptx:
 
     @_apply_patches
     def test_factual(self, mock_chat, mock_embed, tmp_path):
+        """PPTX upload: chunks have type 'pptx' and run_pipeline returns a response key."""
         chunks = _upload_chunks(tmp_path, 'history.pptx', _write_pptx)
         assert len(chunks) >= 1 and all(c['type'] == 'pptx' for c in chunks)
         result = _make_store(chunks).run_pipeline('When did the Berlin Wall fall?', streamlit_mode=True)
@@ -317,12 +341,14 @@ class TestFileUploadChatModePptx:
 
     @_apply_patches
     def test_source_label_slide(self, mock_chat, mock_embed, tmp_path):
+        """PPTX upload chunk: _source_label contains 'slide' or 'L' marker."""
         chunks = _upload_chunks(tmp_path, 'history.pptx', _write_pptx)
         label  = _make_store(chunks)._source_label(chunks[0])
         assert 'slide' in label or 'L' in label   # pptx → slide{n}
 
     @_apply_patches
     def test_reranked(self, mock_chat, mock_embed, tmp_path):
+        """PPTX upload: reranked key is present in the pipeline result."""
         chunks = _upload_chunks(tmp_path, 'history.pptx', _write_pptx)
         result = _make_store(chunks).run_pipeline('When did the Berlin Wall fall?', streamlit_mode=True)
         assert 'reranked' in result
@@ -333,6 +359,7 @@ class TestFileUploadChatModeMd:
 
     @_apply_patches
     def test_factual(self, mock_chat, mock_embed, tmp_path):
+        """Markdown upload: chunks have type 'md' and run_pipeline returns a response key."""
         chunks = _upload_chunks(tmp_path, 'coffee.md', _write_md)
         assert len(chunks) >= 1 and all(c['type'] == 'md' for c in chunks)
         result = _make_store(chunks).run_pipeline('Where was coffee discovered?', streamlit_mode=True)
@@ -340,11 +367,13 @@ class TestFileUploadChatModeMd:
 
     @_apply_patches
     def test_source_label(self, mock_chat, mock_embed, tmp_path):
+        """Markdown upload chunk: _source_label contains 'L' (line range) marker."""
         chunks = _upload_chunks(tmp_path, 'coffee.md', _write_md)
         assert 'L' in _make_store(chunks)._source_label(chunks[0])   # md → L{s}-{e}
 
     @_apply_patches
     def test_confidence(self, mock_chat, mock_embed, tmp_path):
+        """Markdown upload: is_confident key is present and is a boolean in the pipeline result."""
         chunks = _upload_chunks(tmp_path, 'coffee.md', _write_md)
         result = _make_store(chunks).run_pipeline('Where was coffee discovered?', streamlit_mode=True)
         assert 'is_confident' in result and result['is_confident'] in (True, False)
@@ -355,6 +384,7 @@ class TestFileUploadChatModeHtml:
 
     @_apply_patches
     def test_factual(self, mock_chat, mock_embed, tmp_path):
+        """HTML upload: chunks have type 'html' and run_pipeline returns a response key."""
         chunks = _upload_chunks(tmp_path, 'dogs.html', _write_html)
         assert len(chunks) >= 1 and all(c['type'] == 'html' for c in chunks)
         result = _make_store(chunks).run_pipeline('How fast can a greyhound run?', streamlit_mode=True)
@@ -362,12 +392,14 @@ class TestFileUploadChatModeHtml:
 
     @_apply_patches
     def test_source_label(self, mock_chat, mock_embed, tmp_path):
+        """HTML upload chunk: _source_label contains 's' (section) or 'L' marker."""
         chunks = _upload_chunks(tmp_path, 'dogs.html', _write_html)
         label  = _make_store(chunks)._source_label(chunks[0])
         assert 's' in label or 'L' in label   # html → s{n}
 
     @_apply_patches
     def test_source_cited(self, mock_chat, mock_embed, tmp_path):
+        """HTML upload: retrieved chunks list includes the dogs.html filename as source."""
         chunks = _upload_chunks(tmp_path, 'dogs.html', _write_html)
         result = _make_store(chunks).run_pipeline('How fast can a greyhound run?', streamlit_mode=True)
         assert any('dogs.html' in e['source'] for e, _ in result['retrieved'])
@@ -382,6 +414,7 @@ class TestFileUploadAgentMode:
 
     @_apply_patches
     def test_txt_agent_rag_search(self, mock_chat, mock_embed, tmp_path):
+        """TXT upload in agent mode: rag_search tool is invoked and answer key is present."""
         mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(dog breeds)'}}
         chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
         from src.rag.agent import Agent
@@ -391,6 +424,7 @@ class TestFileUploadAgentMode:
 
     @_apply_patches
     def test_pdf_agent_rag_search(self, mock_chat, mock_embed, tmp_path):
+        """PDF upload in agent mode: rag_search tool is invoked and answer key is present."""
         mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(banana calories)'}}
         chunks = _upload_chunks(tmp_path, 'nutrition.pdf', _write_pdf)
         from src.rag.agent import Agent
@@ -400,6 +434,7 @@ class TestFileUploadAgentMode:
 
     @_apply_patches
     def test_docx_agent_rag_search(self, mock_chat, mock_embed, tmp_path):
+        """DOCX upload in agent mode: rag_search tool is invoked and answer key is present."""
         mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(Python creator)'}}
         chunks = _upload_chunks(tmp_path, 'languages.docx', _write_docx)
         from src.rag.agent import Agent
@@ -408,6 +443,7 @@ class TestFileUploadAgentMode:
 
     @_apply_patches
     def test_xlsx_agent_rag_search(self, mock_chat, mock_embed, tmp_path):
+        """XLSX upload in agent mode: rag_search tool is invoked and answer key is present."""
         mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(Brazil capital)'}}
         chunks = _upload_chunks(tmp_path, 'countries.xlsx', _write_xlsx)
         from src.rag.agent import Agent
@@ -416,6 +452,7 @@ class TestFileUploadAgentMode:
 
     @_apply_patches
     def test_csv_agent_rag_search(self, mock_chat, mock_embed, tmp_path):
+        """CSV upload in agent mode: rag_search tool is invoked and answer key is present."""
         mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(Python year)'}}
         chunks = _upload_chunks(tmp_path, 'languages.csv', _write_csv)
         from src.rag.agent import Agent
@@ -424,6 +461,7 @@ class TestFileUploadAgentMode:
 
     @_apply_patches
     def test_pptx_agent_rag_search(self, mock_chat, mock_embed, tmp_path):
+        """PPTX upload in agent mode: rag_search tool is invoked and answer key is present."""
         mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(Berlin Wall 1989)'}}
         chunks = _upload_chunks(tmp_path, 'history.pptx', _write_pptx)
         from src.rag.agent import Agent
@@ -432,6 +470,7 @@ class TestFileUploadAgentMode:
 
     @_apply_patches
     def test_md_agent_rag_search(self, mock_chat, mock_embed, tmp_path):
+        """Markdown upload in agent mode: rag_search tool is invoked and answer key is present."""
         mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(coffee Ethiopia)'}}
         chunks = _upload_chunks(tmp_path, 'coffee.md', _write_md)
         from src.rag.agent import Agent
@@ -440,146 +479,9 @@ class TestFileUploadAgentMode:
 
     @_apply_patches
     def test_html_agent_rag_search(self, mock_chat, mock_embed, tmp_path):
+        """HTML upload in agent mode: rag_search tool is invoked and answer key is present."""
         mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(dog smell)'}}
         chunks = _upload_chunks(tmp_path, 'dogs.html', _write_html)
         from src.rag.agent import Agent
         result = Agent(_make_store(chunks)).run('What is special about dog smell?', streamlit_mode=True)
         assert 'answer' in result
-
-
-# ---------------------------------------------------------------------------
-# 3. All 5 agent tools with real uploaded file content
-# ---------------------------------------------------------------------------
-
-class TestFileUploadAllTools:
-    """All 5 tools (rag_search, calculator, summarise, sentiment, finish) exercised
-    with content loaded from real temp files via DocumentLoader._dispatch_chunker."""
-
-    @_apply_patches
-    def test_rag_search_on_txt(self, mock_chat, mock_embed, tmp_path):
-        """rag_search returns chunks from a real uploaded txt file."""
-        chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
-        from src.rag.agent import Agent
-        result = Agent(_make_store(chunks))._tool_rag_search('dog breeds')
-        assert len(result) > 0 and 'dogs.txt' in result
-
-    @_apply_patches
-    def test_rag_search_on_csv(self, mock_chat, mock_embed, tmp_path):
-        """rag_search returns chunks from a real uploaded csv file."""
-        chunks = _upload_chunks(tmp_path, 'languages.csv', _write_csv)
-        from src.rag.agent import Agent
-        result = Agent(_make_store(chunks))._tool_rag_search('Python creator')
-        assert len(result) > 0
-
-    @_apply_patches
-    def test_calculator_on_xlsx_values(self, mock_chat, mock_embed, tmp_path):
-        """calculator evaluates numbers that might come from an xlsx file."""
-        chunks = _upload_chunks(tmp_path, 'countries.xlsx', _write_xlsx)
-        from src.rag.agent import Agent
-        assert Agent(_make_store(chunks))._tool_calculator('215 + 125 + 84') == '424'
-
-    @_apply_patches
-    def test_calculator_percentage(self, mock_chat, mock_embed, tmp_path):
-        """calculator handles percentage expressions."""
-        from src.rag.agent import Agent
-        result = Agent(_make_store([]))._tool_calculator('15% of 89')
-        assert float(result) == pytest.approx(13.35)
-
-    @_apply_patches
-    def test_summarise_on_md(self, mock_chat, mock_embed, tmp_path):
-        """summarise tool works on text from a real md file."""
-        mock_chat.side_effect = lambda **kw: {'message': {'content': 'Coffee originated in Ethiopia.'}}
-        chunks = _upload_chunks(tmp_path, 'coffee.md', _write_md)
-        text   = ' '.join(c['text'] for c in chunks)
-        from src.rag.agent import Agent
-        result = Agent(_make_store(chunks))._tool_summarise(text)
-        assert isinstance(result, str) and len(result) > 0
-
-    @_apply_patches
-    def test_summarise_on_docx(self, mock_chat, mock_embed, tmp_path):
-        """summarise tool works on text from a real docx file."""
-        mock_chat.side_effect = lambda **kw: {'message': {'content': 'Python was created by Guido.'}}
-        chunks = _upload_chunks(tmp_path, 'languages.docx', _write_docx)
-        text   = ' '.join(c['text'] for c in chunks)
-        from src.rag.agent import Agent
-        result = Agent(_make_store(chunks))._tool_summarise(text)
-        assert isinstance(result, str) and len(result) > 0
-
-    @_apply_patches
-    def test_sentiment_on_html(self, mock_chat, mock_embed, tmp_path):
-        """sentiment tool returns all 4 required fields for html file content."""
-        resp = ('Sentiment: Positive\nTone: informative\n'
-                'Key phrases: powerful, intelligent\nExplanation: Factual and positive.')
-        mock_chat.side_effect = lambda **kw: {'message': {'content': resp}}
-        chunks = _upload_chunks(tmp_path, 'dogs.html', _write_html)
-        text   = ' '.join(c['text'] for c in chunks)
-        from src.rag.agent import Agent
-        result = Agent(_make_store(chunks))._tool_sentiment(text)
-        assert 'Sentiment' in result and 'Tone' in result
-        assert 'Key phrases' in result and 'Explanation' in result
-
-    @_apply_patches
-    def test_sentiment_on_txt(self, mock_chat, mock_embed, tmp_path):
-        """sentiment tool works on text from a real txt file."""
-        resp = ('Sentiment: Neutral\nTone: factual\n'
-                'Key phrases: domesticated, breeds\nExplanation: Objective facts.')
-        mock_chat.side_effect = lambda **kw: {'message': {'content': resp}}
-        chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
-        text   = ' '.join(c['text'] for c in chunks)
-        from src.rag.agent import Agent
-        result = Agent(_make_store(chunks))._tool_sentiment(text)
-        assert 'Sentiment' in result
-
-    @_apply_patches
-    def test_finish_after_rag_search(self, mock_chat, mock_embed, tmp_path):
-        """finish step is reached after rag_search on a real uploaded file."""
-        responses = iter([
-            {'message': {'content': 'TOOL: rag_search(coffee Ethiopia)'}},
-            {'message': {'content': 'TOOL: finish(Coffee was discovered in Ethiopia around 850 AD.)'}},
-        ])
-        mock_chat.side_effect = lambda **kw: next(responses)
-        chunks = _upload_chunks(tmp_path, 'coffee.md', _write_md)
-        from src.rag.agent import Agent
-        result = Agent(_make_store(chunks)).run('Where was coffee discovered?', streamlit_mode=True)
-        assert any(s['tool'] == 'finish' for s in result['steps'])
-        assert result['answer'] is not None
-
-    @_apply_patches
-    def test_finish_calc_auto(self, mock_chat, mock_embed, tmp_path):
-        """calculator auto-finish: tool result goes directly to finish."""
-        mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: calculator(215 + 125)'}}
-        from src.rag.agent import Agent
-        result = Agent(_make_store([])).run('What is 215 plus 125?', streamlit_mode=True)
-        assert any(s['tool'] == 'calculator' for s in result['steps'])
-        assert any(s['tool'] == 'finish' for s in result['steps'])
-        assert '340' in result['answer']
-
-    @_apply_patches
-    def test_all_5_tools_smoke(self, mock_chat, mock_embed, tmp_path):
-        """Smoke test: all 5 tools are callable in sequence with real file content."""
-        from src.rag.agent import Agent
-
-        chunks = _upload_chunks(tmp_path, 'dogs.txt', _write_txt)
-        store  = _make_store(chunks)
-        agent  = Agent(store)
-
-        # 1. rag_search
-        assert len(agent._tool_rag_search('dog breeds')) > 0
-
-        # 2. calculator
-        assert agent._tool_calculator('340 * 2') == '680'
-
-        # 3. summarise
-        mock_chat.side_effect = lambda **kw: {'message': {'content': 'Dogs were domesticated long ago.'}}
-        assert len(agent._tool_summarise(' '.join(c['text'] for c in chunks))) > 0
-
-        # 4. sentiment
-        mock_chat.side_effect = lambda **kw: {
-            'message': {'content': 'Sentiment: Neutral\nTone: factual\nKey phrases: dogs\nExplanation: OK.'}
-        }
-        assert 'Sentiment' in agent._tool_sentiment(' '.join(c['text'] for c in chunks))
-
-        # 5. finish — via auto-finish after rag_search
-        mock_chat.side_effect = lambda **kw: {'message': {'content': 'TOOL: rag_search(dog breeds)'}}
-        result = Agent(store).run('How many dog breeds are there?', streamlit_mode=True)
-        assert any(s['tool'] == 'finish' for s in result['steps'])

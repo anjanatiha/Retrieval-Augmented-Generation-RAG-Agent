@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 @pytest.fixture
 def mock_store():
+    """Provide a MagicMock VectorStore pre-configured with canned retrieve and rerank returns."""
     from src.rag.vector_store import VectorStore
     store = MagicMock(spec=VectorStore)
     entry = {'text': 'Cats sleep 16 hours a day.', 'source': 'cats.txt',
@@ -25,6 +26,7 @@ def mock_store():
 
 @pytest.fixture
 def benchmarker(mock_store):
+    """Provide a Benchmarker instance wired to the mock_store fixture."""
     from src.rag.benchmarker import Benchmarker
     return Benchmarker(mock_store)
 
@@ -34,25 +36,32 @@ def benchmarker(mock_store):
 # ---------------------------------------------------------------------------
 
 class TestDefaultTestCases:
+    """Tests that DEFAULT_TEST_CASES has the exact 5 cat-fact entries required for backward compat."""
+
     def test_has_5_cases(self):
+        """DEFAULT_TEST_CASES contains exactly 5 test case dicts."""
         from src.rag.benchmarker import Benchmarker
         assert len(Benchmarker.DEFAULT_TEST_CASES) == 5
 
     def test_all_have_question(self):
+        """Every test case dict has a 'question' key."""
         from src.rag.benchmarker import Benchmarker
         for tc in Benchmarker.DEFAULT_TEST_CASES:
             assert 'question' in tc
 
     def test_all_have_expected_keywords(self):
+        """Every test case dict has an 'expected_keywords' key."""
         from src.rag.benchmarker import Benchmarker
         for tc in Benchmarker.DEFAULT_TEST_CASES:
             assert 'expected_keywords' in tc
 
     def test_first_question_about_cats_sleep(self):
+        """First test case question contains 'sleep' (cats sleep benchmark question)."""
         from src.rag.benchmarker import Benchmarker
         assert 'sleep' in Benchmarker.DEFAULT_TEST_CASES[0]['question'].lower()
 
     def test_first_keywords_contain_16(self):
+        """First test case expected_keywords includes '16' (hours cats sleep)."""
         from src.rag.benchmarker import Benchmarker
         assert '16' in Benchmarker.DEFAULT_TEST_CASES[0]['expected_keywords']
 
@@ -62,10 +71,14 @@ class TestDefaultTestCases:
 # ---------------------------------------------------------------------------
 
 class TestInit:
+    """Tests that Benchmarker.__init__ sets store and results_file from config."""
+
     def test_has_store(self, benchmarker, mock_store):
+        """Benchmarker(mock_store): benchmarker.store is the same object as mock_store."""
         assert benchmarker.store is mock_store
 
     def test_has_results_file(self, benchmarker):
+        """Benchmarker(): results_file equals the BENCHMARK_FILE constant from config."""
         from src.rag.config import BENCHMARK_FILE
         assert benchmarker.results_file == BENCHMARK_FILE
 
@@ -75,26 +88,33 @@ class TestInit:
 # ---------------------------------------------------------------------------
 
 class TestScoreFaithfulness:
+    """Tests that _score_faithfulness measures word overlap between response and context."""
+
     def _make_reranked(self, text):
+        """Build a single-entry reranked list from the given text string."""
         entry = {'text': text, 'source': 's', 'start_line': 1, 'end_line': 1, 'type': 'txt'}
         return [(entry, 0.9, 0.9)]
 
     def test_exact_overlap_returns_high_score(self, benchmarker):
+        """Response identical to context chunk: faithfulness score is above 0.5."""
         reranked = self._make_reranked('cats sleep sixteen hours per day')
         score = benchmarker._score_faithfulness('cats sleep sixteen hours per day', reranked)
         assert score > 0.5
 
     def test_no_overlap_returns_low_score(self, benchmarker):
+        """Response shares no content words with the context: faithfulness score is below 0.5."""
         reranked = self._make_reranked('dogs bark all day long')
         score = benchmarker._score_faithfulness('cats sleep sixteen hours', reranked)
         assert score < 0.5
 
     def test_empty_response_returns_zero(self, benchmarker):
+        """Empty response string: faithfulness score is exactly 0.0."""
         reranked = self._make_reranked('cats sleep sixteen hours')
         score = benchmarker._score_faithfulness('', reranked)
         assert score == 0.0
 
     def test_score_between_0_and_1(self, benchmarker):
+        """Any response and context: faithfulness score is always in [0.0, 1.0]."""
         reranked = self._make_reranked('cats sleep sixteen hours per day')
         score = benchmarker._score_faithfulness('cats are wonderful animals', reranked)
         assert 0.0 <= score <= 1.0
@@ -105,19 +125,25 @@ class TestScoreFaithfulness:
 # ---------------------------------------------------------------------------
 
 class TestScoreRelevancy:
+    """Tests that _score_relevancy measures F1 word overlap between question and response."""
+
     def test_same_words_returns_high(self, benchmarker):
+        """Question and response share key words: relevancy score is above 0.3."""
         score = benchmarker._score_relevancy('how many hours cats sleep', 'cats sleep sixteen hours')
         assert score > 0.3
 
     def test_unrelated_returns_low(self, benchmarker):
+        """Question and response share no content words: relevancy score is below 0.3."""
         score = benchmarker._score_relevancy('how many hours cats sleep', 'dogs bark loudly')
         assert score < 0.3
 
     def test_empty_question_returns_zero(self, benchmarker):
+        """Empty question string: relevancy score is exactly 0.0."""
         score = benchmarker._score_relevancy('', 'some response')
         assert score == 0.0
 
     def test_score_between_0_and_1(self, benchmarker):
+        """Any question and response: relevancy score is always in [0.0, 1.0]."""
         score = benchmarker._score_relevancy('what is the answer', 'the answer is forty two')
         assert 0.0 <= score <= 1.0
 
@@ -127,23 +153,30 @@ class TestScoreRelevancy:
 # ---------------------------------------------------------------------------
 
 class TestScoreKeywordRecall:
+    """Tests that _score_keyword_recall returns the fraction of expected keywords found."""
+
     def test_all_keywords_found(self, benchmarker):
+        """Response contains all expected keywords: recall score is 1.0."""
         score = benchmarker._score_keyword_recall('cats sleep 16 hours a day', ['sleep', '16'])
         assert score == 1.0
 
     def test_no_keywords_found(self, benchmarker):
+        """Response contains none of the expected keywords: recall score is 0.0."""
         score = benchmarker._score_keyword_recall('dogs bark', ['sleep', '16'])
         assert score == 0.0
 
     def test_partial_keywords_found(self, benchmarker):
+        """Response contains one of two keywords: recall score is 0.5."""
         score = benchmarker._score_keyword_recall('cats sleep a lot', ['sleep', '16'])
         assert score == 0.5
 
     def test_empty_keywords_returns_one(self, benchmarker):
+        """Empty expected_keywords list: recall score is 1.0 (vacuously perfect)."""
         score = benchmarker._score_keyword_recall('any response', [])
         assert score == 1.0
 
     def test_case_insensitive(self, benchmarker):
+        """Keywords in mixed case in response: matching is case-insensitive, score is 1.0."""
         score = benchmarker._score_keyword_recall('Cats Sleep 16 Hours', ['sleep', '16'])
         assert score == 1.0
 
@@ -153,17 +186,22 @@ class TestScoreKeywordRecall:
 # ---------------------------------------------------------------------------
 
 class TestScoreContextRelevance:
+    """Tests that _score_context_relevance computes the mean similarity of reranked chunks."""
+
     def test_empty_returns_zero(self, benchmarker):
+        """Empty reranked list: context relevance score is 0.0."""
         score = benchmarker._score_context_relevance([])
         assert score == 0.0
 
     def test_returns_mean_of_scores(self, benchmarker):
+        """Two chunks with scores 0.8 and 0.6: mean is 0.7."""
         entry = {'text': 'x', 'source': 's', 'start_line': 1, 'end_line': 1, 'type': 'txt'}
         reranked = [(entry, 0.8, 0.8), (entry, 0.6, 0.6)]
         score = benchmarker._score_context_relevance(reranked)
         assert abs(score - 0.7) < 0.01
 
     def test_score_between_0_and_1(self, benchmarker):
+        """Single chunk with score 0.5: context relevance is in [0.0, 1.0]."""
         entry = {'text': 'x', 'source': 's', 'start_line': 1, 'end_line': 1, 'type': 'txt'}
         reranked = [(entry, 0.5, 0.5)]
         score = benchmarker._score_context_relevance(reranked)
@@ -175,12 +213,16 @@ class TestScoreContextRelevance:
 # ---------------------------------------------------------------------------
 
 class TestReadSaveResults:
+    """Tests the _read_results / _save_results JSON persistence helpers."""
+
     def test_read_returns_empty_list_when_no_file(self, benchmarker):
+        """Non-existent results file: _read_results returns an empty list."""
         benchmarker.results_file = '/tmp/nonexistent_benchmark_test_xyz.json'
         result = benchmarker._read_results()
         assert result == []
 
     def test_save_and_read_round_trip(self, benchmarker, tmp_path):
+        """_save_results then _read_results: data is persisted and loaded correctly."""
         benchmarker.results_file = str(tmp_path / 'bench.json')
         data = [{'timestamp': '2024-01-01', 'summary': {'overall': 0.75}, 'results': []}]
         benchmarker._save_results(data)
@@ -194,7 +236,10 @@ class TestReadSaveResults:
 # ---------------------------------------------------------------------------
 
 class TestCompareRuns:
+    """Tests that _compare_runs produces a formatted delta string with ▲/▼/─ indicators."""
+
     def test_returns_string(self, benchmarker):
+        """Two valid summary dicts: _compare_runs returns a string."""
         current  = {'faithfulness': 0.8, 'answer_relevancy': 0.7,
                     'keyword_recall': 0.9, 'context_relevance': 0.6, 'overall': 0.75}
         previous = {'faithfulness': 0.7, 'answer_relevancy': 0.6,
@@ -203,6 +248,7 @@ class TestCompareRuns:
         assert isinstance(result, str)
 
     def test_shows_improvement_indicator(self, benchmarker):
+        """Current scores all higher than previous: '▲' improvement indicator is present."""
         current  = {'faithfulness': 0.8, 'answer_relevancy': 0.7,
                     'keyword_recall': 0.9, 'context_relevance': 0.6, 'overall': 0.75}
         previous = {'faithfulness': 0.6, 'answer_relevancy': 0.5,
@@ -211,6 +257,7 @@ class TestCompareRuns:
         assert '▲' in result
 
     def test_shows_decline_indicator(self, benchmarker):
+        """Current scores all lower than previous: '▼' decline indicator is present."""
         current  = {'faithfulness': 0.5, 'answer_relevancy': 0.4,
                     'keyword_recall': 0.6, 'context_relevance': 0.3, 'overall': 0.45}
         previous = {'faithfulness': 0.8, 'answer_relevancy': 0.7,
@@ -224,12 +271,16 @@ class TestCompareRuns:
 # ---------------------------------------------------------------------------
 
 class TestRun:
+    """Tests the full run() evaluation loop: scoring, saving results, and default cases."""
+
     def _chat_mock(**kw):
+        """Return stream list or plain dict depending on whether stream=True is passed."""
         if kw.get('stream'):
             return [{'message': {'content': 'Cats sleep 16 hours a day.'}}]
         return {'message': {'content': 'Cats sleep 16 hours a day.'}}
 
     def test_run_returns_summary_dict(self, benchmarker, tmp_path):
+        """run() with one custom test case: returns a dict containing an 'overall' score."""
         benchmarker.results_file = str(tmp_path / 'bench.json')
         test_cases = [
             {'question': 'How many hours do cats sleep?', 'expected_keywords': ['sleep', '16']}
@@ -243,6 +294,7 @@ class TestRun:
         assert 'overall' in summary
 
     def test_run_saves_to_file(self, benchmarker, tmp_path):
+        """run() with one test case: results JSON file is created at results_file path."""
         benchmarker.results_file = str(tmp_path / 'bench.json')
         test_cases = [
             {'question': 'Do cats sleep a lot?', 'expected_keywords': ['sleep']}
@@ -255,6 +307,7 @@ class TestRun:
         assert os.path.exists(benchmarker.results_file)
 
     def test_run_uses_default_test_cases(self, benchmarker, tmp_path):
+        """run() called with no arguments: uses DEFAULT_TEST_CASES and returns a summary dict."""
         benchmarker.results_file = str(tmp_path / 'bench.json')
         with patch('ollama.chat', side_effect=lambda **kw: (
             [{'message': {'content': 'Cats sleep 16 hours a day.'}}]
