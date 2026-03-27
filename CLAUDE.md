@@ -14,7 +14,7 @@ Read it fully before making any changes.
 - Every file has **one clear job** — if it does two things, split it
 - Every function does **one thing** and fits in ~30 lines
 - Entry points (`app.py`, `main.py`) stay **under 50 lines** — they only wire things together
-- Handler and logic code goes in **dedicated modules** (`ui/handlers.py`, `cli/runner.py`, `src/rag/handlers.py`)
+- Handler and logic code goes in **dedicated modules** (`src/ui/handlers.py`, `src/cli/runner.py`, `src/handlers.py`)
 - **Plain English names** everywhere: `document_type` not `dtype`, `chunk_total` not `n`
 - **Type hints** on every function so readers know what goes in and comes out
 - **Docstrings** explain what and why in plain language
@@ -109,18 +109,22 @@ dev = ["pytest", "pytest-cov", "pytest-mock"]
 ```
 rag/
 ├── src/
-│   └── rag/
+│   ├── rag/
+│   │   ├── __init__.py
+│   │   ├── config.py              ← MODULE: all constants
+│   │   ├── logger.py              ← MODULE: stateless log functions
+│   │   ├── document_loader.py     ← CLASS: DocumentLoader
+│   │   ├── vector_store.py        ← CLASS: VectorStore
+│   │   ├── agent.py               ← CLASS: Agent
+│   │   └── benchmarker.py         ← CLASS: Benchmarker
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── handlers.py            ← MODULE: Streamlit event handlers
+│   │   ├── theme.py               ← MODULE: CSS + style constants
+│   │   └── session.py             ← MODULE: session state helpers
+│   └── cli/
 │       ├── __init__.py
-│       ├── config.py              ← MODULE: all constants
-│       ├── logger.py              ← MODULE: stateless log functions
-│       ├── document_loader.py     ← CLASS: DocumentLoader
-│       ├── vector_store.py        ← CLASS: VectorStore
-│       ├── agent.py               ← CLASS: Agent
-│       └── benchmarker.py         ← CLASS: Benchmarker
-├── ui/
-│   ├── __init__.py
-│   ├── theme.py                   ← MODULE: CSS + style constants
-│   └── session.py                 ← MODULE: session state helpers
+│       └── runner.py              ← MODULE: CLI entry functions
 ├── tests/
 │   ├── __init__.py
 │   ├── test_document_loader.py
@@ -446,7 +450,7 @@ def _write_log(entries)      # JSON dump with indent=2
 #   top_similarity, avg_similarity, response_length }
 ```
 
-### `ui/theme.py` — style constants
+### `src/ui/theme.py` — style constants
 ```python
 CSS: str              # full IBM Plex Mono stylesheet — preserve every rule exactly
 BADGE_CLASSES = {
@@ -459,7 +463,7 @@ CONFIDENCE_BADGE = { True: 'b-ok', False: 'b-warn' }
 AVATAR = { 'user': '🧑', 'assistant': '💬', 'agent': '🤖' }
 ```
 
-### `ui/session.py` — Streamlit session helpers
+### `src/ui/session.py` — Streamlit session helpers
 ```python
 SESSION_DEFAULTS = {
     'conv': [], 'display': [], 'total': 0, 'last': None,

@@ -123,18 +123,22 @@ All models run **locally via Ollama** — no internet connection or API key need
 ```
 rag/
 ├── src/
-│   └── rag/
+│   ├── rag/
+│   │   ├── __init__.py
+│   │   ├── config.py              ← all constants (models, paths, thresholds)
+│   │   ├── logger.py              ← stateless interaction logging
+│   │   ├── document_loader.py     ← DocumentLoader class — all ingestion
+│   │   ├── vector_store.py        ← VectorStore class — retrieval + generation
+│   │   ├── agent.py               ← Agent class — ReAct loop + 5 tools
+│   │   └── benchmarker.py         ← Benchmarker class — evaluation
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── handlers.py            ← Streamlit event handlers
+│   │   ├── theme.py               ← CSS + style constants (Ocean Blue)
+│   │   └── session.py             ← Streamlit session state helpers
+│   └── cli/
 │       ├── __init__.py
-│       ├── config.py              ← all constants (models, paths, thresholds)
-│       ├── logger.py              ← stateless interaction logging
-│       ├── document_loader.py     ← DocumentLoader class — all ingestion
-│       ├── vector_store.py        ← VectorStore class — retrieval + generation
-│       ├── agent.py               ← Agent class — ReAct loop + 5 tools
-│       └── benchmarker.py         ← Benchmarker class — evaluation
-├── ui/
-│   ├── __init__.py
-│   ├── theme.py                   ← CSS + style constants (Ocean Blue)
-│   └── session.py                 ← Streamlit session state helpers
+│       └── runner.py              ← CLI entry functions (chat, agent, benchmark)
 ├── tests/
 │   ├── test_document_loader.py        ← file chunkers (unit)
 │   ├── test_vector_store.py           ← retrieval, BM25, build (unit)
