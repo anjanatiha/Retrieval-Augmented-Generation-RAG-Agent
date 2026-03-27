@@ -15,7 +15,8 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 | 1 | **Sliding window chunking** | Configurable chunk size + overlap for TXT/MD; sentence-based chunking for PDF/HTML pages; paragraph-based for DOCX; row-based for XLSX/CSV; slide-based for PPTX |
 | 2 | **Multi-format document support** | PDF, TXT, DOCX, XLSX, XLS, PPTX, CSV, Markdown, HTML — each with a dedicated chunker and type-aware metadata |
 | 3 | **Structured document retrieval** | Accurately retrieves from tabular/structured documents like resumes, spreadsheets, and tables — a known hard problem for basic RAG systems |
-| 4 | **Smart misplaced file detection** | Files dropped into the wrong subfolder are auto-detected by extension, processed correctly, and flagged with a `[MISPLACED]` notice |
+| 4 | **Recursive folder scan** | `scan_all_files()` walks `./docs/` at unlimited depth — drop a folder with mixed file types at any nesting level and every file is detected, typed by extension, and indexed |
+| 4b | **Smart misplaced file detection** | Files not in their canonical type subfolder are auto-detected by extension, processed correctly, and flagged with a `[MISPLACED]` notice |
 | 5 | **Chunk truncation** | Chunks automatically truncated to 300 words before embedding to stay within the `bge-base-en-v1.5` 512 token context limit |
 | 6 | **Persistent vector DB** | ChromaDB with cosine similarity; embeddings survive restarts — no re-embedding on reload |
 | 7 | **Hybrid search** | BM25 (lexical) + dense vector (semantic) retrieval combined for higher recall |
@@ -31,7 +32,7 @@ A production-grade, fully local RAG chatbot and agent built incrementally with a
 | 17 | **Agent with tool calling** | Agentic mode with `rag_search`, `calculator`, `summarise`, `sentiment`, and `finish` tools; ReAct loop with robust format recovery and auto-finish logic |
 | 18 | **Streamlit UI** | Ocean Blue web UI with native chat bubbles, agent mode toggle, URL ingestion panel, file upload panel, live pipeline sidebar (pre/post rerank chunks, confidence badges, document type breakdown, session stats) |
 | 19 | **URL ingestion** | Paste any public URL — webpage, PDF, DOCX, XLSX, CSV, PPTX — and it is fetched, auto-detected by type, chunked through the correct chunker, and added to the index alongside local files |
-| 20 | **File upload ingestion** | Upload any supported file directly through the UI — chunked, embedded, and added to the live knowledge base without restarting |
+| 20 | **File upload ingestion** | Upload one file, multiple files, or select all files from a folder at once — each is chunked, embedded, and added to the live knowledge base without restarting |
 | 21 | **Step-by-step progress bar** | Real-time progress bar showing each retrieval stage: classify → retrieve → rerank → generate |
 | 22 | **Native chat interface** | Messages rendered with `st.chat_message` bubbles and persistent `st.chat_input` at the bottom; clear button appears below conversation |
 
@@ -74,7 +75,7 @@ Documents (PDF / TXT / DOCX / XLSX / PPTX / CSV / MD / HTML)
         │
         ▼
   DocumentLoader
-  ├── scan_all_files() — scans ./docs/, detects type by extension, flags misplaced
+  ├── scan_all_files() — recursively walks ./docs/ at any depth, detects type by extension, flags misplaced
   ├── chunk_url() — fetches URL, detects type (Content-Type → extension → magic bytes → html)
   └── Chunking dispatch → chunkers.py (9 stateless format-specific functions)
       ├── TXT / MD:  sliding window (line-based; MD syntax stripped)
@@ -186,7 +187,7 @@ rag/
 └── benchmark_results.json         ← benchmark history (auto-generated)
 ```
 
-> **Tip:** All subfolders are created automatically on first run. You can drop a file into any subfolder — the smart file scanner will detect the correct type by extension and process it accordingly, printing a `[MISPLACED]` notice if the folder doesn't match.
+> **Tip:** All subfolders are created automatically on first run. You can drop files or entire folders anywhere under `./docs/` at any depth — the scanner walks recursively and detects every file by extension. Mixed-type folders work fine. Files not in their canonical subfolder are still processed, with a `[MISPLACED]` notice. Source citations include the relative path (e.g. `project/data/q1.xlsx`) so files with the same name in different subfolders stay distinguishable.
 
 ---
 
@@ -412,7 +413,7 @@ The web UI features:
 - Persistent `st.chat_input` bar always visible at the bottom of the page
 - Chat and Agent mode toggle
 - **URL ingestion panel** — paste any public URL to fetch and index it alongside local files
-- **File upload panel** — upload PDF, TXT, DOCX, XLSX, PPTX, CSV, MD, or HTML directly through the UI
+- **File upload panel** — upload one file, multiple files, or select all files from a folder at once; each is chunked and indexed without restarting
 - **Step-by-step progress bar** — shows classify → retrieve → rerank → generate stages in real time
 - **🗑 Clear button** — appears below conversation to wipe chat history and memory
 - Live pipeline sidebar showing pre/post rerank chunks with similarity scores
