@@ -5,6 +5,26 @@ Read it fully before making any changes.
 
 ---
 
+## Core Principle — Always Apply
+
+> **Write structured code that is easy to understand, change, and read.**
+> This applies to every file, every function, every comment — always.
+> Code must be readable by someone who is not a software engineer.
+
+- Every file has **one clear job** — if it does two things, split it
+- Every function does **one thing** and fits in ~30 lines
+- Entry points (`app.py`, `main.py`) stay **under 50 lines** — they only wire things together
+- Handler and logic code goes in **dedicated modules** (`ui/handlers.py`, `cli/runner.py`, `src/rag/handlers.py`)
+- **Plain English names** everywhere: `document_type` not `dtype`, `chunk_total` not `n`
+- **Type hints** on every function so readers know what goes in and comes out
+- **Docstrings** explain what and why in plain language
+- **Structured logging** (`logging` module) — not bare `print()` statements
+- **Environment variables** for all config that may differ between environments
+- **Pinned dependency versions** so the app builds the same way every time
+- **CI/CD** so every push is automatically tested
+
+---
+
 ## Project Overview
 
 RAG Agent is a fully local, production-grade Retrieval-Augmented Generation system.

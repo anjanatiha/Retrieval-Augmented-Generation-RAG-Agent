@@ -1,89 +1,37 @@
-"""main.py — CLI thin wrapper for the RAG pipeline."""
+"""main.py — Command-line entry point (under 50 lines).
+
+This file only parses arguments and calls the right runner function.
+All actual logic lives in cli/runner.py.
+
+Usage:
+    python main.py               # interactive chat mode
+    python main.py --agent       # interactive agent mode (tool calling)
+    python main.py --benchmark   # run automated benchmark evaluation
+"""
 
 import argparse
-import sys
 
-from src.rag.document_loader import DocumentLoader
-from src.rag.vector_store import VectorStore
-from src.rag.agent import Agent
-from src.rag.benchmarker import Benchmarker
-from src.rag.config import DOCS_ROOT, DOC_FOLDERS, CHROMA_DIR, TOP_RERANK
-
-
-def initialize():
-    """Load documents, build vector index, return (loader, store)."""
-    print("=" * 60)
-    print("  Initializing RAG Pipeline")
-    print("=" * 60)
-    print(f"  Docs root:  {DOCS_ROOT}/")
-    for t, folder in DOC_FOLDERS.items():
-        print(f"    {t.upper():<8} → {folder}/")
-    print(f"  Vector DB:  ChromaDB (persistent @ {CHROMA_DIR})")
-    print(f"  Reranker:   LLM-based (document type-aware)")
-    print(f"  Smart mis-placed file detection: ENABLED")
-    print("=" * 60 + "\n")
-
-    loader = DocumentLoader()
-    loader.ensure_folders()
-    chunks = loader.chunk_all_documents()
-
-    store = VectorStore()
-    store.build_or_load(chunks)
-    return loader, store
-
+from cli.runner import initialize, run_agent, run_benchmark, run_chat
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='RAG Chatbot')
-    parser.add_argument('--benchmark', action='store_true', help='Run benchmark')
-    parser.add_argument('--agent',     action='store_true', help='Agent mode in terminal')
+    parser = argparse.ArgumentParser(description='RAG Agent — Ask your documents')
+    parser.add_argument(
+        '--benchmark',
+        action='store_true',
+        help='Run automated benchmark evaluation (faithfulness, relevancy, recall)',
+    )
+    parser.add_argument(
+        '--agent',
+        action='store_true',
+        help='Start in agent mode (rag_search, calculator, summarise, sentiment tools)',
+    )
     args = parser.parse_args()
 
     loader, store = initialize()
 
     if args.benchmark:
-        Benchmarker(store).run()
-
+        run_benchmark(store)
     elif args.agent:
-        agent = Agent(store)
-        print("Agent mode — type your task:\n")
-        while True:
-            try:
-                q = input("Task: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\nGoodbye!")
-                break
-            if not q:
-                continue
-            if q.lower() in ['exit', 'quit']:
-                print("Goodbye!")
-                break
-            res = agent.run(q)
-            print(f"\nFinal answer: {res['answer']}\n" + "-" * 60)
-
+        run_agent(store)
     else:
-        conv = store.conversation_history
-        print("=" * 60 + "\n  RAG Chatbot — Full Pipeline\n" + "=" * 60)
-        print("Commands: 'exit' quit | 'agent: <q>' use agent mode\n")
-        while True:
-            try:
-                query = input("You: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\nGoodbye!")
-                break
-            if not query:
-                continue
-            if query.lower() in ['exit', 'quit', 'bye']:
-                print("Goodbye!")
-                break
-            if query.lower().startswith('agent:'):
-                q = query[6:].strip()
-                print("\n[Agent mode]")
-                res = Agent(store).run(q)
-                print(f"\nAgent answer: {res['answer']}")
-            else:
-                result = store.run_pipeline(query)
-                if not result['is_confident']:
-                    print(f"[Warning] Low confidence ({result['best_score']:.2f})")
-                print(f"\n[type:{result['query_type']} | expanded:{len(result['queries'])} queries]")
-                print(f"Before rerank: {len(result['retrieved'])} chunks | After: {TOP_RERANK} chunks")
-            print("-" * 60)
+        run_chat(store)

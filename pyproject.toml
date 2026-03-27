@@ -23,7 +23,9 @@ Demo = "https://huggingface.co/spaces/anjanatiha2024/Rag-Agent"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# "." lets pytest find cli/ and ui/ at the repo root
+# "src" lets pytest find src/rag/* packages
+pythonpath = [".", "src"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

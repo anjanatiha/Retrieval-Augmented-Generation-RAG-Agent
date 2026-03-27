@@ -1,20 +1,36 @@
+# requirements.txt — runtime dependencies for the local version
+#
+# WHY VERSIONS ARE PINNED:
+#   Without version pins, 'pip install' might grab a newer version of a library
+#   that changed its API and breaks the app silently. Pinning a minimum and
+#   maximum version means the app builds the same way on every machine.
+#
+# HOW TO UPDATE:
+#   1. Change the version range below.
+#   2. Run: pip install -r requirements.txt
+#   3. Run: pytest  (make sure everything still passes)
+#   4. Commit the updated requirements.txt.
+#
+# Dev-only dependencies (pytest, pytest-cov, pytest-mock) are in pyproject.toml
+# under [project.optional-dependencies] dev — NOT here.
+
 # Core RAG pipeline
-ollama
-rank_bm25
-chromadb
+ollama>=0.4.0,<1.0.0
+rank-bm25>=0.2.2,<0.3.0
+chromadb>=0.4.0,<0.6.0
 
 # Web UI
-streamlit
+streamlit>=1.35.0,<2.0.0
 
 # URL ingestion
-requests
+requests>=2.31.0,<3.0.0
 
 # Document format support
-pymupdf           # PDF (.pdf)
-python-docx       # Word (.docx, .doc)
-openpyxl          # Excel (.xlsx)
-xlrd              # Excel legacy (.xls)
-python-pptx       # PowerPoint (.pptx, .ppt)
-beautifulsoup4    # HTML (.html, .htm) + URL webpage parsing
-lxml              # BeautifulSoup parser backend
+pymupdf>=1.24.0,<2.0.0           # PDF (.pdf)
+python-docx>=0.8.11,<2.0.0       # Word (.docx, .doc)
+openpyxl>=3.1.2,<4.0.0           # Excel (.xlsx)
+xlrd>=2.0.1,<3.0.0               # Excel legacy (.xls only — NOT for .xlsx)
+python-pptx>=0.6.23,<1.0.0       # PowerPoint (.pptx, .ppt)
+beautifulsoup4>=4.12.0,<5.0.0    # HTML (.html, .htm) + URL webpage parsing
+lxml>=5.2.0,<6.0.0               # BeautifulSoup parser backend
 # CSV and Markdown use Python stdlib — no extra packages needed

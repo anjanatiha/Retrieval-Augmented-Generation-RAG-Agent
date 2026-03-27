@@ -272,18 +272,23 @@ class TestAgentSystemPrompt:
 
 @requires_gradio
 class TestAppHandlers:
-    """Test app.py handler functions in isolation (no Gradio server needed)."""
+    """Test handler functions in isolation (no Gradio server needed).
+
+    After the refactor, handler functions live in src/rag/handlers.py —
+    not in app.py. Tests import from there directly.
+    """
 
     def _make_store(self):
-        """Build a small in-memory VectorStore for app handler tests."""
+        """Build a small in-memory VectorStore for handler tests."""
         return make_store_with_chunks(sample_chunks(3))
 
-    def _import_app(self):
-        """Import app.py with all Gradio components mocked out.
+    def _import_handlers(self):
+        """Import src.rag.handlers with Gradio components mocked out.
 
         Returns:
-            The imported app module, or skips the test if the import fails.
+            The imported handlers module, or skips the test if import fails.
         """
+        import importlib
         import unittest.mock as um
         with um.patch('gradio.Blocks'), um.patch('gradio.Chatbot'), \
              um.patch('gradio.Textbox'), um.patch('gradio.Radio'), \
@@ -292,22 +297,22 @@ class TestAppHandlers:
              um.patch('gradio.File'), um.patch('gradio.Markdown'), \
              um.patch('gradio.HTML'), um.patch('gradio.Progress'):
             try:
-                import importlib
-                import app as app_module
-                return app_module
+                import src.rag.handlers as handlers_module
+                importlib.reload(handlers_module)
+                return handlers_module
             except Exception:
-                pytest.skip("Could not import app.py in test environment")
+                pytest.skip("Could not import src.rag.handlers in test environment")
 
     def test_pipeline_summary_format(self):
-        """_pipeline_summary should produce markdown with Query type and Confidence."""
-        sys.path.insert(0, HF_ROOT)
-        app_module = self._import_app()
+        """_pipeline_summary produces markdown with Query type and Confidence score."""
+        handlers = self._import_handlers()
         store = self._make_store()
-        app_module._store = store
+        # Inject the store so _pipeline_summary can call store._source_label()
+        handlers._store = store
 
-        data = {
-            'query_type': 'factual',
-            'best_score': 0.75,
+        pipeline_data = {
+            'query_type':   'factual',
+            'best_score':   0.75,
             'is_confident': True,
             'retrieved': [
                 ({'text': 'Cats sleep.', 'source': 'cats.txt',
@@ -318,21 +323,20 @@ class TestAppHandlers:
                   'start_line': 1, 'end_line': 1, 'type': 'txt'}, 0.75, 8.0),
             ],
         }
-        result = app_module._pipeline_summary(data)
+        result = handlers._pipeline_summary(pipeline_data)
         assert 'factual' in result
         assert '0.750' in result
 
     def test_agent_steps_md_format(self):
-        """_agent_steps_md should produce markdown with Step N and tool name for each step."""
-        sys.path.insert(0, HF_ROOT)
-        app_module = self._import_app()
+        """_agent_steps_md produces markdown with Step N and the tool name."""
+        handlers = self._import_handlers()
 
         steps = [
             {'step': 1, 'tool': 'rag_search', 'arg': 'cats',
              'result': 'Cats sleep 16 hours.'},
             {'step': 2, 'tool': 'finish', 'arg': 'done', 'result': 'done'},
         ]
-        result = app_module._agent_steps_md(steps)
+        result = handlers._agent_steps_md(steps)
         assert 'Step 1' in result
         assert 'rag_search' in result
         assert 'Step 2' in result
