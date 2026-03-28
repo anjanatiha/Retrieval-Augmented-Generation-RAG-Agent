@@ -12,6 +12,7 @@ __all__ = [
     'SIMILARITY_THRESHOLD', 'TOP_RETRIEVE', 'TOP_RERANK',
     'TXT_CHUNK_SIZE', 'TXT_CHUNK_OVERLAP', 'PDF_CHUNK_SENTENCES',
     'DOCX_CHUNK_PARAS', 'PPTX_CHUNK_SLIDES', 'HTML_CHUNK_SENTENCES',
+    'URL_CRAWL_MAX_DEPTH', 'URL_CRAWL_MAX_PAGES',
 ]
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -73,3 +74,13 @@ PDF_CHUNK_SENTENCES  = 5   # sentences per sliding window on a PDF page
 DOCX_CHUNK_PARAS     = 3   # paragraphs (and table rows) per chunk
 PPTX_CHUNK_SLIDES    = 1   # one chunk per slide for maximum granularity
 HTML_CHUNK_SENTENCES = 5   # sentences per window after tag stripping
+
+# ── Recursive URL crawl defaults ──────────────────────────────────────────────
+# Smaller than the local defaults — HF free CPU is slower, so fewer pages
+# to avoid timeout. Users can override both from the UI.
+
+# How many link-levels deep to follow from the seed URL (1 = direct links only)
+URL_CRAWL_MAX_DEPTH = 1
+
+# Maximum total pages to fetch and index in one recursive crawl session
+URL_CRAWL_MAX_PAGES = 10

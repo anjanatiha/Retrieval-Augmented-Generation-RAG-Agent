@@ -3,11 +3,13 @@
 WHY THIS FILE EXISTS:
     app.py must stay under 50 lines so it is easy to read at a glance.
     All the real UI work — showing chat messages, processing file uploads,
-    handling URL fetches, rendering the sidebar — lives here instead.
+    handling URL fetches — lives here instead.
 
 HOW IT IS ORGANISED:
     Public functions (no leading underscore) are called directly from app.py.
     Private helpers (leading underscore) are used only inside this module.
+    Sidebar rendering is in src/ui/sidebar.py (extracted to keep this file
+    under the 500-line limit).
 
 ADDING A NEW PANEL OR FEATURE:
     1. Write a new function here with a clear docstring.
@@ -18,13 +20,14 @@ ADDING A NEW PANEL OR FEATURE:
 import logging
 import os
 import tempfile
-from typing import Optional
 
 import streamlit as st
 
 from src.rag.agent import Agent
+from src.rag.config import URL_CRAWL_MAX_DEPTH, URL_CRAWL_MAX_PAGES
 from src.rag.vector_store import VectorStore
-from src.ui.theme import BADGE_CLASSES, CONFIDENCE_BADGE
+from src.ui.ingestion import process_url, process_url_recursive
+from src.ui.sidebar import render_sidebar
 
 # This module's logger — errors go to the logging system, not the terminal
 logger = logging.getLogger(__name__)
@@ -78,8 +81,8 @@ def render_mode_selector() -> None:
 def handle_url_ingestion(loader, store: VectorStore) -> bool:
     """Show the URL input form and process any URL the user submits.
 
-    Fetches the URL, detects its file type, chunks the content, embeds the
-    chunks, and adds them to the live knowledge base.
+    When recursive crawl is enabled, the user can also set crawl depth,
+    maximum pages, and which document types to index.
 
     Args:
         loader: DocumentLoader — handles fetching and chunking the URL.
@@ -91,16 +94,64 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
     """
     needs_rerun = False
 
-    with st.expander("Add a URL to knowledge base", expanded=False):
+    with st.expander("🌐 Add a URL to knowledge base", expanded=False):
         with st.form('url_form', clear_on_submit=True):
             url_input = st.text_input(
                 "URL:",
                 placeholder="https://example.com/page  or  https://example.com/file.pdf",
             )
+
+            # ── Recursive crawl toggle ──────────────────────────────────────
+            use_recursive = st.checkbox(
+                "Recursive crawl",
+                value=False,
+                help="Follow links on the page and index linked pages too.",
+            )
+
+            # Crawl settings — only shown when recursive mode is on
+            crawl_depth    = URL_CRAWL_MAX_DEPTH
+            crawl_max_pages = URL_CRAWL_MAX_PAGES
+            allowed_types: Optional[set] = None
+
+            if use_recursive:
+                col_depth, col_pages = st.columns(2)
+                with col_depth:
+                    crawl_depth = st.number_input(
+                        "Depth",
+                        min_value=1, max_value=3, value=URL_CRAWL_MAX_DEPTH,
+                        help="How many link-levels deep to follow (1 = direct links only).",
+                    )
+                with col_pages:
+                    crawl_max_pages = st.number_input(
+                        "Max pages",
+                        min_value=1, max_value=50, value=URL_CRAWL_MAX_PAGES,
+                        help="Maximum total pages/documents to fetch and index.",
+                    )
+
+                # Document type filter — which types should be indexed during the crawl
+                st.markdown("**Index these types:**")
+                type_cols = st.columns(7)
+                type_labels = ['HTML', 'PDF', 'DOCX', 'XLSX', 'CSV', 'PPTX', 'MD']
+                type_keys   = ['html', 'pdf', 'docx', 'xlsx', 'csv', 'pptx', 'md']
+                checked_types = []
+                for col, label, key in zip(type_cols, type_labels, type_keys):
+                    with col:
+                        if st.checkbox(label, value=True, key=f'crawl_type_{key}'):
+                            checked_types.append(key)
+                allowed_types = set(checked_types) if checked_types else None
+
             submitted = st.form_submit_button("Fetch & index →")
 
         if submitted and url_input.strip():
-            _process_url(url_input.strip(), loader, store)
+            if use_recursive:
+                process_url_recursive(
+                    url_input.strip(), loader, store,
+                    depth=int(crawl_depth),
+                    max_pages=int(crawl_max_pages),
+                    allowed_types=allowed_types,
+                )
+            else:
+                process_url(url_input.strip(), loader, store)
             needs_rerun = True
 
         # Show the result message from the most recent URL submission
@@ -127,7 +178,7 @@ def handle_file_upload(loader, store: VectorStore) -> bool:
     """
     needs_rerun = False
 
-    with st.expander("Upload files or a folder to knowledge base", expanded=False):
+    with st.expander("📎 Upload files or a folder to knowledge base", expanded=False):
         st.caption("Select one file, multiple files, or all files from a folder at once.")
         uploaded_files = st.file_uploader(
             "Supported: PDF, TXT, DOCX, XLSX, PPTX, CSV, MD, HTML",
@@ -214,27 +265,6 @@ def handle_user_input(user_input: str, store: VectorStore) -> None:
     st.session_state.total += 1
 
 
-def render_sidebar(store: VectorStore, local_chunks: list) -> None:
-    """Render the right-hand sidebar: pipeline info, session stats, chunk counts.
-
-    Args:
-        store:        VectorStore — used to generate source labels for chunks.
-        local_chunks: All chunks loaded from the local ./docs folder.
-    """
-    st.markdown("### Pipeline")
-
-    if st.session_state.last:
-        pipeline_data = st.session_state.last['data']
-        if st.session_state.last['type'] == 'chat':
-            _render_pipeline_chat_info(pipeline_data, store)
-        else:
-            _render_pipeline_agent_info(pipeline_data)
-        st.markdown("---")
-
-    _render_session_stats(local_chunks)
-    _render_document_type_counts(local_chunks)
-
-
 # ── Private helpers ────────────────────────────────────────────────────────────
 
 
@@ -242,8 +272,7 @@ def _render_agent_tools_panel() -> None:
     """Show the agent tools reference card when agent mode is active."""
     st.markdown(
         """
-        <div style="background:#e8f4fd;border-left:3px solid #1565a0;
-                    border-radius:6px;padding:10px 14px;margin:8px 0;font-size:0.82rem;">
+        <div class="tools-panel">
         <b>🤖 Agent Tools Available</b><br><br>
         <b>🔍 rag_search</b> — search your documents<br>
         <i>e.g. "what skills does the resume mention?"</i><br><br>
@@ -258,45 +287,6 @@ def _render_agent_tools_panel() -> None:
         """,
         unsafe_allow_html=True,
     )
-
-
-def _process_url(url: str, loader, store: VectorStore) -> None:
-    """Fetch a URL, chunk it, and add the chunks to the knowledge base.
-
-    Updates st.session_state.url_msg with 'ok' or 'err' and a message string.
-
-    Args:
-        url:    The public URL to fetch.
-        loader: DocumentLoader — does the fetching and chunking.
-        store:  VectorStore   — stores the chunks and rebuilds BM25.
-    """
-    try:
-        with st.spinner(f"Fetching {url}..."):
-            new_chunks = loader.chunk_url(url)
-
-        if new_chunks:
-            with st.spinner(f"Embedding {len(new_chunks)} chunks..."):
-                store.add_chunks(new_chunks, id_prefix='url')
-
-            # BM25 must be rebuilt so the new chunks are included in keyword search
-            st.session_state.url_chunks.extend(new_chunks)
-            store.rebuild_bm25(store.chunks)
-            st.session_state.bm25_index = store.bm25_index
-
-            total_chunks = store.collection.count()
-            st.session_state.url_msg = (
-                'ok',
-                f"Added {len(new_chunks)} chunks. Total in knowledge base: {total_chunks}",
-            )
-        else:
-            st.session_state.url_msg = (
-                'err',
-                "Could not fetch or parse the URL. Check it is publicly accessible.",
-            )
-
-    except Exception as error:
-        logger.error("URL ingestion failed for '%s': %s", url, error, exc_info=True)
-        st.session_state.url_msg = ('err', f"Error fetching URL: {error}")
 
 
 def _process_uploaded_file(uploaded_file, loader, store: VectorStore) -> None:
@@ -441,105 +431,3 @@ def _pick_avatar(role: str) -> str:
     """
     avatars = {'user': '🧑', 'agent': '🤖', 'assistant': '💬'}
     return avatars.get(role, '💬')
-
-
-def _render_pipeline_chat_info(data: dict, store: VectorStore) -> None:
-    """Show query type badge, confidence badge, and pre/post rerank chunks.
-
-    Args:
-        data:  The result dict returned by store.run_pipeline().
-        store: VectorStore — used to generate human-readable source labels.
-    """
-    query_type    = data['query_type']
-    badge_class   = BADGE_CLASSES.get(query_type, 'b-gen')
-    st.markdown(f'<span class="badge {badge_class}">{query_type}</span>', unsafe_allow_html=True)
-
-    confidence_class = CONFIDENCE_BADGE[data['is_confident']]
-    confidence_label = (
-        f"conf:{data['best_score']:.2f}" if data['is_confident']
-        else f"low:{data['best_score']:.2f}"
-    )
-    st.markdown(f'<span class="badge {confidence_class}">{confidence_label}</span>', unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("**Before rerank**")
-    for chunk_entry, similarity_score in data['retrieved'][:4]:
-        source_label = store._source_label(chunk_entry)
-        st.markdown(
-            f'<div class="chunk"><span class="cs">{similarity_score:.3f}</span> '
-            f'<span class="src">[{chunk_entry["source"]} {source_label}]</span><br/>'
-            f'{chunk_entry["text"][:55]}...</div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("**After rerank**")
-    for chunk_entry, similarity_score, rerank_score in data['reranked']:
-        source_label = store._source_label(chunk_entry)
-        st.markdown(
-            f'<div class="chunk">'
-            f'<span class="cs">sim:{similarity_score:.2f} re:{rerank_score:.0f}</span> '
-            f'<span class="src">[{chunk_entry["source"]} {source_label}]</span><br/>'
-            f'{chunk_entry["text"][:55]}...</div>',
-            unsafe_allow_html=True,
-        )
-
-
-def _render_pipeline_agent_info(data: dict) -> None:
-    """Show a compact list of tool calls the agent made.
-
-    Args:
-        data: The result dict returned by agent.run().
-    """
-    st.markdown("**Agent Steps**")
-    for step in data['steps']:
-        st.markdown(
-            f'<div class="step">{step["step"]}. {step["tool"]}</div>',
-            unsafe_allow_html=True,
-        )
-
-
-def _render_session_stats(local_chunks: list) -> None:
-    """Show query count, memory turns, total chunks, URL chunks, and mode.
-
-    Args:
-        local_chunks: Chunks loaded from the local ./docs folder (not uploads).
-    """
-    url_chunk_count = len(st.session_state.url_chunks)
-    total_chunks    = len(local_chunks) + url_chunk_count
-
-    st.markdown("**Session**")
-    stats = [
-        ("Queries",    st.session_state.total),
-        ("Memory",     f"{len(st.session_state.conv) // 2} turns"),
-        ("Chunks",     total_chunks),
-        ("URL chunks", url_chunk_count),
-        ("Mode",       st.session_state.mode),
-    ]
-    for label, value in stats:
-        st.markdown(
-            f'<div class="stat">{label} <span class="sv">{value}</span></div>',
-            unsafe_allow_html=True,
-        )
-    st.markdown("---")
-
-
-def _render_document_type_counts(local_chunks: list) -> None:
-    """Show how many chunks belong to each document type (PDF, DOCX, etc.).
-
-    Args:
-        local_chunks: Chunks loaded from the local ./docs folder.
-    """
-    # Count how many chunks are from each document type
-    type_counts: dict = {}
-    for chunk in local_chunks:
-        document_type = chunk.get('type', '?')
-        type_counts[document_type] = type_counts.get(document_type, 0) + 1
-
-    st.markdown("**Document Types**")
-    for document_type, count in sorted(type_counts.items()):
-        st.markdown(
-            f'<div class="stat">{document_type.upper()} '
-            f'<span class="sv">{count}</span></div>',
-            unsafe_allow_html=True,
-        )
-    st.markdown("---")

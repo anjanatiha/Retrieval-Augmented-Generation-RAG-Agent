@@ -26,6 +26,7 @@ __all__ = [
     'SIMILARITY_THRESHOLD', 'TOP_RETRIEVE', 'TOP_RERANK',
     'TXT_CHUNK_SIZE', 'TXT_CHUNK_OVERLAP', 'PDF_CHUNK_SENTENCES',
     'DOCX_CHUNK_PARAS', 'PPTX_CHUNK_SLIDES', 'HTML_CHUNK_SENTENCES',
+    'URL_CRAWL_MAX_DEPTH', 'URL_CRAWL_MAX_PAGES',
 ]
 
 # ── Models ─────────────────────────────────────────────────────────────────────
@@ -126,3 +127,14 @@ PPTX_CHUNK_SLIDES    = 1
 
 # Number of sentences per sliding window for HTML pages
 HTML_CHUNK_SENTENCES = 5
+
+# ── Recursive URL crawl defaults ──────────────────────────────────────────────
+# These are default values only — the user can override both from the UI
+# when recursive crawl is enabled. Changing these does not affect single-page
+# URL fetching (chunk_url), only recursive crawl (chunk_url_recursive).
+
+# How many link-levels deep to follow from the seed URL (1 = direct links only)
+URL_CRAWL_MAX_DEPTH = 2
+
+# Maximum total pages to fetch and index in one recursive crawl session
+URL_CRAWL_MAX_PAGES = 25

@@ -26,7 +26,7 @@ import tempfile
 import gradio as gr
 
 from src.rag.agent import Agent
-from src.rag.config import EXT_TO_TYPE
+from src.rag.config import EXT_TO_TYPE, URL_CRAWL_MAX_DEPTH, URL_CRAWL_MAX_PAGES
 from src.rag.document_loader import DocumentLoader
 from src.rag.vector_store import VectorStore
 
@@ -294,6 +294,82 @@ def fetch_url(url: str, progress=None):
         )
 
 
+def fetch_url_recursive(url: str, depth: int, max_pages: int,
+                        use_html: bool, use_pdf: bool, use_docx: bool,
+                        use_xlsx: bool, use_csv: bool, use_pptx: bool,
+                        use_md: bool, progress=None):
+    """Crawl a seed URL recursively and index all discovered pages.
+
+    Args:
+        url:       The seed URL to crawl from.
+        depth:     How many link-levels deep to follow (1–3).
+        max_pages: Maximum total pages to fetch (1–50).
+        use_html, use_pdf, use_docx, use_xlsx, use_csv, use_pptx, use_md:
+                   Which document types to include in the crawl.
+        progress:  Optional gr.Progress() for a progress bar.
+
+    Returns:
+        Tuple of (status_message, chunk_counter_markdown).
+    """
+    if progress is None:
+        progress = gr.Progress()
+
+    loader, store = _initialize()
+
+    if not url or not url.strip():
+        return "No URL provided.", f"Chunks in knowledge base: {_chunk_count()}"
+
+    # Build the set of allowed document types from the checkboxes
+    type_map    = {'html': use_html, 'pdf': use_pdf, 'docx': use_docx,
+                   'xlsx': use_xlsx, 'csv': use_csv, 'pptx': use_pptx, 'md': use_md}
+    allowed     = {t for t, checked in type_map.items() if checked}
+    allowed_set = allowed if allowed else None   # None means "all types"
+
+    clean_url   = url.strip()
+    pages_done  = [0]   # mutable list so the callback can update it
+
+    def _progress_callback(page_url: str, dtype: str, chunk_count: int) -> None:
+        """Update the Gradio progress bar after each page is crawled."""
+        pages_done[0] += 1
+        # Progress is approximate — we don't know the total in advance
+        fraction = min(0.9, pages_done[0] / max(max_pages, 1))
+        short    = page_url[:60] + '...' if len(page_url) > 60 else page_url
+        progress(fraction, desc=f"[{dtype.upper()}] {short}")
+
+    try:
+        progress(0.05, desc="Starting crawl...")
+        new_chunks = loader.chunk_url_recursive(
+            clean_url,
+            depth=int(depth),
+            max_pages=int(max_pages),
+            allowed_types=allowed_set,
+            progress_callback=_progress_callback,
+        )
+
+        if new_chunks:
+            progress(0.92, desc=f"Embedding {len(new_chunks)} chunks on CPU — please wait...")
+            store.add_chunks(new_chunks, id_prefix='url')
+            progress(0.97, desc="Rebuilding search index...")
+            store.rebuild_bm25(store.chunks)
+            progress(1.0, desc="Done")
+            return (
+                f"✅ Crawled {pages_done[0]} pages — {len(new_chunks)} chunks added.",
+                f"Chunks in knowledge base: **{_chunk_count()}**",
+            )
+        else:
+            return (
+                "⚠️ No content extracted from crawl.",
+                f"Chunks in knowledge base: {_chunk_count()}",
+            )
+
+    except Exception as error:
+        logger.error("Recursive crawl failed for '%s': %s", clean_url, error, exc_info=True)
+        return (
+            f"❌ Crawl error: {error}",
+            f"Chunks in knowledge base: {_chunk_count()}",
+        )
+
+
 def clear_chat():
     """Reset the chat history and the store's conversation memory.
 
@@ -342,12 +418,90 @@ def _run_chat_mode(message: str, store: VectorStore):
 
 # ── Gradio UI builder ──────────────────────────────────────────────────────────
 
-# IBM Plex Mono stylesheet — preserved exactly from original
+# IBM Plex Mono stylesheet — polished to match Streamlit version
 _CSS = """
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap');
-.gradio-container { font-family: 'IBM Plex Sans', sans-serif; max-width: 1200px; margin: 0 auto; }
-.title { font-family: 'IBM Plex Mono', monospace; color: #1565a0; font-size: 1.8rem; font-weight: 600; }
-.subtitle { color: #7aafc8; font-size: 0.8rem; margin-bottom: 1rem; }
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap');
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+.gradio-container {
+    font-family: 'IBM Plex Sans', sans-serif;
+    max-width: 1200px;
+    margin: 0 auto;
+    background: #f8fbfd;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.rag-title {
+    font-family: 'IBM Plex Mono', monospace;
+    color: #1565a0;
+    font-size: 1.8rem;
+    font-weight: 600;
+    padding-left: .6rem;
+    border-left: 4px solid #1565a0;
+    margin-bottom: .25rem;
+}
+.rag-sub {
+    color: #7aafc8;
+    font-size: 0.75rem;
+    padding-left: .6rem;
+    margin-bottom: 1rem;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+/* ── Chatbot ─────────────────────────────────────────────────────────────── */
+.chatbot .message {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.92rem;
+    line-height: 1.6;
+    border-radius: 8px !important;
+}
+.chatbot .user { background: #eaf4fd !important; border: 1px solid #b3d4e8 !important; }
+.chatbot .bot  { background: #ffffff !important; border: 1px solid #daeaf4 !important; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+button.primary {
+    background: #1565a0 !important;
+    color: #ffffff !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-weight: 600 !important;
+    border: none !important;
+    border-radius: 6px !important;
+    transition: background .15s ease !important;
+}
+button.primary:hover { background: #0d47a1 !important; }
+button.secondary {
+    background: #ffffff !important;
+    color: #1565a0 !important;
+    border: 1px solid #1565a0 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-weight: 600 !important;
+    border-radius: 6px !important;
+}
+button.secondary:hover { background: #eaf4fd !important; }
+
+/* ── Accordions / panels ─────────────────────────────────────────────────── */
+.accordion {
+    border: 1px solid #b3d4e8 !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    margin-bottom: .5rem;
+}
+
+/* ── Text inputs ─────────────────────────────────────────────────────────── */
+input[type="text"], textarea {
+    font-family: 'IBM Plex Mono', monospace !important;
+    border: 1px solid #b3d4e8 !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+    color: #0d2b45 !important;
+}
+input[type="text"]:focus, textarea:focus {
+    border-color: #1565a0 !important;
+    box-shadow: 0 0 0 2px rgba(21,101,160,.2) !important;
+    outline: none !important;
+}
+
+/* ── Hide Gradio footer ──────────────────────────────────────────────────── */
 footer { display: none !important; }
 """
 
@@ -364,8 +518,8 @@ def build_demo():
     with gr.Blocks(css=_CSS, title="RAG Agent — Ask Your Documents") as demo:
 
         gr.HTML("""
-        <div class="title">Ask Your Documents</div>
-        <div class="subtitle">
+        <div class="rag-title">Ask Your Documents</div>
+        <div class="rag-sub">
             chunking · hybrid search · reranking · agent ·
             PDF · TXT · DOCX · XLSX · PPTX · CSV · MD · HTML · URL
         </div>
@@ -423,6 +577,36 @@ def build_demo():
                     )
                     url_btn = gr.Button("Fetch & index →", variant="secondary")
                     url_msg = gr.Markdown("")
+
+                with gr.Accordion("🕷️ Recursive web crawl", open=False):
+                    gr.Markdown(
+                        "Follow links on the page and index all discovered pages. "
+                        "⚠️ Depth 1, max 10 pages on HF free CPU to avoid timeout."
+                    )
+                    crawl_url_input = gr.Textbox(
+                        placeholder="https://example.com  (seed URL to start crawling from)",
+                        label="Seed URL",
+                    )
+                    with gr.Row():
+                        crawl_depth = gr.Slider(
+                            minimum=1, maximum=3, value=URL_CRAWL_MAX_DEPTH, step=1,
+                            label="Depth",
+                        )
+                        crawl_max_pages = gr.Slider(
+                            minimum=1, maximum=50, value=URL_CRAWL_MAX_PAGES, step=1,
+                            label="Max pages",
+                        )
+                    gr.Markdown("**Index these types:**")
+                    with gr.Row():
+                        crawl_html  = gr.Checkbox(value=True,  label="HTML")
+                        crawl_pdf   = gr.Checkbox(value=True,  label="PDF")
+                        crawl_docx  = gr.Checkbox(value=True,  label="DOCX")
+                        crawl_xlsx  = gr.Checkbox(value=True,  label="XLSX")
+                        crawl_csv   = gr.Checkbox(value=True,  label="CSV")
+                        crawl_pptx  = gr.Checkbox(value=True,  label="PPTX")
+                        crawl_md    = gr.Checkbox(value=True,  label="MD")
+                    crawl_btn = gr.Button("Start crawl →", variant="secondary")
+                    crawl_msg = gr.Markdown("")
 
             # ── Right column: pipeline info ────────────────────────────────
             with gr.Column(scale=1):
@@ -493,6 +677,25 @@ def build_demo():
             fn=_fetch,
             inputs=[url_input],
             outputs=[url_msg, chunk_counter, url_input],
+        )
+
+        def _crawl(url, depth, max_pages,
+                   use_html, use_pdf, use_docx, use_xlsx, use_csv, use_pptx, use_md):
+            """Wrapper that maps Gradio inputs to fetch_url_recursive and clears the URL box."""
+            status, counter = fetch_url_recursive(
+                url, depth, max_pages,
+                use_html, use_pdf, use_docx, use_xlsx, use_csv, use_pptx, use_md,
+            )
+            return status, counter, ""   # "" clears the crawl URL input
+
+        crawl_btn.click(
+            fn=_crawl,
+            inputs=[
+                crawl_url_input, crawl_depth, crawl_max_pages,
+                crawl_html, crawl_pdf, crawl_docx,
+                crawl_xlsx, crawl_csv, crawl_pptx, crawl_md,
+            ],
+            outputs=[crawl_msg, chunk_counter, crawl_url_input],
         )
 
         def _on_load(progress=None):

@@ -3,7 +3,7 @@
 import os
 import re
 import tempfile
-from typing import List
+from typing import Callable, List, Optional, Set
 from urllib.parse import urlparse
 
 from src.rag.config import (
@@ -13,6 +13,7 @@ from src.rag.config import (
     PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES,
 )
 from src.rag import chunkers
+from src.rag.url_utils import detect_url_type, build_source_name, extract_links
 
 __all__ = ['DocumentLoader']
 
@@ -216,7 +217,128 @@ class DocumentLoader:
                                 'type': 'html'})
         return result
 
+    def chunk_url_recursive(
+        self,
+        url: str,
+        depth: int = 1,
+        max_pages: int = 10,
+        allowed_types: Optional[Set[str]] = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> List[dict]:
+        """Crawl a seed URL and all linked pages up to a given depth.
+
+        Depth and max_pages are intentionally small on the HF Space (default 1/10)
+        because the free-tier CPU is shared and slow. Users can still increase them
+        from the UI if they choose.
+
+        Args:
+            url:               Seed URL to start crawling from.
+            depth:             How many link-levels deep to follow.
+            max_pages:         Maximum total pages/documents to fetch and index.
+            allowed_types:     Set of type strings to index, or None for all.
+            progress_callback: Optional callback(url, dtype, chunk_count) after each page.
+
+        Returns:
+            Flat list of all chunk dicts from every crawled URL.
+        """
+        visited: Set[str] = set()
+        all_chunks: List[dict] = []
+
+        self._crawl_url(
+            url.strip(), depth, max_pages,
+            allowed_types, visited, all_chunks, progress_callback,
+        )
+
+        print(f"\n  [CRAWL] Finished — {len(visited)} pages crawled, "
+              f"{len(all_chunks)} chunks total")
+        return all_chunks
+
     # ----------------------------------------------------------------- Private
+
+    def _crawl_url(
+        self,
+        url: str,
+        depth: int,
+        max_pages: int,
+        allowed_types: Optional[Set[str]],
+        visited: Set[str],
+        all_chunks: List[dict],
+        progress_callback: Optional[Callable],
+    ) -> None:
+        """Recursively fetch a URL and follow links up to the given depth.
+
+        See chunk_url_recursive() for full documentation. This internal helper
+        mutates the shared visited set and all_chunks list rather than returning
+        values, so progress is accumulated naturally across all recursive calls.
+
+        Args:
+            url:               Absolute URL to fetch.
+            depth:             Remaining link levels to follow.
+            max_pages:         Hard cap on total pages fetched.
+            allowed_types:     If set, only index pages whose type is in this set.
+            visited:           Shared set of already-fetched URLs (mutated in place).
+            all_chunks:        Shared accumulator for all chunks (mutated in place).
+            progress_callback: Optional callback after each page.
+        """
+        if url in visited or len(visited) >= max_pages:
+            return
+
+        visited.add(url)
+
+        try:
+            import requests
+        except ImportError:
+            print("  [WARNING] requests not installed.")
+            return
+
+        try:
+            response = requests.get(url, timeout=60, headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) '
+                              'Chrome/120.0.0.0 Safari/537.36'
+            }, allow_redirects=True, stream=True)
+            response.raise_for_status()
+            content = response.content
+        except Exception as fetch_error:
+            print(f"  [CRAWL] Could not fetch: {url} — {fetch_error}")
+            return
+
+        content_type = response.headers.get('Content-Type', '')
+        dtype        = detect_url_type(url, content, content_type, self.ext_to_type)
+        source_name  = build_source_name(url)
+
+        print(f"  [CRAWL] [{dtype.upper()}] {source_name}")
+
+        # Decode text content for text-based formats
+        text = None
+        if dtype not in ('pdf', 'docx', 'xlsx', 'pptx', 'xls'):
+            try:
+                text = content.decode(response.encoding or 'utf-8', errors='replace')
+            except Exception:
+                text = content.decode('utf-8', errors='replace')
+
+        # Only index if type passes the filter
+        chunks: List[dict] = []
+        if allowed_types is None or dtype in allowed_types:
+            # Reuse chunk_url for a single page — avoids duplicating chunking logic
+            chunks = self.chunk_url(url)
+            all_chunks.extend(chunks)
+
+        if progress_callback is not None:
+            progress_callback(url, dtype, len(chunks))
+
+        # Only recurse from HTML pages — documents have no crawlable links
+        if dtype != 'html' or depth <= 0 or text is None:
+            return
+
+        links = extract_links(text, url, self.ext_to_type)
+        for link in links:
+            if len(visited) >= max_pages:
+                break
+            self._crawl_url(
+                link, depth - 1, max_pages,
+                allowed_types, visited, all_chunks, progress_callback,
+            )
 
     def _dispatch_chunker(self, file_info: dict) -> List[dict]:
         """Route a file_info dict to the correct chunker function in chunkers.py.

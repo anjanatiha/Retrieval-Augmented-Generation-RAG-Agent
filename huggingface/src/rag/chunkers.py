@@ -25,6 +25,7 @@ __all__ = [
     'chunk_txt', 'chunk_md', 'chunk_pdf', 'chunk_docx',
     'chunk_xlsx', 'chunk_xls', 'chunk_csv', 'chunk_pptx',
     'chunk_html', 'truncate_chunk',
+    'chunk_txt_from_string', 'chunk_html_from_string',
 ]
 
 
@@ -448,6 +449,88 @@ def chunk_html(
         chunks.append({
             'text':       ' '.join(window),
             'source':     filename,
+            'start_line': i + 1,
+            'end_line':   i + len(window),
+            'type':       'html',
+        })
+    return chunks
+
+
+def chunk_txt_from_string(
+    text: str,
+    source_name: str,
+    chunk_size: int = TXT_CHUNK_SIZE,
+    overlap: int = TXT_CHUNK_OVERLAP,
+) -> List[dict]:
+    """Chunk a decoded plain-text string using a sliding line window.
+
+    Used when content has already been decoded from a URL response — no file on disk.
+
+    Args:
+        text:        Decoded text string to chunk.
+        source_name: Short citation label (e.g. 'example.com/page').
+        chunk_size:  Number of lines per chunk window.
+        overlap:     Number of lines shared between consecutive windows.
+
+    Returns:
+        List of chunk dicts with keys: text, source, start_line, end_line, type.
+    """
+    lines  = [line.strip() for line in text.splitlines() if line.strip()]
+    step   = max(1, chunk_size - overlap)
+    chunks = []
+    for i in range(0, len(lines), step):
+        window = lines[i: i + chunk_size]
+        if not window:
+            continue
+        chunks.append({
+            'text':       ' '.join(window),
+            'source':     source_name,
+            'start_line': i + 1,
+            'end_line':   i + len(window),
+            'type':       'txt',
+        })
+    return chunks
+
+
+def chunk_html_from_string(
+    html_string: str,
+    source_name: str,
+    sentences_per_chunk: int = HTML_CHUNK_SENTENCES,
+) -> List[dict]:
+    """Chunk a decoded HTML string using BeautifulSoup tag stripping and sentence windows.
+
+    Used when content has already been decoded from a URL response — no file on disk.
+
+    Args:
+        html_string:         Decoded HTML string.
+        source_name:         Short citation label (e.g. 'example.com/page').
+        sentences_per_chunk: Number of sentences per chunk window.
+
+    Returns:
+        List of chunk dicts with type='html'. Empty list on parse error.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("  [WARNING] beautifulsoup4 not installed. pip install beautifulsoup4")
+        return []
+
+    try:
+        soup = BeautifulSoup(html_string, 'html.parser')
+    except Exception as error:
+        print(f"  [ERROR] Could not parse HTML from '{source_name}': {error}")
+        return []
+
+    text      = soup.get_text(separator=' ', strip=True)
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+    chunks    = []
+    for i in range(0, len(sentences), sentences_per_chunk):
+        window = sentences[i: i + sentences_per_chunk]
+        if not window:
+            continue
+        chunks.append({
+            'text':       ' '.join(window),
+            'source':     source_name,
             'start_line': i + 1,
             'end_line':   i + len(window),
             'type':       'html',
