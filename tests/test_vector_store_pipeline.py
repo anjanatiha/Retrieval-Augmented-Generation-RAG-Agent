@@ -17,15 +17,16 @@ rerank_prompt (reranker module), _filter_hallucination, _build_instruction_promp
 live in test_vector_store.py.
 """
 
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def store():

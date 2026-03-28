@@ -19,14 +19,11 @@ live in test_vector_store_pipeline.py.
 """
 
 import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
-from unittest.mock import MagicMock, patch
-
 
 # ---------------------------------------------------------------------------
 # Fixture
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def store():

@@ -43,8 +43,8 @@ def initialize() -> Tuple[DocumentLoader, VectorStore]:
     for document_type, folder_path in DOC_FOLDERS.items():
         print(f"    {document_type.upper():<8} → {folder_path}/")
     print(f"  Vector DB:  ChromaDB (persistent @ {CHROMA_DIR})")
-    print(f"  Reranker:   LLM-based (document type-aware)")
-    print(f"  Misplaced file detection: ENABLED")
+    print("  Reranker:   LLM-based (document type-aware)")
+    print("  Misplaced file detection: ENABLED")
     print("=" * 60 + "\n")
 
     loader = DocumentLoader()
