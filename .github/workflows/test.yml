@@ -57,6 +57,11 @@ jobs:
       - name: Install dev dependencies
         run: pip install pytest pytest-cov pytest-mock
 
+      # Install the package itself (no deps — already installed above)
+      # so that `from src.rag import ...` imports work in tests
+      - name: Install package in editable mode
+        run: pip install -e . --no-deps
+
       - name: Run local tests with coverage
         run: pytest tests/ --cov=src --cov-report=term-missing -v
 
