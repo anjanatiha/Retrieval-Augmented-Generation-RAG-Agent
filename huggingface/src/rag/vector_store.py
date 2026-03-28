@@ -112,6 +112,7 @@ class VectorStore:
         """Initialise all state to empty — call build_or_load() before querying."""
         self.collection          = None
         self.chunks              = []
+        self._local_chunks       = []   # snapshot of local-doc chunks set at build time
         self.bm25_index          = None
         self.conversation_history = []
 
@@ -145,9 +146,10 @@ class VectorStore:
                 collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
             print(f"Ready — {collection.count()} chunks stored.\n")
 
-        self.collection = collection
-        self.chunks     = list(chunks)
-        self.bm25_index = BM25Okapi([c['text'].lower().split() for c in chunks]) if chunks else None
+        self.collection    = collection
+        self.chunks        = list(chunks)
+        self._local_chunks = list(chunks)   # frozen snapshot — used by clear_added_chunks()
+        self.bm25_index    = BM25Okapi([c['text'].lower().split() for c in chunks]) if chunks else None
 
     def add_chunks(self, chunks, id_prefix):
         """Add new chunks from a URL or file upload to the live collection.
@@ -243,6 +245,27 @@ class VectorStore:
             'retrieved':    retrieved,
             'reranked':     reranked,
         }
+
+    def clear_added_chunks(self) -> int:
+        """Remove all URL and file-upload chunks added at runtime.
+
+        Deletes every chunk whose ChromaDB ID starts with 'url_' or 'file_'
+        (the prefixes used by add_chunks()). Local document chunks — loaded
+        at startup — are kept. BM25 is rebuilt from the remaining local chunks.
+
+        Returns:
+            Number of chunks removed.
+        """
+        all_ids     = self.collection.get()['ids']
+        runtime_ids = [id_ for id_ in all_ids
+                       if id_.startswith('url_') or id_.startswith('file_')]
+
+        if runtime_ids:
+            self.collection.delete(ids=runtime_ids)
+
+        self.chunks     = list(self._local_chunks)
+        self.bm25_index = BM25Okapi([c['text'].lower().split() for c in self.chunks]) if self.chunks else None
+        return len(runtime_ids)
 
     def clear_conversation(self):
         """Wipe the multi-turn conversation history so the next query starts fresh."""

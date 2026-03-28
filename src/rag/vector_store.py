@@ -41,6 +41,7 @@ class VectorStore:
         """Initialise all state to empty; call build_or_load() before querying."""
         self.collection          = None
         self.chunks              = []
+        self._local_chunks       = []   # snapshot of local-doc chunks set at build time
         self.bm25_index          = None
         self.conversation_history = []
 
@@ -80,9 +81,10 @@ class VectorStore:
                 print(f"  Stored {min(i+batch_size, len(chunks))}/{len(chunks)}", end='\r')
             print(f"\nChromaDB ready — {collection.count()} chunks stored.\n")
 
-        self.collection = collection
-        self.chunks     = chunks
-        self.bm25_index = BM25Okapi([c['text'].lower().split() for c in chunks])
+        self.collection    = collection
+        self.chunks        = chunks
+        self._local_chunks = list(chunks)   # frozen snapshot — used by clear_added_chunks()
+        self.bm25_index    = BM25Okapi([c['text'].lower().split() for c in chunks])
 
     def add_chunks(self, chunks, id_prefix):
         """Add new chunks (e.g. from URL ingestion) to the live collection."""
@@ -203,6 +205,32 @@ class VectorStore:
             full += c
         print()
         return full
+
+    def clear_added_chunks(self) -> int:
+        """Remove all URL and file-upload chunks added at runtime.
+
+        Deletes every chunk whose ChromaDB ID starts with 'url_' or 'file_'
+        (the prefixes used by add_chunks()). Local document chunks — loaded
+        from ./docs/ at startup — are kept. BM25 is rebuilt from the remaining
+        local chunks.
+
+        Returns:
+            Number of chunks removed.
+        """
+        # Get all IDs currently in the collection
+        all_ids     = self.collection.get()['ids']
+        runtime_ids = [id_ for id_ in all_ids
+                       if id_.startswith('url_') or id_.startswith('file_')]
+
+        # Delete runtime chunks from ChromaDB
+        if runtime_ids:
+            self.collection.delete(ids=runtime_ids)
+
+        # Reset the in-memory chunk list to the local-only snapshot
+        self.chunks = list(self._local_chunks)
+        self.rebuild_bm25(self.chunks)
+
+        return len(runtime_ids)
 
     def clear_conversation(self):
         """Reset multi-turn conversation history so the next query starts fresh."""

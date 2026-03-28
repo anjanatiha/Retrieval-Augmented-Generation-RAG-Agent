@@ -384,6 +384,30 @@ def clear_chat():
     return [], ""
 
 
+def clear_added_chunks():
+    """Remove all URL and file-upload chunks from the knowledge base.
+
+    Keeps local document chunks (loaded at startup). Rebuilds BM25 from
+    the remaining local chunks only.
+
+    Returns:
+        Tuple of (status_message, chunk_counter_markdown).
+    """
+    if _store is None:
+        return "⚠️ Not initialised yet.", f"Chunks in knowledge base: 0"
+
+    removed = _store.clear_added_chunks()
+    if removed > 0:
+        return (
+            f"✅ Removed {removed} chunks. Knowledge base reset to local documents.",
+            f"Chunks in knowledge base: **{_chunk_count()}**",
+        )
+    return (
+        "ℹ️ No URL or file-upload chunks to remove.",
+        f"Chunks in knowledge base: **{_chunk_count()}**",
+    )
+
+
 # ── Private pipeline runners ───────────────────────────────────────────────────
 
 
@@ -619,8 +643,10 @@ def build_demo():
             # ── Right column: pipeline info ────────────────────────────────
             with gr.Column(scale=1):
 
-                startup_status = gr.Markdown(value="⏳ Initializing...", label="")
-                chunk_counter  = gr.Markdown(value="Chunks in knowledge base: **0**", label="")
+                startup_status    = gr.Markdown(value="⏳ Initializing...", label="")
+                chunk_counter     = gr.Markdown(value="Chunks in knowledge base: **0**", label="")
+                clear_chunks_btn  = gr.Button("🗑 Clear added content", variant="secondary", size="sm")
+                clear_chunks_msg  = gr.Markdown("")
 
                 gr.Markdown("### Agent Tools")
                 gr.Markdown("""
@@ -664,6 +690,10 @@ def build_demo():
             outputs=[chatbot, pipeline_box, msg_box],
         )
         clear_btn.click(fn=clear_chat, outputs=[chatbot, pipeline_box])
+        clear_chunks_btn.click(
+            fn=clear_added_chunks,
+            outputs=[clear_chunks_msg, chunk_counter],
+        )
 
         def _upload(file_objs):
             """Thin wrapper to map upload_file outputs to Gradio components."""

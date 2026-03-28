@@ -16,7 +16,7 @@ import streamlit as st
 from src.rag.vector_store import VectorStore
 from src.ui.theme import BADGE_CLASSES, CONFIDENCE_BADGE
 
-__all__ = ['render_sidebar']
+__all__ = ['render_sidebar', 'render_clear_added_chunks_button']
 
 
 def render_sidebar(store: VectorStore, local_chunks: list) -> None:
@@ -36,6 +36,7 @@ def render_sidebar(store: VectorStore, local_chunks: list) -> None:
             _render_pipeline_agent_info(pipeline_data)
         st.markdown("---")
 
+    render_clear_added_chunks_button(store)
     _render_session_stats(local_chunks)
     _render_document_type_counts(local_chunks)
 
@@ -93,6 +94,35 @@ def _render_pipeline_agent_info(data: dict) -> None:
             f'<div class="step">{step["step"]}. {step["tool"]}</div>',
             unsafe_allow_html=True,
         )
+
+
+def render_clear_added_chunks_button(store: VectorStore) -> None:
+    """Show a button to remove all URL and file-upload chunks from the knowledge base.
+
+    Only visible when there are runtime chunks to remove. Clicking it calls
+    store.clear_added_chunks(), resets session state, and reruns the page.
+    Local document chunks (loaded from ./docs/ at startup) are never removed.
+
+    Args:
+        store: VectorStore — used to remove chunks and rebuild the index.
+    """
+    url_chunk_count = len(st.session_state.url_chunks)
+    if url_chunk_count == 0:
+        return   # Nothing to clear — hide the button
+
+    st.markdown("---")
+    if st.button(
+        f"🗑 Clear added content ({url_chunk_count} chunks)",
+        use_container_width=True,
+        help="Removes all URL and file-upload chunks. Local docs are kept.",
+    ):
+        removed = store.clear_added_chunks()
+        st.session_state.url_chunks  = []
+        st.session_state.bm25_index  = None
+        st.session_state.url_msg     = None
+        st.session_state.file_msg    = None
+        st.toast(f"Removed {removed} chunks. Knowledge base reset to local docs.")
+        st.rerun()
 
 
 def _render_session_stats(local_chunks: list) -> None:
