@@ -304,6 +304,10 @@ Results are saved to `benchmark_results.json`, `benchmark_results.csv`, and `too
 
 ## Streamlit UI
 
+**Overview:**
+
+![Streamlit Overview](assets/streamlit_rag.png)
+
 **Chat view:**
 
 ![Streamlit Chat](assets/streamlit_rag_before.png)
