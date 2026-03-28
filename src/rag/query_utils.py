@@ -86,13 +86,16 @@ def build_instruction_prompt(context: str, query_type: str = 'factual') -> str:
     }
     length_hint = _length_hints.get(query_type, '2-3 sentences')
     return (
-        "You are a document question-answering assistant.\n"
+        "You are a document question-answering assistant in a multi-turn conversation.\n"
         "Answer the question using ONLY the context passages provided below.\n"
         "STRICT RULES:\n"
         "- Do NOT use your training data or general knowledge under any circumstances.\n"
         "- If the context does not contain the answer, say exactly: "
         "'The provided documents do not contain information about this topic.'\n"
         "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
+        "- You MAY use prior conversation turns to resolve references such as pronouns "
+        "('she', 'it', 'that document') or follow-up phrases ('what about her role?'), "
+        "but all factual claims must come from the CONTEXT passages below.\n"
         f"- Answer in {length_hint}.\n"
         "- At the end of your answer, cite ONLY the bracketed source labels from the context "
         "(e.g. [filename.pdf p3] or [example.com/page s12]). "
