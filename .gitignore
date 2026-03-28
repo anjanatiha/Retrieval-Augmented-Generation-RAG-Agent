@@ -6,6 +6,8 @@ chroma_db/
 
 # Generated logs and results
 rag_logs.json
+debug.log
+*.log
 benchmark_results.json
 benchmark_results.csv
 tool_benchmark_results.json
