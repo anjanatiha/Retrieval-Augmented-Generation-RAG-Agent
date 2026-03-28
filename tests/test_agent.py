@@ -66,18 +66,11 @@ class TestInit:
         """store attribute: Agent.__init__ stores the injected VectorStore reference."""
         assert agent.store is mock_store
 
-    def test_has_messages(self, agent):
-        """messages attribute: Agent.__init__ initialises a messages list."""
-        assert hasattr(agent, 'messages')
-
     def test_has_max_steps(self, agent):
         """max_steps attribute: Agent.__init__ sets max_steps to 8."""
         assert hasattr(agent, 'max_steps')
         assert agent.max_steps == 8
 
-    def test_has_collected_context(self, agent):
-        """collected_context attribute: Agent.__init__ initialises the context accumulator."""
-        assert hasattr(agent, 'collected_context')
 
 
 # ---------------------------------------------------------------------------

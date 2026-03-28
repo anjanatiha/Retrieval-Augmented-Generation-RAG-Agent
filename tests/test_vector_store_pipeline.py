@@ -13,7 +13,7 @@ Never mock: BM25Okapi, cosine_similarity.
 Reason for split: max 500 lines per file per CLAUDE.md.
 Core stateless methods (_truncate_for_embedding, _cosine_similarity,
 _classify_query, _smart_top_n, _check_confidence, _source_label,
-_rerank_prompt, _filter_hallucination, _build_instruction_prompt)
+rerank_prompt (reranker module), _filter_hallucination, _build_instruction_prompt)
 live in test_vector_store.py.
 """
 

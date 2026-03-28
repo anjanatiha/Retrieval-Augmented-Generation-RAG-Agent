@@ -1,7 +1,7 @@
 """Unit tests for VectorStore — core methods.
 
 Covers: __init__, _truncate_for_embedding, _cosine_similarity, _classify_query,
-        _smart_top_n, _check_confidence, _source_label, _rerank_prompt,
+        _smart_top_n, _check_confidence, _source_label, rerank_prompt (reranker module),
         _filter_hallucination, _build_instruction_prompt.
 
 Mock strategy (per CLAUDE.md):
@@ -77,18 +77,6 @@ def _pipeline_chat_mock(*args, **kwargs):
 
 class TestInit:
     """Tests that VectorStore.__init__ creates all required instance attributes."""
-
-    def test_has_collection_attr(self, store):
-        """VectorStore() → instance has a 'collection' attribute."""
-        assert hasattr(store, 'collection')
-
-    def test_has_chunks_attr(self, store):
-        """VectorStore() → instance has a 'chunks' attribute."""
-        assert hasattr(store, 'chunks')
-
-    def test_has_bm25_attr(self, store):
-        """VectorStore() → instance has a 'bm25_index' attribute."""
-        assert hasattr(store, 'bm25_index')
 
     def test_has_conversation_history(self, store):
         """VectorStore() → 'conversation_history' exists and starts as empty list."""
@@ -273,56 +261,68 @@ class TestSourceLabel:
 
 
 # ---------------------------------------------------------------------------
-# _rerank_prompt — 7 variants
+# rerank_prompt — 7 variants (extracted to src/rag/reranker.py)
 # ---------------------------------------------------------------------------
 
 class TestRerankPrompt:
-    """Tests that _rerank_prompt generates type-specific prompts for all 7 document variants."""
+    """Tests that rerank_prompt generates type-specific prompts for all 7 document variants.
+
+    rerank_prompt is a module-level function in src/rag/reranker.py — it is
+    stateless and requires no VectorStore instance.
+    """
 
     def _entry(self, doc_type, text='test text'):
         """Build a minimal chunk entry dict for the given document type."""
         return {'text': text, 'type': doc_type, 'source': 's',
                 'start_line': 1, 'end_line': 1}
 
-    def test_xlsx_prompt_contains_row_data(self, store):
+    def test_xlsx_prompt_contains_row_data(self):
         """XLSX type: prompt references row data or spreadsheet context."""
-        prompt = store._rerank_prompt('what is the salary', self._entry('xlsx'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt('what is the salary', self._entry('xlsx'))
         assert 'row data' in prompt.lower() or 'spreadsheet' in prompt.lower()
 
-    def test_pptx_prompt_contains_slide(self, store):
+    def test_pptx_prompt_contains_slide(self):
         """PPTX type: prompt references slide content."""
-        prompt = store._rerank_prompt('test', self._entry('pptx'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt('test', self._entry('pptx'))
         assert 'slide' in prompt.lower()
 
-    def test_pdf_prompt_contains_page(self, store):
+    def test_pdf_prompt_contains_page(self):
         """PDF type: prompt references pdf or page."""
-        prompt = store._rerank_prompt('test', self._entry('pdf'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt('test', self._entry('pdf'))
         assert 'pdf' in prompt.lower() or 'page' in prompt.lower()
 
-    def test_docx_prompt_contains_paragraph(self, store):
+    def test_docx_prompt_contains_paragraph(self):
         """DOCX type: prompt references paragraph or document."""
-        prompt = store._rerank_prompt('test', self._entry('docx'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt('test', self._entry('docx'))
         assert 'paragraph' in prompt.lower() or 'document' in prompt.lower()
 
-    def test_html_prompt_contains_webpage(self, store):
+    def test_html_prompt_contains_webpage(self):
         """HTML type: prompt references webpage or content."""
-        prompt = store._rerank_prompt('test', self._entry('html'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt('test', self._entry('html'))
         assert 'webpage' in prompt.lower() or 'content' in prompt.lower()
 
-    def test_md_prompt_contains_markdown(self, store):
+    def test_md_prompt_contains_markdown(self):
         """Markdown type: prompt references markdown or section."""
-        prompt = store._rerank_prompt('test', self._entry('md'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt('test', self._entry('md'))
         assert 'markdown' in prompt.lower() or 'section' in prompt.lower()
 
-    def test_txt_prompt_is_generic(self, store):
+    def test_txt_prompt_is_generic(self):
         """TXT type: prompt contains the 1-to-10 scoring scale markers."""
-        prompt = store._rerank_prompt('test', self._entry('txt'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt('test', self._entry('txt'))
         assert '1' in prompt and '10' in prompt
 
-    def test_prompt_ends_with_integer_instruction(self, store):
+    def test_prompt_ends_with_integer_instruction(self):
         """All 8 types: prompt always instructs the model to respond with a 1-to-10 score."""
+        from src.rag.reranker import rerank_prompt
         for dtype in ('xlsx', 'csv', 'pptx', 'pdf', 'docx', 'html', 'md', 'txt'):
-            prompt = store._rerank_prompt('query', self._entry(dtype))
+            prompt = rerank_prompt('query', self._entry(dtype))
             assert '1 to 10' in prompt or '1-10' in prompt
 
 

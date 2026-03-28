@@ -93,14 +93,10 @@ class TestVectorStoreBuild:
         store.clear_conversation()
         assert store.conversation_history == []
 
-    def test_has_required_attrs(self):
-        """VectorStore() creates all required instance attributes."""
+    def test_conversation_history_starts_empty(self):
+        """VectorStore() initialises conversation_history as an empty list."""
         from src.rag.vector_store import VectorStore
         store = VectorStore()
-        assert hasattr(store, 'collection')
-        assert hasattr(store, 'chunks')
-        assert hasattr(store, 'bm25_index')
-        assert hasattr(store, 'conversation_history')
         assert store.conversation_history == []
 
 

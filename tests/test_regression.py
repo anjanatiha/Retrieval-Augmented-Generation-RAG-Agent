@@ -204,11 +204,14 @@ class TestAgentSystemPromptRegression:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRerankPromptRegression:
-    """Regression: _rerank_prompt must produce a type-specific keyword and a numeric scale.
+    """Regression: rerank_prompt must produce a type-specific keyword and a numeric scale.
 
     Seven doc-type branches exist (pdf, docx, xlsx/csv, pptx, html, md, txt/default).
     Each prompt must mention a domain word unique to that type AND include the
     phrase '1 to 10' so the LLM knows the scale.
+
+    rerank_prompt is a module-level function in src/rag/reranker.py — no VectorStore
+    instance is needed.
     """
 
     # (doc_type, expected_keyword, description)
@@ -223,12 +226,6 @@ class TestRerankPromptRegression:
         ('txt',   '1-10',         'generic txt/fallback prompt'),
     ]
 
-    @pytest.fixture(autouse=True)
-    def _setup(self) -> None:
-        """Create a bare VectorStore for calling _rerank_prompt."""
-        from src.rag.vector_store import VectorStore
-        self.store = VectorStore()
-
     def _make_entry(self, doc_type: str) -> dict:
         """Return a minimal chunk entry dict for the given doc_type."""
         return {
@@ -239,9 +236,10 @@ class TestRerankPromptRegression:
 
     def test_each_variant_has_numeric_scale(self) -> None:
         """Every doc-type variant contains '1 to 10' to indicate the scoring scale."""
+        from src.rag.reranker import rerank_prompt
         for doc_type, _, _ in self.VARIANTS:
             entry = self._make_entry(doc_type)
-            prompt = self.store._rerank_prompt('test query', entry)
+            prompt = rerank_prompt('test query', entry)
             assert '1 to 10' in prompt, (
                 f"Numeric scale '1 to 10' missing from {doc_type!r} rerank prompt"
             )
@@ -251,8 +249,9 @@ class TestRerankPromptRegression:
         self, doc_type: str, keyword: str, desc: str
     ) -> None:
         """Each doc-type prompt contains its expected type-specific keyword."""
+        from src.rag.reranker import rerank_prompt
         entry = self._make_entry(doc_type)
-        prompt = self.store._rerank_prompt('test query', entry)
+        prompt = rerank_prompt('test query', entry)
         assert keyword in prompt, (
             f"Expected keyword {keyword!r} not found in {doc_type!r} rerank prompt. "
             f"Description: {desc}"
@@ -260,10 +259,11 @@ class TestRerankPromptRegression:
 
     def test_query_embedded_in_all_prompts(self) -> None:
         """The original user query appears in every rerank prompt variant."""
+        from src.rag.reranker import rerank_prompt
         query = 'unique_sentinel_query_42'
         for doc_type, _, _ in self.VARIANTS:
             entry = self._make_entry(doc_type)
-            prompt = self.store._rerank_prompt(query, entry)
+            prompt = rerank_prompt(query, entry)
             assert query in prompt, (
                 f"User query not embedded in {doc_type!r} rerank prompt"
             )

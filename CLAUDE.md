@@ -903,3 +903,16 @@ Any feature that affects the user's workflow (e.g. topic filter, depth slider, d
 - Do not mock `ollama.embeddings` — mock `ollama.embed`
 - Do not remove the deferred `_needs_rerun` pattern
 - Do not hardcode constants — always import from `config.py`
+
+---
+
+## Virtual Environment
+
+All Python commands — `pytest`, `python main.py`, `streamlit run app.py`, `pip install` — must be run inside the project virtual environment:
+
+```bash
+source rag_env_311/bin/activate        # Mac/Linux
+rag_env_311\Scripts\activate           # Windows
+```
+
+The venv is located at `./rag_env_311/` in the repo root. Never run commands against the system Python or any other interpreter — the system Python will not have the project's dependencies installed.

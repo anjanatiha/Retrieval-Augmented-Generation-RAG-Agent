@@ -184,13 +184,11 @@ class TestLowConfidencePipeline:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRerankPrompts:
-    """Tests for VectorStore._rerank_prompt — 7 doc-type-specific prompt variants."""
+    """Tests for rerank_prompt (src/rag/reranker.py) — 7 doc-type-specific prompt variants.
 
-    def setup_method(self):
-        """Build an empty VectorStore to access the rerank prompt generator."""
-        from src.rag.vector_store import VectorStore
-        self.store = VectorStore()
-        self.store.build_or_load([])
+    The HF VectorStore uses a cross-encoder for reranking, not LLM prompts,
+    so rerank_prompt is tested here directly as a module function.
+    """
 
     def _entry(self, doc_type: str) -> dict:
         """Return a minimal chunk entry dict for the given doc type."""
@@ -199,49 +197,58 @@ class TestRerankPrompts:
 
     def test_xlsx_prompt(self):
         """xlsx prompt mentions 'spreadsheet' and uses 1-to-10 scoring scale."""
-        prompt = self.store._rerank_prompt("query", self._entry('xlsx'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt("query", self._entry('xlsx'))
         assert 'spreadsheet' in prompt.lower()
         assert '1 to 10' in prompt
 
     def test_csv_prompt(self):
         """csv prompt also uses the spreadsheet variant."""
-        prompt = self.store._rerank_prompt("query", self._entry('csv'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt("query", self._entry('csv'))
         assert 'spreadsheet' in prompt.lower()
 
     def test_pptx_prompt(self):
         """pptx prompt references slides."""
-        prompt = self.store._rerank_prompt("query", self._entry('pptx'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt("query", self._entry('pptx'))
         assert 'slide' in prompt.lower()
 
     def test_pdf_prompt(self):
         """pdf prompt references PDF or page."""
-        prompt = self.store._rerank_prompt("query", self._entry('pdf'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt("query", self._entry('pdf'))
         assert 'pdf' in prompt.lower() or 'page' in prompt.lower()
 
     def test_docx_prompt(self):
         """docx prompt references paragraph or document."""
-        prompt = self.store._rerank_prompt("query", self._entry('docx'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt("query", self._entry('docx'))
         assert 'paragraph' in prompt.lower() or 'document' in prompt.lower()
 
     def test_html_prompt(self):
         """html prompt references webpage."""
-        prompt = self.store._rerank_prompt("query", self._entry('html'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt("query", self._entry('html'))
         assert 'webpage' in prompt.lower()
 
     def test_md_prompt(self):
         """md prompt references markdown."""
-        prompt = self.store._rerank_prompt("query", self._entry('md'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt("query", self._entry('md'))
         assert 'markdown' in prompt.lower()
 
     def test_default_prompt(self):
         """txt falls through to the default prompt with a 1-to-10 numeric scale."""
-        prompt = self.store._rerank_prompt("query", self._entry('txt'))
+        from src.rag.reranker import rerank_prompt
+        prompt = rerank_prompt("query", self._entry('txt'))
         assert '1-10' in prompt or '1 to 10' in prompt
 
     def test_all_prompts_have_scale(self):
         """All 8 types produce a prompt that instructs 1-to-10 scoring."""
+        from src.rag.reranker import rerank_prompt
         for dtype in ('xlsx', 'csv', 'pptx', 'pdf', 'docx', 'html', 'md', 'txt'):
-            prompt = self.store._rerank_prompt("query", self._entry(dtype))
+            prompt = rerank_prompt("query", self._entry(dtype))
             assert '1 to 10' in prompt or '1-10' in prompt, (
                 f"Missing scoring scale in {dtype} prompt"
             )

@@ -39,6 +39,8 @@ Agent tool benchmarks (calculator, sentiment, summarise, translate, topic_search
 
 The 4 terminal print functions (`print_per_query_table`, `print_summary_table`, `print_by_query_type`, `format_run_comparison`) were extracted to `benchmark_report.py` when `benchmarker.py` exceeded the 500-line limit. All 4 functions are stateless — they only use the dicts passed to them — so they belong in a module, not a class.
 
+The single `rerank_prompt(query, entry)` function was extracted to `reranker.py` when `vector_store.py` exceeded the 500-line limit. It is a pure function — takes a query and chunk entry, returns a prompt string — with no dependency on `VectorStore` state. Extracting it reduced `vector_store.py` from 527 to 473 lines while keeping the 7 prompt variants in one focused module.
+
 ---
 
 ## Why Tools Are Private Methods on Agent, Not Separate Classes
@@ -107,6 +109,8 @@ A generic reranker prompt scores all chunks the same way. This works poorly for 
 - A CSV row without column headers is meaningless unless framed correctly.
 
 The type-aware reranker uses 7 different prompts — one per document type — that frame the content appropriately. The xlsx/csv prompt says "does this **spreadsheet row** contain relevant information?" The pptx prompt says "does this **presentation slide** contain relevant information?" This framing dramatically improves reranking accuracy on structured data.
+
+The 7 prompt variants live in `src/rag/reranker.py` as a single public function `rerank_prompt(query, entry)`. `VectorStore._rerank()` calls it once per candidate chunk. The HF deployment uses a cross-encoder instead of LLM prompts for reranking (faster on serverless), so HF's `vector_store.py` does not import `reranker.py` — but the module exists in the HF codebase for test parity.
 
 ---
 

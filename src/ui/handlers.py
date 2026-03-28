@@ -18,6 +18,7 @@ import streamlit as st
 
 from src.rag.agent import Agent
 from src.rag.config import URL_CRAWL_MAX_DEPTH, URL_CRAWL_MAX_PAGES
+from src.rag.document_loader import DocumentLoader
 from src.rag.vector_store import VectorStore
 from src.ui.ingestion import process_url, process_url_recursive
 from src.ui.renderers import _format_agent_steps_html
@@ -26,12 +27,32 @@ from src.ui.sidebar import render_sidebar
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    'initialize',
     'handle_url_ingestion',
     'handle_file_upload',
     'handle_topic_search',
     'handle_user_input',
     'render_sidebar',
 ]
+
+
+@st.cache_resource
+def initialize() -> tuple:
+    """Load documents and build the vector index once, then cache the result.
+
+    Called once at app startup. The @st.cache_resource decorator ensures
+    Streamlit does not re-run this on every page interaction — only on the
+    first load or after a server restart.
+
+    Returns:
+        Tuple of (DocumentLoader, VectorStore) ready for use.
+    """
+    loader = DocumentLoader()
+    loader.ensure_folders()
+    chunks = loader.chunk_all_documents()
+    store  = VectorStore()
+    store.build_or_load(chunks)
+    return loader, store
 
 
 def handle_url_ingestion(loader, store: VectorStore) -> bool:

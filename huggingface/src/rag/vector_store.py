@@ -384,60 +384,6 @@ class VectorStore:
         scored.sort(key=lambda x: x[2], reverse=True)
         return scored[:top_n]
 
-    def _rerank_prompt(self, query, entry):
-        """Returns a reranking prompt tailored to the document type."""
-        text     = entry['text']
-        doc_type = entry.get('type', 'txt')
-
-        if doc_type in ('xlsx', 'csv'):
-            return (
-                f"A user is searching for: {query}\n"
-                f"Does this spreadsheet row contain relevant information to answer the query?\n"
-                f"Row data: {text}\n"
-                f"Reply with a single integer from 1 to 10 and nothing else."
-            )
-        elif doc_type == 'pptx':
-            return (
-                f"A user is searching for: {query}\n"
-                f"Does this presentation slide contain relevant information to answer the query?\n"
-                f"Slide text: {text}\n"
-                f"Reply with a single integer from 1 to 10 and nothing else."
-            )
-        elif doc_type == 'pdf':
-            return (
-                f"A user is searching for: {query}\n"
-                f"Does this PDF page extract contain relevant information to answer the query?\n"
-                f"Page text: {text}\n"
-                f"Reply with a single integer from 1 to 10 and nothing else."
-            )
-        elif doc_type == 'docx':
-            return (
-                f"A user is searching for: {query}\n"
-                f"Does this document paragraph contain relevant information to answer the query?\n"
-                f"Paragraph: {text}\n"
-                f"Reply with a single integer from 1 to 10 and nothing else."
-            )
-        elif doc_type == 'html':
-            return (
-                f"A user is searching for: {query}\n"
-                f"Does this webpage content contain relevant information to answer the query?\n"
-                f"Content: {text}\n"
-                f"Reply with a single integer from 1 to 10 and nothing else."
-            )
-        elif doc_type == 'md':
-            return (
-                f"A user is searching for: {query}\n"
-                f"Does this markdown document section contain relevant information to answer the query?\n"
-                f"Section: {text}\n"
-                f"Reply with a single integer from 1 to 10 and nothing else."
-            )
-        else:
-            return (
-                f"On a scale of 1-10, how relevant is the following text to the query?\n"
-                f"Query: {query}\nText: {text}\n"
-                f"Reply with a single integer from 1 to 10 and nothing else."
-            )
-
     # ── Private — query ──────────────────────────────────────────────────────
 
     def _classify_query(self, query):

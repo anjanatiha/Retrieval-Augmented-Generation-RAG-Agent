@@ -58,9 +58,10 @@ class TestToolTestCasesStructure:
             assert not missing, f"Test case {index} is missing keys: {missing}"
 
     def test_tool_names_are_valid(self):
-        """Every 'tool' value must be one of the three directly callable tools."""
+        """Every 'tool' value must be one of the five directly callable tools."""
         from src.rag.tool_benchmarks import TOOL_TEST_CASES
-        valid_tools = {'calculator', 'sentiment', 'summarise'}
+        # All five tool names present in the benchmark suite
+        valid_tools = {'calculator', 'sentiment', 'summarise', 'translate', 'topic_search'}
         for index, tc in enumerate(TOOL_TEST_CASES):
             assert tc['tool'] in valid_tools, (
                 f"Test case {index} has unexpected tool name '{tc['tool']}'"

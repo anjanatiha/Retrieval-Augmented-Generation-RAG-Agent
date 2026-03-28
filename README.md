@@ -1,7 +1,7 @@
 # RAG Agent — Retrieval-Augmented Generation System
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3110/)
-[![Release](https://img.shields.io/badge/release-v1.2.1-2ea44f)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/releases)
+[![Release](https://img.shields.io/badge/release-v1.2.2-2ea44f)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/releases)
 [![Tests](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/actions/workflows/test.yml/badge.svg)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/actions/workflows/test.yml)
 [![HF Space](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-FF6B35)](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
@@ -48,7 +48,7 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 | **NLP & Information Retrieval** | Hybrid BM25 + dense vector search, query expansion, query classification, type-aware LLM reranking, hallucination filtering |
 | **LLM Application Engineering** | RAG pipeline design, ReAct agent loop with tool calling, prompt engineering across 7 document-type-specific reranker prompts |
 | **Software Architecture** | 4-class design with strict separation of concerns, stateless module functions vs stateful class methods, 500-line file cap |
-| **Testing** | 848 tests across 31+ files — unit, functional, integration, contract, regression, boundary, negative, parametrized combination, UI (AppTest + mocked st) |
+| **Testing** | 843 tests across 31+ files — unit, functional, integration, contract, regression, boundary, negative, parametrized combination, UI (AppTest + mocked st) |
 | **Deployment** | Local Ollama + Hugging Face Space using InferenceClient, persistent ChromaDB vector store, CI/CD pipeline |
 | **Data Engineering** | 9 format-specific chunkers split across two modules — text formats (txt, md, csv, html) in `chunkers.py`, binary formats (pdf, docx, xlsx, xls, pptx) in `binary_chunkers.py` |
 
@@ -239,6 +239,7 @@ streamlit run app.py
 | `binary_chunkers` module | Stateless binary format chunker functions (pdf, docx, xlsx, xls, pptx) |
 | `url_crawl` module | Stateless URL crawl and DuckDuckGo search functions |
 | `url_utils` module | URL type detection, source name building, link extraction, topic filtering |
+| `reranker` module | 7 type-aware LLM rerank prompt variants (extracted from VectorStore) |
 | `metrics` module | 7 stateless scoring functions |
 | `benchmark_report` module | Stateless terminal report formatting |
 | `tool_benchmarks` module | Calculator / sentiment / summarise benchmark suite |
@@ -265,6 +266,7 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 │   ├── binary_chunkers.py    ← Binary format chunker functions (pdf, docx, xlsx, xls, pptx)
 │   ├── url_crawl.py          ← URL crawl and DuckDuckGo search functions
 │   ├── url_utils.py          ← URL type detection, link extraction, topic filtering
+│   ├── reranker.py           ← 7 type-aware LLM rerank prompt variants
 │   ├── document_loader.py    ← DocumentLoader class
 │   ├── vector_store.py       ← VectorStore class
 │   ├── agent.py              ← Agent class
@@ -279,8 +281,8 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 │   ├── session.py            ← Session state helpers
 │   └── theme.py              ← CSS and style constants
 ├── src/cli/                  ← Terminal interface
-├── tests/                    ← 848 local tests (31+ files)
-├── huggingface/              ← HF Space deployment (385 tests)
+├── tests/                    ← 843 local tests (31+ files)
+├── huggingface/              ← HF Space deployment (387 tests)
 ├── benchmark_docs/           ← Sample files for self-contained benchmarking
 │   ├── python-language.txt
 │   ├── team-members.csv
@@ -297,7 +299,7 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 
 ## Testing
 
-**848 local tests · 385 HF Space tests · 1233 total**
+**843 local tests · 387 HF Space tests · 1230 total**
 
 ```bash
 pytest                          # all local tests
@@ -319,7 +321,7 @@ python3 main.py --benchmark
 
 Runs two phases automatically:
 1. **RAG pipeline** — 15 questions across 4 domains, 7 metrics, LLM-as-judge + numeric scoring
-2. **Agent tools** — 12 deterministic tests (calculator, sentiment, summarise)
+2. **Agent tools** — 18 tests across 5 tools (calculator, sentiment, summarise, translate, topic_search)
 
 Results saved to `benchmark_results.json`, `benchmark_results.csv`, and `tool_benchmark_results.json`.
 

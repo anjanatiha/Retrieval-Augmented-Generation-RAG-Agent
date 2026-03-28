@@ -35,7 +35,6 @@ Note on AppTest form limitation:
     Tests that cover form-based handlers are in test_ui_components.py instead.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 
@@ -62,10 +61,44 @@ def _mock_store() -> MagicMock:
 
 
 def _run_app():
-    """Run the Streamlit app once with mocked dependencies and return AppTest."""
+    """Run the Streamlit app once with mocked dependencies and return AppTest.
+
+    initialize() lives in src/ui/handlers.py and is decorated with
+    @st.cache_resource, so we mock at the ollama + chromadb level to prevent
+    any real network or disk calls during CI.
+
+    Important: chromadb.EphemeralClient() is a process-level singleton — all
+    instances in the same pytest process share the same in-memory database.
+    Using a real EphemeralClient would pollute the 'rag_docs' collection with
+    768-dim embeddings, breaking test_vector_store_pipeline.py tests that use
+    4-dim embeddings.  We therefore mock chromadb entirely with MagicMock so
+    no real ChromaDB collection is ever created.
+    """
     from streamlit.testing.v1 import AppTest
-    at = AppTest.from_file('app.py', default_timeout=30)
-    with patch('app.initialize', return_value=(_mock_loader(), _mock_store())):
+
+    # BM25Okapi raises ZeroDivisionError on an empty corpus, so return one
+    # dummy chunk so the BM25 index build step completes without real Ollama.
+    _dummy_chunk = {'text': 'placeholder', 'source': 'test.txt',
+                    'start_line': 1, 'end_line': 1, 'type': 'txt'}
+
+    # A mock collection that reports 0 existing chunks so build_or_load
+    # treats it as an empty store and adds our dummy chunk.
+    mock_collection = MagicMock()
+    mock_collection.count.return_value = 0
+    mock_collection.get.return_value   = {'ids': []}
+
+    with patch('src.rag.vector_store.ollama') as mock_vs_ollama, \
+         patch('src.rag.agent.ollama') as mock_agent_ollama, \
+         patch('src.rag.document_loader.DocumentLoader.chunk_all_documents',
+               return_value=[_dummy_chunk]), \
+         patch('src.rag.vector_store.chromadb') as mock_chromadb:
+        # Minimal embed response — shape matches bge-base-en-v1.5 (768 dims)
+        mock_vs_ollama.embed.return_value = {'embeddings': [[0.1] * 768]}
+        mock_vs_ollama.chat.return_value  = {'message': {'content': 'mock response'}}
+        mock_agent_ollama.chat.return_value = {'message': {'content': 'mock response'}}
+        mock_chromadb.PersistentClient.return_value \
+            .get_or_create_collection.return_value = mock_collection
+        at = AppTest.from_file('app.py', default_timeout=30)
         at.run()
     return at
 
@@ -193,66 +226,6 @@ class TestPanelPresence:
         assert any('Search' in label for label in labels), \
             f"Topic search expander not found. Expanders: {labels}"
 
-    @pytest.mark.xfail(
-        reason=(
-            "AppTest form-nesting limitation: st.form() inside st.expander() "
-            "raises StreamlitAPIException in AppTest context, stopping rendering "
-            "before handle_url_ingestion runs. Tested in test_ui_components.py."
-        ),
-        strict=False,
-    )
-    def test_url_ingestion_expander_is_rendered(self):
-        """The '🌐 Add a URL' expander must be visible."""
-        at = _run_app()
-        labels = [e.label for e in at.expander]
-        assert any('URL' in label for label in labels), \
-            f"URL ingestion expander not found. Expanders: {labels}"
-
-    @pytest.mark.xfail(
-        reason=(
-            "AppTest form-nesting limitation: rendering halts before "
-            "handle_file_upload runs. Tested in test_ui_components.py."
-        ),
-        strict=False,
-    )
-    def test_file_upload_expander_is_rendered(self):
-        """The '📎 Upload files' expander must be visible."""
-        at = _run_app()
-        labels = [e.label for e in at.expander]
-        assert any('Upload' in label or 'files' in label for label in labels), \
-            f"File upload expander not found. Expanders: {labels}"
-
-    @pytest.mark.xfail(
-        reason=(
-            "AppTest form-nesting limitation stops rendering after the first "
-            "expander form. All three panels tested individually in "
-            "test_ui_components.py."
-        ),
-        strict=False,
-    )
-    def test_all_three_panels_coexist(self):
-        """All three ingestion panels must appear on the same page simultaneously."""
-        at = _run_app()
-        labels = [e.label for e in at.expander]
-        has_search = any('Search' in l for l in labels)
-        has_url    = any('URL'    in l for l in labels)
-        has_upload = any('Upload' in l or 'files' in l for l in labels)
-        assert has_search and has_url and has_upload, \
-            f"Not all three panels present. Found: {labels}"
-
-    @pytest.mark.xfail(
-        reason=(
-            "AppTest form-nesting limitation stops rendering before the footer, "
-            "which is inside col_main after the expanders."
-        ),
-        strict=False,
-    )
-    def test_footer_github_link_is_rendered(self):
-        """The footer must contain the GitHub link."""
-        at = _run_app()
-        all_markdown = ' '.join(m.value for m in at.markdown)
-        assert 'GitHub' in all_markdown or 'github' in all_markdown.lower(), \
-            "Footer GitHub link not found in rendered markdown"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -268,23 +241,6 @@ class TestCombinedLayout:
         has_header = any('rag-title' in m.value for m in at.markdown)
         has_radio  = len(at.radio) > 0
         assert has_header and has_radio, "Header or mode selector missing"
-
-    @pytest.mark.xfail(
-        reason=(
-            "AppTest form-nesting limitation stops rendering before all three panels. "
-            "All three panels are tested individually in test_ui_components.py."
-        ),
-        strict=False,
-    )
-    def test_all_sections_render_in_single_pass(self):
-        """One render pass must produce header, mode selector, and all panels."""
-        at = _run_app()
-        has_header = any('rag-title'    in m.value for m in at.markdown)
-        has_radio  = len(at.radio) > 0
-        has_panels = len(at.expander) >= 3
-        assert has_header, "Header not rendered"
-        assert has_radio,  "Mode selector not rendered"
-        assert has_panels, f"Expected 3+ expander panels, got {len(at.expander)}"
 
     def test_css_and_header_both_present(self):
         """CSS injection and product header must both appear in the markdown list."""

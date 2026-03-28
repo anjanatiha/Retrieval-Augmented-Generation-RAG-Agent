@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-agent"
-version = "1.0.0"
+version = "1.2.2"
 description = "A fully local, production-grade RAG system"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,11 @@ testpaths = ["tests"]
 # "." lets pytest find cli/ and ui/ at the repo root
 # "src" lets pytest find src/rag/* packages
 pythonpath = [".", "src"]
+filterwarnings = [
+    # PyMuPDF uses SWIG C extensions that lack __module__ on Python 3.11+.
+    # This is a third-party library issue — not fixable in our code.
+    "ignore:builtin type.*has no __module__:DeprecationWarning",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

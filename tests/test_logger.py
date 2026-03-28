@@ -85,7 +85,8 @@ class TestLogInteraction:
         with patch('src.rag.logger.LOG_FILE', path):
             from src.rag.logger import log_interaction
             log_interaction('hello', 'factual', 2, [0.9, 0.8], 'world')
-        entries = json.loads(open(path).read())
+        with open(path) as f:
+            entries = json.loads(f.read())
         assert len(entries) == 1
         e = entries[0]
         assert e['query'] == 'hello'
@@ -101,7 +102,8 @@ class TestLogInteraction:
         with patch('src.rag.logger.LOG_FILE', path):
             from src.rag.logger import log_interaction
             log_interaction('q', 'general', 0, [], 'resp')
-        e = json.loads(open(path).read())[0]
+        with open(path) as f:
+            e = json.loads(f.read())[0]
         assert e['top_similarity'] == 0
         assert e['avg_similarity'] == 0
 
@@ -111,7 +113,8 @@ class TestLogInteraction:
             from src.rag.logger import log_interaction
             log_interaction('q1', 'factual', 1, [0.9], 'a1')
             log_interaction('q2', 'general', 2, [0.7], 'a2')
-        entries = json.loads(open(path).read())
+        with open(path) as f:
+            entries = json.loads(f.read())
         assert len(entries) == 2
         assert entries[0]['query'] == 'q1'
         assert entries[1]['query'] == 'q2'
@@ -121,5 +124,6 @@ class TestLogInteraction:
         with patch('src.rag.logger.LOG_FILE', path):
             from src.rag.logger import log_interaction
             log_interaction('q', 'factual', 1, [0.123456789], 'a')
-        e = json.loads(open(path).read())[0]
+        with open(path) as f:
+            e = json.loads(f.read())[0]
         assert e['top_similarity'] == 0.1235
