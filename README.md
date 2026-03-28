@@ -8,26 +8,14 @@ Supports PDF, Word, Excel, PowerPoint, CSV, Markdown, HTML, and plain text. Work
 
 ## Get Started
 
-**No installation — try it in your browser:**
-
-**[► Open Live Demo on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)** — upload a file, ask a question, done.
+| | Option | Time |
+|-|--------|------|
+| **[► Try the live demo](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)** | Open in browser, upload a file, ask a question — nothing to install | 30 seconds |
+| **[► Install locally](#installation)** | Run on your own machine, keep documents private | ~10 minutes |
 
 ![Hugging Face Demo](assets/huggingface_ragdoll.png)
 
-**Run locally** (for private documents — nothing leaves your machine):
-
-```bash
-git clone https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent.git
-cd Retrieval-Augmented-Generation-RAG-Agent
-pip install -r requirements.txt
-ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
-ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
-streamlit run app.py
-```
-
-Drop your documents into `./docs/`, open `http://localhost:8501`, and start asking questions.
-
-> Need Python or Ollama? See the [full installation guide](#installation).
+**Already have Python 3.11 and Ollama?** Skip straight to the [Quick Start](#quick-start).
 
 ---
 
@@ -75,16 +63,16 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 ## Table of Contents
 
 **Using the system**
-- [What it does](#what-it-does)
-- [Features](#features)
-- [Try Without Installing](#try-without-installing)
-- [Quick Start](#quick-start)
+- [Get Started](#get-started) — browser demo or local install, choose your path
+- [Quick Start](#quick-start) — already have Python & Ollama? 4 commands
+- [Installation — full guide](#installation) — macOS & Windows, step by step from scratch
 - [How to Use](#how-to-use)
 - [Supported File Types](#supported-file-types)
 - [Agent Mode](#agent-mode)
-- [Installation](#installation)
 - [Troubleshooting](#troubleshooting)
 - [Streamlit UI](#streamlit-ui)
+- [What it does](#what-it-does)
+- [Features](#features)
 
 **How it works**
 - [How RAG Works](#how-rag-works)
@@ -948,7 +936,7 @@ Clearing the conversation only wipes the history list — it does not touch Chro
 
 ## Quick Start
 
-> Already have Python 3.11 and Ollama installed? Run these 4 commands:
+> Already have Python 3.11 and Ollama installed? Four commands and you're running:
 
 ```bash
 git clone https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent.git
@@ -957,7 +945,9 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Don't have Ollama yet? Follow the [full installation guide](#installation) below.
+Then open `http://localhost:8501` in your browser.
+
+> **New to Python or Ollama?** The [Installation guide](#installation) below walks through every step from scratch — Python, Ollama, models, and virtual environment setup for both macOS and Windows.
 
 ---
 
@@ -1068,6 +1058,8 @@ In agent mode the system runs a ReAct loop — reasoning about which tool to use
 ---
 
 ## Installation
+
+> **New to this?** This guide installs everything from scratch — Python, Ollama, the models, and the app. Follow the steps in order and you will have a running system in about 10 minutes.
 
 ### Prerequisites
 
