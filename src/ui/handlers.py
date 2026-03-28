@@ -126,12 +126,16 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
                     key='crawl_max_pages',
                 )
 
-            # Topic filter — only crawl pages whose URL path contains this word
+            # Topic filter — only crawl pages whose URL path contains this word.
+            # Tip: for a specific article like /wiki/Elizabeth_Taylor, set the
+            # topic to "Elizabeth_Taylor" so the crawler stays on related pages
+            # instead of following every navigation link on the page.
             crawl_topic = st.text_input(
                 "Topic filter (optional)",
-                placeholder="e.g. python  or  machine-learning  or  api",
-                help="Only crawl pages whose URL path contains this keyword. "
-                     "Leave empty to crawl all pages on the domain.",
+                placeholder="e.g. Elizabeth_Taylor  or  python  or  machine-learning",
+                help="Only follow links whose URL path contains this keyword. "
+                     "Tip: use the article or page name (e.g. 'Elizabeth_Taylor') "
+                     "to stay on topic instead of following navigation links.",
                 key='crawl_topic',
             )
 

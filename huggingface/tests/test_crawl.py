@@ -300,6 +300,38 @@ class TestIsUtilityUrl:
         # 'login' is in the subdomain, not the path — path '/article' is not a utility segment
         assert is_utility_url('https://login.example.com/article') is False
 
+    def test_mediawiki_special_namespace_is_utility(self):
+        """Wikipedia/MediaWiki Special: pages are utility pages (namespace has colon)."""
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://en.wikipedia.org/wiki/Special:RecentChanges') is True
+        assert is_utility_url('https://en.wikipedia.org/wiki/Special:Search') is True
+
+    def test_mediawiki_talk_namespace_is_utility(self):
+        """Wikipedia Talk: pages are utility pages."""
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://en.wikipedia.org/wiki/Talk:Main_Page') is True
+
+    def test_mediawiki_help_namespace_is_utility(self):
+        """Wikipedia Help: pages are utility pages."""
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://en.wikipedia.org/wiki/Help:Contents') is True
+
+    def test_mediawiki_wikipedia_namespace_is_utility(self):
+        """Wikipedia Wikipedia: pages (policy/meta) are utility pages."""
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://en.wikipedia.org/wiki/Wikipedia:About') is True
+
+    def test_mediawiki_portal_namespace_is_utility(self):
+        """Wikipedia Portal: pages are utility/navigation pages."""
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://en.wikipedia.org/wiki/Portal:Current_events') is True
+
+    def test_regular_wiki_article_is_not_utility(self):
+        """A regular Wikipedia article (no namespace colon) is NOT a utility page."""
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://en.wikipedia.org/wiki/Elizabeth_Taylor') is False
+        assert is_utility_url('https://en.wikipedia.org/wiki/Python_(programming_language)') is False
+
 
 # ---------------------------------------------------------------------------
 # 5. chunk_url_recursive — depth and max_pages

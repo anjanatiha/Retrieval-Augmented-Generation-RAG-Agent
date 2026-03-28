@@ -625,8 +625,9 @@ def build_demo():
                             label="Max pages",
                         )
                     crawl_topic_input = gr.Textbox(
-                        placeholder="e.g. python  or  machine-learning  or  api",
-                        label="Topic filter (optional) — only crawl pages whose URL contains this word",
+                        placeholder="e.g. Elizabeth_Taylor  or  python  or  machine-learning",
+                        label="Topic filter (optional) — only follow links whose URL path contains this word. "
+                              "Tip: use the article name (e.g. 'Elizabeth_Taylor') to stay on topic.",
                     )
                     gr.Markdown("**Index these types:**")
                     with gr.Row():

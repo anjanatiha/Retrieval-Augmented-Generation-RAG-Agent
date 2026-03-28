@@ -151,9 +151,13 @@ def build_source_name(url: str) -> str:
 def is_utility_url(url: str) -> bool:
     """Return True if the URL appears to be a navigation or utility page.
 
-    Checks whether any known utility keyword (login, cart, privacy, etc.)
-    appears as a path segment in the URL. These pages rarely contain useful
-    document content and are skipped during recursive crawling.
+    Checks two things:
+        1. Whether any known utility keyword (login, cart, privacy, etc.)
+           appears as a path segment in the URL.
+        2. Whether any path segment contains a colon, which indicates a
+           MediaWiki namespace page (Special:, Talk:, Help:, Wikipedia:,
+           Portal:, etc.). These are navigation/meta pages on wiki sites
+           and rarely contain useful document content.
 
     Args:
         url: The URL to check.
@@ -164,7 +168,18 @@ def is_utility_url(url: str) -> bool:
     # Only check the path portion — not the domain, which may contain keywords
     path       = urlparse(url).path.lower()
     path_parts = set(re.split(r'[/\-_.]', path))
-    return bool(path_parts & _UTILITY_URL_KEYWORDS)
+
+    # Check known utility keywords (login, cart, privacy, admin, etc.)
+    if path_parts & _UTILITY_URL_KEYWORDS:
+        return True
+
+    # Check for MediaWiki-style namespace prefixes (Special:, Talk:, Help:, etc.)
+    # These appear as path segments containing a colon — e.g. /wiki/Special:Search.
+    # Colons in URL paths are very unusual outside of wiki namespaces.
+    if any(':' in segment for segment in path_parts if segment):
+        return True
+
+    return False
 
 
 def url_matches_topic(url: str, topic: str) -> bool:
