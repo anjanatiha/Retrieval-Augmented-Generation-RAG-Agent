@@ -50,6 +50,9 @@ build/
 # Document uploads — don't commit personal documents
 docs/
 
+# Obsolete dev files — kept locally for reference only
+obsolete/
+
 # Test documents — generated locally, not needed in repo
 test_docs/
 *.DS_Store
