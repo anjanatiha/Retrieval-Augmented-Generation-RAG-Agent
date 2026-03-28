@@ -81,8 +81,10 @@ def render_mode_selector() -> None:
 def handle_url_ingestion(loader, store: VectorStore) -> bool:
     """Show the URL input form and process any URL the user submits.
 
-    When recursive crawl is enabled, the user can also set crawl depth,
-    maximum pages, and which document types to index.
+    The recursive crawl toggle is placed OUTSIDE the form so that checking
+    it immediately shows or hides the depth, max-pages, and type controls
+    without requiring a form submit first. The URL text box and the submit
+    button stay inside the form so the URL is cleared after each submission.
 
     Args:
         loader: DocumentLoader — handles fetching and chunking the URL.
@@ -95,51 +97,53 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
     needs_rerun = False
 
     with st.expander("🌐 Add a URL to knowledge base", expanded=False):
+
+        # ── Toggle outside the form so it triggers an immediate rerun ──────
+        use_recursive = st.checkbox(
+            "🕷️ Recursive crawl — follow links and index linked pages",
+            value=False,
+            key='use_recursive',
+        )
+
+        # ── Crawl settings — visible only when recursive mode is on ────────
+        crawl_depth     = URL_CRAWL_MAX_DEPTH
+        crawl_max_pages = URL_CRAWL_MAX_PAGES
+        allowed_types   = None
+
+        if use_recursive:
+            col_depth, col_pages = st.columns(2)
+            with col_depth:
+                crawl_depth = st.number_input(
+                    "Depth (1 = direct links only)",
+                    min_value=1, max_value=3, value=URL_CRAWL_MAX_DEPTH,
+                    key='crawl_depth',
+                )
+            with col_pages:
+                crawl_max_pages = st.number_input(
+                    "Max pages",
+                    min_value=1, max_value=50, value=URL_CRAWL_MAX_PAGES,
+                    key='crawl_max_pages',
+                )
+
+            # Document type filter — choose which types to index during the crawl
+            st.caption("Index these document types:")
+            type_cols   = st.columns(7)
+            type_labels = ['HTML', 'PDF', 'DOCX', 'XLSX', 'CSV', 'PPTX', 'MD']
+            type_keys   = ['html', 'pdf', 'docx', 'xlsx', 'csv', 'pptx', 'md']
+            checked_types = []
+            for col, label, key in zip(type_cols, type_labels, type_keys):
+                with col:
+                    if st.checkbox(label, value=True, key=f'crawl_type_{key}'):
+                        checked_types.append(key)
+            # None means "accept all types" — only filter if at least one is unchecked
+            allowed_types = set(checked_types) if len(checked_types) < 7 else None
+
+        # ── URL input + submit button inside the form (cleared on submit) ──
         with st.form('url_form', clear_on_submit=True):
             url_input = st.text_input(
                 "URL:",
                 placeholder="https://example.com/page  or  https://example.com/file.pdf",
             )
-
-            # ── Recursive crawl toggle ──────────────────────────────────────
-            use_recursive = st.checkbox(
-                "Recursive crawl",
-                value=False,
-                help="Follow links on the page and index linked pages too.",
-            )
-
-            # Crawl settings — only shown when recursive mode is on
-            crawl_depth    = URL_CRAWL_MAX_DEPTH
-            crawl_max_pages = URL_CRAWL_MAX_PAGES
-            allowed_types: Optional[set] = None
-
-            if use_recursive:
-                col_depth, col_pages = st.columns(2)
-                with col_depth:
-                    crawl_depth = st.number_input(
-                        "Depth",
-                        min_value=1, max_value=3, value=URL_CRAWL_MAX_DEPTH,
-                        help="How many link-levels deep to follow (1 = direct links only).",
-                    )
-                with col_pages:
-                    crawl_max_pages = st.number_input(
-                        "Max pages",
-                        min_value=1, max_value=50, value=URL_CRAWL_MAX_PAGES,
-                        help="Maximum total pages/documents to fetch and index.",
-                    )
-
-                # Document type filter — which types should be indexed during the crawl
-                st.markdown("**Index these types:**")
-                type_cols = st.columns(7)
-                type_labels = ['HTML', 'PDF', 'DOCX', 'XLSX', 'CSV', 'PPTX', 'MD']
-                type_keys   = ['html', 'pdf', 'docx', 'xlsx', 'csv', 'pptx', 'md']
-                checked_types = []
-                for col, label, key in zip(type_cols, type_labels, type_keys):
-                    with col:
-                        if st.checkbox(label, value=True, key=f'crawl_type_{key}'):
-                            checked_types.append(key)
-                allowed_types = set(checked_types) if checked_types else None
-
             submitted = st.form_submit_button("Fetch & index →")
 
         if submitted and url_input.strip():
