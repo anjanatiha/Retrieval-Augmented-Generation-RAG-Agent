@@ -32,9 +32,11 @@ Supports PDF, Word, Excel, PowerPoint, CSV, Markdown, HTML, and plain text.
 - **Chat with your documents** — ask questions about PDFs, Word docs, spreadsheets, presentations, CSV, Markdown, or HTML files
 - **Structured data support** — accurately retrieves from tables, spreadsheets, and resumes where most RAG systems fail
 - **Agent mode** — autonomous ReAct agent with 6 tools: search, calculator, summarise, sentiment, translate, and finish
+- **Streaming responses** — tokens appear word by word as they generate; no waiting for the full answer
 - **Multiple ingestion methods** — drop files into a folder, upload via the UI, paste any public URL, or search a topic
 - **Topic search** — search DuckDuckGo, crawl the top results, and index them automatically — no API key required
 - **Recursive URL crawling** — follow links up to depth 3, restricted to the same domain, with an optional keyword filter
+- **RAGAS evaluation** — industry-standard LLM-as-judge metrics: Faithfulness, ResponseRelevancy, ContextPrecision, ContextRecall
 - **Fully local** — LLaMA 3.2 and BGE embeddings run via Ollama — nothing leaves your machine
 
 ---
@@ -48,7 +50,7 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 | **Information Retrieval** | Hybrid BM25 + dense vector search, query expansion, query classification, type-aware LLM reranking, hallucination filtering |
 | **LLM Engineering** | RAG pipeline design, ReAct agent loop with tool calling, 7 document-type-specific reranker prompts |
 | **Architecture** | 4-class design with strict separation of concerns, stateless modules vs stateful classes, 500-line file cap enforced |
-| **Testing** | 1,228 tests — unit, functional, integration, contract, regression, boundary, negative, parametrized combination, UI |
+| **Testing** | 1,244 tests — unit, functional, integration, contract, regression, boundary, negative, parametrized combination, UI |
 | **Deployment** | Local Ollama + Hugging Face Space via InferenceClient, persistent ChromaDB, CI/CD pipeline |
 | **Data Engineering** | 9 format-specific chunkers across two modules — text formats in `chunkers.py`, binary formats in `binary_chunkers.py` |
 
@@ -150,6 +152,7 @@ streamlit run app.py          # web UI (recommended)
 python3 main.py               # terminal chat
 python3 main.py --agent       # agent mode with tool calling
 python3 main.py --benchmark   # run the evaluation suite
+python3 main.py --ragas       # RAGAS LLM-as-judge evaluation (requires pip install -e ".[eval]")
 ```
 
 ### Step 3 — Ask questions
@@ -218,6 +221,8 @@ The ReAct agent reasons about which tool to use, calls it, observes the result, 
 | `metrics` | 7 stateless scoring functions |
 | `benchmark_report` | Terminal report formatting |
 | `tool_benchmarks` | Calculator / sentiment / summarise benchmark suite |
+| `query_utils` | Stateless query helpers (classify, smart top-n, instruction prompt) |
+| `ragas_eval` | RAGAS LLM-as-judge evaluation (optional dependency group) |
 
 **Pipeline:**
 ```
@@ -248,7 +253,9 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 │   ├── benchmarker.py            ← Benchmarker class
 │   ├── benchmark_report.py       ← Terminal report formatting
 │   ├── metrics.py                ← 7 scoring functions
-│   └── tool_benchmarks.py        ← Tool benchmark suite
+│   ├── tool_benchmarks.py        ← Tool benchmark suite
+│   ├── query_utils.py            ← Stateless query helpers (classify, top-n, prompt)
+│   └── ragas_eval.py             ← RAGAS LLM-as-judge evaluation (optional)
 ├── src/ui/                       ← Streamlit UI modules
 │   ├── handlers.py               ← Event handlers (url, file, topic, user input)
 │   ├── renderers.py              ← Pure render functions
@@ -257,7 +264,7 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 │   └── theme.py                  ← CSS and style constants
 ├── src/cli/
 │   └── runner.py                 ← CLI entry functions
-├── tests/                        ← 843 local tests (31+ files)
+├── tests/                        ← 859 local tests (32+ files)
 ├── huggingface/                  ← HF Space deployment (385 tests)
 ├── benchmark_docs/               ← Sample files for self-contained benchmarking
 ├── docs_technical/               ← Deep-dive documentation
@@ -272,7 +279,7 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 
 ## Testing
 
-**843 local · 385 HF Space · 1,228 total**
+**859 local · 385 HF Space · 1,244 total**
 
 ```bash
 pytest                          # all local tests
@@ -289,12 +296,22 @@ Test types: unit · functional · integration · contract · regression · bound
 ## Benchmarking
 
 ```bash
-python3 main.py --benchmark
+python3 main.py --benchmark   # custom 7-metric benchmark (LLM-as-judge + numeric)
+python3 main.py --ragas       # RAGAS LLM-as-judge evaluation (requires pip install -e ".[eval]")
 ```
 
-Runs two phases:
+**`--benchmark` runs two phases:**
 1. **RAG pipeline** — 15 questions across 4 domains, 7 metrics, LLM-as-judge + numeric scoring
 2. **Agent tools** — 18 tests across 5 tools (calculator, sentiment, summarise, translate, topic_search)
+
+**`--ragas` runs four industry-standard metrics:**
+
+| Metric | What it measures |
+|--------|-----------------|
+| Faithfulness | Answer stays within the retrieved context |
+| ResponseRelevancy | Answer addresses the question asked |
+| ContextPrecision | Best-matching chunks are ranked highest |
+| ContextRecall | Retrieved context covers the ground truth |
 
 Results are saved to `benchmark_results.json`, `benchmark_results.csv`, and `tool_benchmark_results.json`.
 
@@ -334,7 +351,7 @@ Features: chat and agent mode · URL ingestion · recursive crawl · topic searc
 
 ## Built With
 
-`Python 3.11` · `Ollama` · `ChromaDB` · `rank-bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
+`Python 3.11` · `Ollama` · `ChromaDB` · `rank-bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings` · `pre-commit` · `RAGAS` (optional)
 
 **Development:** Built with the assistance of [Claude](https://claude.ai) (Anthropic) — used for code generation, architecture review, test writing, and documentation. All design decisions and direction were set by the author.
 

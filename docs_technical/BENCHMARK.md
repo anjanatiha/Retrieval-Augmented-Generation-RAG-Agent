@@ -10,6 +10,7 @@ This document covers the full benchmarking system — why the metrics were chose
 - [How to interpret the summary statistics](#how-to-interpret-the-summary-statistics)
 - [How to interpret drops in the run comparison](#how-to-interpret-drops-in-the-run-comparison)
 - [Agent tool benchmark](#agent-tool-benchmark)
+- [RAGAS evaluation](#ragas-evaluation)
 - [Sample terminal output](#sample-terminal-output)
 - [How to add your own test cases](#how-to-add-your-own-test-cases)
 - [Test domains and sample files](#test-domains-and-sample-files)
@@ -18,24 +19,31 @@ This document covers the full benchmarking system — why the metrics were chose
 
 ## Overview
 
-The benchmark suite has two phases, both run with one command:
+The benchmark system has three independent evaluation modes:
 
 ```bash
-python3 main.py --benchmark
+python3 main.py --benchmark   # custom 7-metric pipeline + agent tool benchmark
+python3 main.py --ragas       # RAGAS LLM-as-judge evaluation (see below)
 ```
 
-**Phase 1 — RAG pipeline quality:**
+**`--benchmark` Phase 1 — RAG pipeline quality:**
 - 15 questions across 4 domains (cat facts, Python language, team members CSV, machine learning)
 - Sample files are committed to `benchmark_docs/` — no extra setup needed
 - 7 metrics per question: 2 LLM-as-judge + 5 numeric
 - Prints per-question table, summary statistics, by-query-type breakdown, and run-over-run delta
 - Results saved to `benchmark_results.json` (full history) and `benchmark_results.csv` (latest run)
 
-**Phase 2 — Agent tool correctness:**
+**`--benchmark` Phase 2 — Agent tool correctness:**
 - 18 tests: 5 calculator, 4 sentiment, 3 summarise, 3 translate, 3 topic_search
 - Results saved to `tool_benchmark_results.json`
 
-Every run is compared against the previous one with delta indicators (▲ improved / ▼ regressed / ─ unchanged).
+**`--ragas` — RAGAS industry-standard metrics:**
+- 4 LLM-as-judge metrics: Faithfulness, ResponseRelevancy, ContextPrecision, ContextRecall
+- Runs on the same DEFAULT_TEST_CASES as Phase 1
+- Requires optional dependencies: `pip install -e ".[eval]"`
+- See [RAGAS evaluation](#ragas-evaluation) below
+
+Every `--benchmark` run is compared against the previous one with delta indicators (▲ improved / ▼ regressed / ─ unchanged).
 
 ---
 
@@ -228,6 +236,60 @@ The RAG pipeline benchmark tests retrieval and generation quality — it uses th
 **Calculator tests are fully deterministic** — no LLM call, direct eval. Sentiment, summarise, and translate tests call the language model once per test. Topic_search tests mock the network layer and run real chunkers offline.
 
 **Calculator allowed characters:** `0123456789+-*/(). ` — note that `**` (power) passes (two asterisks are both in the allowed set) but `sqrt(4)` fails (letters `s`, `q`, `r`, `t` are not in the allowed set).
+
+---
+
+## RAGAS Evaluation
+
+RAGAS adds a second layer of evaluation using metrics that are widely recognised in the RAG research community. Where the custom benchmark uses hand-crafted scoring functions, RAGAS uses the LLM itself as the judge for each metric.
+
+### Why Both
+
+| | Custom benchmark (`--benchmark`) | RAGAS (`--ragas`) |
+|-|----------------------------------|-------------------|
+| Speed | Faster — some metrics are numeric | Slower — every metric calls the LLM |
+| Determinism | Numeric metrics are exact; LLM scores vary slightly | All scores vary with temperature |
+| Interpretability | Each metric formula is transparent | Scores follow academic RAGAS definitions |
+| Dependencies | No extras needed | `pip install -e ".[eval]"` |
+| Signal | 7 metrics across retrieval + generation | 4 metrics with academic alignment |
+
+Having both gives a complete picture: the custom benchmark catches regressions quickly, and RAGAS provides scores that can be compared against published benchmarks.
+
+### The 4 RAGAS Metrics
+
+| Metric | What it measures | How it is computed |
+|--------|-----------------|-------------------|
+| **Faithfulness** | Every claim in the answer is grounded in the retrieved context | LLM decomposes the answer into claims; checks each claim against context |
+| **ResponseRelevancy** | The answer directly addresses the question asked | Embedding cosine similarity between generated question and original question |
+| **ContextPrecision** | The most relevant chunks are ranked highest | LLM judges whether each retrieved chunk was needed to answer the question |
+| **ContextRecall** | The retrieved context covers the ground truth | LLM checks how much of the ground truth is covered by the retrieved chunks |
+
+### Installation
+
+```bash
+pip install -e ".[eval]"
+```
+
+This installs `ragas>=0.2.0`, `langchain-ollama`, and `datasets` as an optional dependency group. The rest of the application runs normally if these are not installed.
+
+### Running
+
+```bash
+python3 main.py --ragas
+```
+
+The same `DEFAULT_TEST_CASES` from `Benchmarker` are used. To pass custom test cases, call `run_ragas_evaluation()` directly:
+
+```python
+from src.rag.ragas_eval import run_ragas_evaluation, print_ragas_results
+
+result = run_ragas_evaluation(store, test_cases=[
+    {'question': 'What is Alice's role?', 'ground_truth': 'Senior Engineer'},
+])
+print_ragas_results(result)
+```
+
+Each test case requires `question` and `ground_truth`. The `ground_truth` is used by ContextRecall to verify how much of the expected answer is present in the retrieved context.
 
 ---
 
