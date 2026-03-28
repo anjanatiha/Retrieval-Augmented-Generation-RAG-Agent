@@ -438,13 +438,16 @@ class VectorStore:
     def _build_instruction_prompt(self, context):
         """Build the system-level anti-hallucination instruction that wraps each LLM call."""
         return (
-            "You are a document question-answering assistant.\n"
+            "You are a document question-answering assistant in a multi-turn conversation.\n"
             "Answer the question using ONLY the context passages provided below.\n"
             "STRICT RULES:\n"
             "- Do NOT use your training data or general knowledge under any circumstances.\n"
             "- If the context does not contain the answer, say exactly: "
             "'The provided documents do not contain information about this topic.'\n"
             "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
+            "- You MAY use prior conversation turns to resolve references such as pronouns "
+            "('she', 'it', 'that document') or follow-up phrases ('what about her role?'), "
+            "but all factual claims must come from the CONTEXT passages below.\n"
             "- Do NOT generate examples, hypothetical scenarios, or additional text.\n"
             "- Stop writing immediately after your answer. Do not add anything after.\n"
             "- At the end of your answer, cite ONLY the bracketed source labels from the context "
