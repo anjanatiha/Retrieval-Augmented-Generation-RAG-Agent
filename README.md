@@ -56,7 +56,7 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 - **4-class architecture** — all state-carrying logic lives in exactly 4 classes; stateless operations live in modules
 - **Confidence gate before every LLM call** — skips the LLM entirely when no relevant content exists rather than hallucinating
 
-> For full algorithm explanations — hybrid search math, reranking, hallucination filter, ReAct loop, URL type detection — see [docs_technical/ALGORITHM.md](docs_technical/ALGORITHM.md).
+> For full algorithm explanations — hybrid search math, reranking, hallucination filter, ReAct loop, URL type detection — see [docs_technical/ARCHITECTURE.md](docs_technical/ARCHITECTURE.md).
 
 ---
 
@@ -268,7 +268,7 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 │   ├── team-members.csv
 │   └── machine-learning.md
 ├── docs_technical/           ← Deep-dive documentation
-│   ├── ALGORITHM.md          ← Full pipeline algorithm explanations
+│   ├── ARCHITECTURE.md       ← Full pipeline algorithm explanations
 │   ├── BENCHMARK.md          ← Benchmark methodology and metric formulas
 │   └── CONTRIBUTING.md       ← Dev setup, code standards, PR guidelines
 ├── DESIGN.md                 ← Architectural decisions and tradeoffs
@@ -335,7 +335,7 @@ Features: chat and agent mode toggle · URL ingestion · file upload · step-by-
 
 - [Live demo on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent) — try it in your browser
 - [DESIGN.md](DESIGN.md) — architectural decisions, class ownership, tradeoffs, production scaling
-- [docs_technical/ALGORITHM.md](docs_technical/ALGORITHM.md) — full pipeline algorithm explanations
+- [docs_technical/ARCHITECTURE.md](docs_technical/ARCHITECTURE.md) — full pipeline and algorithm explanations
 - [docs_technical/BENCHMARK.md](docs_technical/BENCHMARK.md) — benchmark methodology and metric formulas
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup and contribution guide
 - [Based on](https://huggingface.co/blog/ngxson/make-your-own-rag) — significantly extended with hybrid search, type-aware reranking, 9 format support, agent mode, benchmarking, and Streamlit UI

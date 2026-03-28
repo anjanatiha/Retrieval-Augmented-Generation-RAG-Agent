@@ -1,4 +1,4 @@
-# ALGORITHM.md — Pipeline Algorithm Reference
+# ARCHITECTURE.md — Pipeline and Algorithm Reference
 
 This document explains every algorithm in the RAG Agent pipeline — what each one does, why it exists, and how it solves a specific problem.
 
