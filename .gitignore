@@ -53,6 +53,7 @@ docs/
 # Obsolete dev files — kept locally for reference only
 obsolete/
 
-# Test documents — generated locally, not needed in repo
+# Test documents and test generation scripts — local only
 test_docs/
+create_test_docs.py
 *.DS_Store
