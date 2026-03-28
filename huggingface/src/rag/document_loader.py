@@ -315,9 +315,12 @@ class DocumentLoader:
             print(f"  [CRAWL] Could not fetch: {url} — {fetch_error}")
             return
 
+        # Use the final URL after any HTTP redirects so domain checks and link
+        # resolution work correctly (e.g. example.com → www.example.com).
+        final_url    = response.url if hasattr(response, 'url') else url
         content_type = response.headers.get('Content-Type', '')
-        dtype        = detect_url_type(url, content, content_type, self.ext_to_type)
-        source_name  = build_source_name(url)
+        dtype        = detect_url_type(final_url, content, content_type, self.ext_to_type)
+        source_name  = build_source_name(final_url)
 
         print(f"  [CRAWL] [{dtype.upper()}] {source_name}")
 
@@ -343,7 +346,7 @@ class DocumentLoader:
         if dtype != 'html' or depth <= 0 or text is None:
             return
 
-        links = extract_links(text, url, self.ext_to_type)
+        links = extract_links(text, final_url, self.ext_to_type)
         for link in links:
             if len(visited) >= max_pages:
                 break

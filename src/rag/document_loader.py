@@ -484,9 +484,12 @@ class DocumentLoader:
             return
 
         # Detect the document type using the same 4-priority pipeline as chunk_url()
+        # Use the final URL after any HTTP redirects (e.g. example.com → www.example.com)
+        # so that relative links on the page resolve correctly and domain checks work.
+        final_url    = response.url if hasattr(response, 'url') else url
         content_type = response.headers.get('Content-Type', '')
-        dtype        = detect_url_type(url, content, content_type, self.ext_to_type)
-        source_name  = build_source_name(url)
+        dtype        = detect_url_type(final_url, content, content_type, self.ext_to_type)
+        source_name  = build_source_name(final_url)
 
         print(f"  [CRAWL] [{dtype.upper()}] {source_name}")
 
@@ -513,8 +516,9 @@ class DocumentLoader:
         if dtype not in html_types or depth <= 0 or text is None:
             return
 
-        # Extract all crawlable links from this HTML page
-        links = extract_links(text, url, self.ext_to_type)
+        # Use final_url (post-redirect) as the base so relative links resolve correctly
+        # and domain comparison uses the actual domain the browser landed on.
+        links = extract_links(text, final_url, self.ext_to_type)
 
         # Recurse into each discovered link, reducing depth by one each level
         for link in links:

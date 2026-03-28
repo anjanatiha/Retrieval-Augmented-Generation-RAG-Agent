@@ -197,20 +197,28 @@ def url_matches_topic(url: str, topic: str) -> bool:
 
 
 def is_same_domain(url: str, base_url: str) -> bool:
-    """Return True if url is on the exact same domain as base_url.
+    """Return True if url is on the same base domain as base_url.
 
-    Subdomains are treated as different domains — blog.example.com is NOT
-    the same domain as example.com. Only the exact netloc (domain + port)
-    is compared.
+    Strips the 'www.' prefix before comparing so that example.com and
+    www.example.com are treated as the same domain. This handles the very
+    common case where a seed URL typed without 'www.' redirects to the
+    www version and all page links point back to the www version.
+
+    Blog subdomains (blog.example.com) are still treated as different
+    domains — only 'www.' is normalised away.
 
     Args:
         url:      The URL to check.
         base_url: The seed URL whose domain is used as the reference.
 
     Returns:
-        True if both URLs share the exact same netloc.
+        True if both URLs share the same base domain (after www. strip).
     """
-    return urlparse(url).netloc == urlparse(base_url).netloc
+    def _strip_www(netloc: str) -> str:
+        """Remove leading 'www.' so www.example.com == example.com."""
+        return netloc.lower().removeprefix('www.')
+
+    return _strip_www(urlparse(url).netloc) == _strip_www(urlparse(base_url).netloc)
 
 
 def extract_links(html_content: str, base_url: str, ext_to_type: dict) -> List[str]:
