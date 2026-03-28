@@ -118,7 +118,7 @@ class VectorStore:
 
     # ── Public ──────────────────────────────────────────────────────────────
 
-    def build_or_load(self, chunks: list) -> None:
+    def build_or_load(self, chunks):
         """Initialize an in-memory ChromaDB collection and embed any provided chunks.
 
         Args:
@@ -151,7 +151,7 @@ class VectorStore:
         self._local_chunks = list(chunks)   # frozen snapshot — used by clear_added_chunks()
         self.bm25_index    = BM25Okapi([c['text'].lower().split() for c in chunks]) if chunks else None
 
-    def add_chunks(self, chunks: list, id_prefix: str) -> None:
+    def add_chunks(self, chunks, id_prefix):
         """Add new chunks from a URL or file upload to the live collection.
 
         Args:
@@ -171,7 +171,7 @@ class VectorStore:
         self.collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
         self.chunks = self.chunks + list(chunks)
 
-    def rebuild_bm25(self, all_chunks: list) -> None:
+    def rebuild_bm25(self, all_chunks):
         """Rebuild the BM25 index over all current chunks after any addition.
 
         Args:
@@ -179,7 +179,7 @@ class VectorStore:
         """
         self.bm25_index = BM25Okapi([c['text'].lower().split() for c in all_chunks]) if all_chunks else None
 
-    def run_pipeline(self, query: str, streamlit_mode: bool = False) -> dict:
+    def run_pipeline(self, query, streamlit_mode=False):
         """Execute the full RAG pipeline for a single user query.
 
         Steps: classify → expand → hybrid retrieve → confidence check →
@@ -267,7 +267,7 @@ class VectorStore:
         self.bm25_index = BM25Okapi([c['text'].lower().split() for c in self.chunks]) if self.chunks else None
         return len(runtime_ids)
 
-    def clear_conversation(self) -> None:
+    def clear_conversation(self):
         """Wipe the multi-turn conversation history so the next query starts fresh."""
         self.conversation_history = []
 
@@ -287,25 +287,25 @@ class VectorStore:
 
     # ── Private — vector/search ──────────────────────────────────────────────
 
-    def _embed(self, text: str) -> list:
+    def _embed(self, text):
         """Embed text using sentence-transformers (runs locally)."""
         model = _get_st_model()
         return model.encode(text, normalize_embeddings=True).tolist()
 
-    def _truncate_for_embedding(self, text: str, max_words: int = 200, max_chars: int = 1200) -> str:
+    def _truncate_for_embedding(self, text, max_words=200, max_chars=1200):
         """Truncate to stay within bge-base-en 512 token limit."""
         words     = text.split()
         truncated = ' '.join(words[:max_words]) if len(words) > max_words else text
         return truncated[:max_chars] if len(truncated) > max_chars else truncated
 
-    def _cosine_similarity(self, a: list, b: list) -> float:
+    def _cosine_similarity(self, a, b):
         """Compute cosine similarity between two plain Python float lists."""
         dot = sum(x * y for x, y in zip(a, b))
         na  = sum(x**2 for x in a)**0.5
         nb  = sum(x**2 for x in b)**0.5
         return dot / (na * nb) if na and nb else 0.0
 
-    def _hybrid_retrieve(self, queries: list, top_n: int, alpha: float = 0.5) -> list:
+    def _hybrid_retrieve(self, queries, top_n, alpha=0.5):
         """True hybrid search: fuses BM25 (lexical) + ChromaDB (dense) scores."""
         if self.collection is None or self.collection.count() == 0:
             return []
@@ -386,7 +386,7 @@ class VectorStore:
 
     # ── Private — query ──────────────────────────────────────────────────────
 
-    def _classify_query(self, query: str) -> str:
+    def _classify_query(self, query):
         """Classifies query as summarise / comparison / factual / general."""
         q = query.lower()
         summarise_signals  = ['summarise', 'summarize', 'summary', 'overview',
@@ -423,7 +423,7 @@ class VectorStore:
         best = results[0][1]
         return best >= SIMILARITY_THRESHOLD, best
 
-    def _smart_top_n(self, query_type: str) -> int:
+    def _smart_top_n(self, query_type):
         """Map query type to the number of chunks to retrieve before reranking."""
         return {'factual': 5, 'comparison': 15, 'general': 10,
                 'summarise': TOP_RETRIEVE}.get(query_type, TOP_RETRIEVE)
@@ -449,7 +449,7 @@ class VectorStore:
             f"CONTEXT:\n{context}"
         )
 
-    def _source_label(self, entry: dict) -> str:
+    def _source_label(self, entry):
         """Returns a consistent location label for any doc type."""
         t = entry.get('type', 'txt')
         if t == 'pdf':
@@ -478,7 +478,7 @@ class VectorStore:
         except Exception:
             return context
 
-    def _filter_hallucination(self, response: str) -> str:
+    def _filter_hallucination(self, response):
         """Truncate at hallucination pivot if model admitted no-info then hallucinated."""
         _no_info_phrases = [
             "there is no information",

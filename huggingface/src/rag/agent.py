@@ -86,7 +86,7 @@ Rules:
 
     # ── Public ──────────────────────────────────────────────────────────────
 
-    def run(self, user_query: str, streamlit_mode: bool = False) -> dict:
+    def run(self, user_query, streamlit_mode=False):
         """Execute the ReAct agent loop for a user query.
 
         Args:
@@ -194,7 +194,7 @@ Rules:
 
     # ── Private — loop ───────────────────────────────────────────────────────
 
-    def _parse_tool_call(self, response_text: str) -> tuple:
+    def _parse_tool_call(self, response_text):
         """Extract tool name and argument from a raw LLM response line.
 
         Two patterns are tried in order:
@@ -216,20 +216,8 @@ Rules:
             return match.group(1).strip().lower(), match.group(2).strip()
         return None, None
 
-    def _dispatch_tool(self, tool_name: str, tool_arg: str) -> str:
-        """Route a parsed tool call to the correct private tool method.
-
-        rag_search and sentiment results are also appended to collected_context
-        so the final synthesis at finish-time has the full accumulated evidence,
-        not just the last result.
-
-        Args:
-            tool_name: Lowercase tool name (e.g. 'rag_search', 'calculator').
-            tool_arg:  The argument string extracted by _parse_tool_call.
-
-        Returns:
-            String result from the tool, or an error message for unknown tools.
-        """
+    def _dispatch_tool(self, tool_name, tool_arg):
+        """Call the tool matching tool_name and return its result string."""
         if tool_name == 'rag_search':
             result = self._tool_rag_search(tool_arg)
             self.collected_context.append(f"[Search: {tool_arg}]\n{result}")
@@ -247,7 +235,7 @@ Rules:
                       f"Available: rag_search, calculator, summarise, sentiment, translate, finish")
         return result
 
-    def _synthesize_final_answer(self, query: str, context: str) -> str:
+    def _synthesize_final_answer(self, query, context):
         """Ask the LLM to produce a clean final answer grounded in accumulated context."""
         prompt = (
             "You are a helpful assistant. Answer the question below using ONLY the "
@@ -267,7 +255,7 @@ Rules:
             # Return a clean error message rather than leaking raw chunk text to the user
             return f"(Could not synthesize answer: {e})"
 
-    def _fast_path_summarise(self, query: str, streamlit_mode: bool = False) -> dict:
+    def _fast_path_summarise(self, query, streamlit_mode=False):
         """Handle summarise queries by running four targeted searches then synthesizing.
 
         For resume/CV queries the four search terms are fixed to cover standard sections.
@@ -299,7 +287,7 @@ Rules:
                            'arg': answer, 'result': answer})
         return {'answer': answer, 'steps': fast_steps}
 
-    def _fast_path_sentiment(self, query: str, streamlit_mode: bool = False) -> dict:
+    def _fast_path_sentiment(self, query, streamlit_mode=False):
         """Handle sentiment queries: strip sentiment keywords, search, then analyse text."""
         _q_lower = query.lower()
         # Remove meta-question words so the search focuses on the actual subject
@@ -337,7 +325,7 @@ Rules:
         ]
         return {'answer': answer, 'steps': steps}
 
-    def _tool_rag_search(self, query: str) -> str:
+    def _tool_rag_search(self, query):
         """Search the knowledge base and return formatted chunk lines with source labels."""
         queries   = self.store._expand_query(query)
         retrieved = self.store._hybrid_retrieve(queries, top_n=5)
@@ -348,21 +336,10 @@ Rules:
             lines.append(f"- [{e['source']} {label}] {e['text']}")
         return '\n'.join(lines)
 
-    def _tool_calculator(self, expression: str) -> str:
-        """Safely evaluate a mathematical expression and return the result as a string.
+    def _tool_calculator(self, expression):
+        """Safely evaluate a math expression string using a character whitelist.
 
-        Only digits, arithmetic operators (+, -, *, /), parentheses, dots, and spaces
-        are allowed. Any other character is rejected to prevent code injection via eval().
-        Percentage expressions are normalised before evaluation:
-          "15% of 85000" → "(15/100*85000)"
-          "15%"          → "(15/100)"
-
-        Args:
-            expression: A mathematical expression string (e.g. "15% of 85000").
-
-        Returns:
-            The numeric result as a string, or an "Error: ..." message if the
-            expression is unsafe, malformed, or causes a runtime error.
+        Returns the result as a string, or an error message prefixed with 'Error:'.
         """
         try:
             # Normalise percentage expressions before safety check
@@ -384,24 +361,8 @@ Rules:
         except Exception as e:
             return f"Error: {e}"
 
-    def _tool_summarise(self, text: str) -> str:
-        """Summarise a passage using an adaptive length hint based on word count.
-
-        Shorter passages get a tighter summary (2-3 sentences) to avoid padding;
-        longer passages get a fuller treatment (6-8 sentences) so key points
-        are not dropped.
-
-        Length thresholds:
-            < 100 words  → "2-3 sentences"
-            100-299 words → "4-5 sentences"
-            300+ words   → "6-8 sentences covering all key points"
-
-        Args:
-            text: The passage to summarise.
-
-        Returns:
-            A summary string produced by the language model.
-        """
+    def _tool_summarise(self, text):
+        """Summarise text with an adaptive length hint based on input word count."""
         word_count = len(text.split())
         # Longer hints for longer texts so the summary stays proportional
         if word_count < 100:
@@ -414,26 +375,8 @@ Rules:
             [{'role': 'user', 'content': f"Summarise this in {length_hint}:\n{text}"}]
         )
 
-    def _tool_sentiment(self, text_or_query: str) -> str:
-        """Analyse the sentiment and tone of a text passage.
-
-        If the input is a short keyword or query (fewer than 10 words), the
-        knowledge base is searched first and the retrieved content is analysed.
-        This prevents the LLM from hallucinating sentiment for a topic it hasn't
-        retrieved context for.
-
-        Output format (always 4 fields):
-            Sentiment: <Positive / Negative / Neutral / Mixed>
-            Tone: <one short phrase>
-            Key phrases: <2-4 phrases>
-            Explanation: <1-2 sentences>
-
-        Args:
-            text_or_query: Either a full passage to analyse, or a short search query.
-
-        Returns:
-            Structured sentiment analysis string with the 4 fields above.
-        """
+    def _tool_sentiment(self, text_or_query):
+        """Analyses sentiment/tone. Short queries search first; longer text analyses directly."""
         if len(text_or_query.split()) < 10:
             retrieved = self._tool_rag_search(text_or_query)
             text_to_analyse = retrieved if retrieved.strip() else text_or_query

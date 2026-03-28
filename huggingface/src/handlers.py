@@ -112,7 +112,7 @@ def _agent_steps_md(steps: list) -> str:
         short_arg    = step['arg'][:60]    + '...' if len(step['arg']) > 60    else step['arg']
         short_result = step['result'][:80] + '...' if len(step['result']) > 80 else step['result']
         lines.append(f"**Step {step['step']}** `{step['tool']}({short_arg})`")
-        lines.append(f"*{short_result}*")
+        lines.append(f"> {short_result}")
         lines.append("")
     return '\n'.join(lines)
 
