@@ -156,6 +156,23 @@ Most RAG systems stop at retrieve-and-generate. This system adds:
 │       ├── 3. PDF magic bytes       (content[:4] == b'%PDF' → pdf)  │
 │       └── 4. Default → html                                         │
 │       → fetch → write tempfile → chunker → index → BM25 rebuilt    │
+│                                                                     │
+│  Recursive crawl (optional):                                         │
+│       seed URL → depth 1–3 → same-domain links only                │
+│       → utility URL filter (login, cart, search, premium …)        │
+│       → optional topic_filter (keyword in URL path)                │
+│       → progress_callback per page → live st.status() log          │
+└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                      TOPIC SEARCH                                    │
+│                                                                     │
+│  User query → DuckDuckGo HTML POST endpoint (no API key)           │
+│       → parse <a class="result__a"> anchors                         │
+│       → filter ad links (/y.js?)                                    │
+│       → top N result URLs                                           │
+│       → each URL crawled via chunk_url_recursive                    │
+│       → same-domain constraint + utility filter apply               │
+│       → all chunks merged → index → BM25 rebuilt                   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -511,7 +528,7 @@ Step 6 — FINISH
   Output: "TOOL: finish(20% of the salary is $19,000)"
 ```
 
-**The 5 tools:**
+**The 6 tools:**
 
 | Tool | Input | What it does |
 |------|-------|-------------|
@@ -519,7 +536,22 @@ Step 6 — FINISH
 | `calculator` | An arithmetic expression | Evaluates safely — only `0123456789+-*/(). ` allowed |
 | `summarise` | A passage of text | Adaptive length: 2–3 sentences for short, 6–8 for long text |
 | `sentiment` | Text or a query | Returns Sentiment, Tone, Key phrases, Explanation |
+| `translate` | `"Language: text"` or just text | Translates to any target language; short queries search the knowledge base first |
 | `finish` | The final answer | Ends the loop and returns to the user |
+
+**Translate tool routing logic:**
+
+The translate tool uses a two-path strategy depending on whether the input looks like a search query or a full passage of text:
+
+```
+Input < 15 words (query) → _tool_rag_search first → translate retrieved content
+Input ≥ 15 words (text)  → translate directly, no search needed
+
+If no language prefix:   default to English
+If search returns empty: fall back to translating the original input
+```
+
+This avoids translating a bare keyword like "machine learning" when the user actually wants a translated explanation of the topic from their documents.
 
 **Tool call parsing — two regex patterns:**
 

@@ -1,185 +1,408 @@
-"""ui/theme.py — CSS + style constants. No functions, no classes."""
+"""ui/theme.py — CSS + style constants for the Streamlit UI.
+
+WHY THIS FILE EXISTS:
+    All visual styling — fonts, colors, spacing, card styles, badges — is
+    defined here as a single CSS string. Keeping it separate from handlers.py
+    means the visual design can be changed in one place without touching any
+    logic. app.py injects this CSS once on startup via st.markdown().
+
+DESIGN SYSTEM:
+    Font:       IBM Plex Sans (body) + IBM Plex Mono (code, labels, badges)
+    Palette:    Blue (#1a56db primary) on near-white (#f9fafb) background
+    Radius:     6 px for inputs/badges, 10 px for cards and chat bubbles
+    Shadow:     0 2px 8px rgba(0,0,0,.06) for cards — gives depth without noise
+    Focus:      2 px blue outline ring — consistent across all interactive elements
+"""
 
 __all__ = ['CSS', 'BADGE_CLASSES', 'CONFIDENCE_BADGE', 'AVATAR']
 
+# ── CSS ────────────────────────────────────────────────────────────────────────
+# Complete stylesheet injected into the Streamlit page head via st.markdown().
+# Organised top-to-bottom: fonts → tokens → base → header → chat →
+# sidebar → badges → cards → buttons → inputs → expanders → misc.
+
 CSS: str = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
 
-/* ── Base ────────────────────────────────────────────────────────────────── */
-html,body,[class*="css"] {
-    font-family: 'IBM Plex Sans', sans-serif;
-    background: #f8fbfd;
-    color: #0d2b45;
+/* ── Design tokens — Sea Blue + Teal Green palette ──────────────────────────── */
+:root {
+    /* Primary: deep ocean blue → sea teal gradient */
+    --blue-700:   #0e7490;   /* deep cyan-700 */
+    --blue-600:   #0891b2;   /* sea blue cyan-600 */
+    --blue-500:   #22d3ee;   /* bright cyan-400 */
+    --blue-100:   #cffafe;   /* pale cyan */
+    --blue-50:    #ecfeff;   /* whisper cyan */
+
+    /* Accent: seafoam / teal green */
+    --teal-700:   #0f766e;   /* deep teal */
+    --teal-600:   #0d9488;   /* seafoam teal-600 */
+    --teal-100:   #ccfbf1;   /* pale teal */
+
+    --gray-900:   #0f172a;   /* deep slate — richer than pure black */
+    --gray-800:   #1e293b;
+    --gray-700:   #334155;
+    --gray-500:   #64748b;
+    --gray-400:   #94a3b8;
+    --gray-200:   #e2e8f0;
+    --gray-100:   #f1f5f9;
+    --gray-50:    #f8fafc;   /* barely-there aqua background */
+
+    --green-700:  #0f766e;   /* reuse teal for "ok/pass" badges */
+    --green-100:  #ccfbf1;
+    --green-50:   #f0fdfa;
+
+    --amber-700:  #b45309;
+    --amber-100:  #fef3c7;
+
+    --purple-700: #6d28d9;
+    --purple-100: #ede9fe;
+
+    --white:      #ffffff;
+    --shadow-sm:  0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+    --shadow-md:  0 4px 12px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.05);
+    --radius-sm:  6px;
+    --radius-md:  10px;
+    --radius-lg:  14px;
 }
-.stApp { background: #f8fbfd; }
 
-/* ── Header ──────────────────────────────────────────────────────────────── */
+/* ── Base ──────────────────────────────────────────────────────────────────── */
+html, body, [class*="css"] {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background:  var(--gray-50);
+    color:       var(--gray-900);
+    font-size:   15px;
+    line-height: 1.6;
+}
+.stApp { background: var(--gray-50) !important; }
+
+/* ── App header ────────────────────────────────────────────────────────────── */
+/* Product-quality header with a gradient accent bar above the title */
+.rag-header {
+    background:    var(--white);
+    border:        1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    padding:       1rem 1.25rem 0.85rem;
+    margin-bottom: 1.25rem;
+    box-shadow:    var(--shadow-sm);
+    position:      relative;
+    overflow:      hidden;
+}
+/* Sea-blue → teal-green gradient accent bar — the product brand stripe */
+.rag-header::before {
+    content:    '';
+    position:   absolute;
+    top:        0; left: 0; right: 0;
+    height:     3px;
+    background: linear-gradient(90deg, var(--blue-600), var(--teal-600));
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
 .rag-title {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.85rem;
-    font-weight: 600;
-    color: #1565a0;
-    letter-spacing: -.02em;
-    padding-left: .6rem;
-    border-left: 4px solid #1565a0;
-    margin-bottom: .3rem;
+    font-family:    'IBM Plex Mono', monospace;
+    font-size:      1.6rem;
+    font-weight:    600;
+    color:          var(--blue-600);
+    letter-spacing: -.025em;
+    margin:         0 0 .2rem;
+    line-height:    1.2;
 }
 .rag-sub {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: .72rem;
-    color: #7aafc8;
-    margin-bottom: 1.5rem;
-    padding-left: .6rem;
+    font-size:   .68rem;
+    color:       var(--gray-400);
+    letter-spacing: .01em;
+    margin:      0;
 }
-
-/* ── Chunk cards ─────────────────────────────────────────────────────────── */
-.chunk {
-    background: #ffffff;
-    border: 1px solid #b3d4e8;
-    border-radius: 6px;
-    padding: .5rem .7rem;
-    margin: .25rem 0;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: .7rem;
-    color: #4a8fa8;
+/* Capability chips after the subtitle */
+.rag-chips {
+    display:    flex;
+    flex-wrap:  wrap;
+    gap:        .3rem;
+    margin-top: .55rem;
 }
-.cs  { color: #1565a0; font-weight: 600; }
-.src { color: #4a9fc4; }
-
-/* ── Agent step cards ────────────────────────────────────────────────────── */
-.step {
-    background: #eef7ee;
-    border: 1px solid #aed4bb;
-    border-left: 3px solid #43a047;
-    border-radius: 6px;
-    padding: .5rem .7rem;
-    margin: .2rem 0;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: .7rem;
-    color: #2e7d32;
-}
-
-/* ── Agent tools reference panel ─────────────────────────────────────────── */
-.tools-panel {
-    background: #eaf4fd;
-    border-left: 4px solid #1565a0;
-    border-radius: 6px;
-    padding: 10px 14px;
-    margin: 8px 0;
-    font-size: 0.82rem;
-    line-height: 1.7;
-}
-
-/* ── Badges ──────────────────────────────────────────────────────────────── */
-.badge {
-    display: inline-block;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: .65rem;
-    font-weight: 600;
-    padding: .2rem .5rem;
+.rag-chip {
+    display:       inline-block;
+    font-family:   'IBM Plex Mono', monospace;
+    font-size:     .62rem;
+    font-weight:   600;
+    padding:       .15rem .45rem;
     border-radius: 4px;
-    margin: .1rem;
-    letter-spacing: .02em;
+    background:    var(--blue-50);
+    color:         var(--blue-600);
+    border:        1px solid var(--blue-100);
+    letter-spacing: .03em;
 }
-.b-fact { background: #daeaf4; color: #1565a0; }
-.b-comp { background: #e3f0f9; color: #0d47a1; }
-.b-gen  { background: #ede7f6; color: #512da8; }
-.b-ok   { background: #daeaf4; color: #1565a0; }
-.b-warn { background: #fff8e1; color: #e65100; }
 
-/* ── Sidebar stats ───────────────────────────────────────────────────────── */
+/* ── Mode selector ──────────────────────────────────────────────────────────── */
+/* Wrap the radio in a subtle card so it looks like a tab bar */
+.stRadio > div {
+    background:    var(--white) !important;
+    border:        1px solid var(--gray-200) !important;
+    border-radius: var(--radius-sm) !important;
+    padding:       .35rem .6rem !important;
+    box-shadow:    var(--shadow-sm) !important;
+    display:       inline-flex !important;
+    gap:           .4rem !important;
+}
+.stRadio label { font-weight: 500 !important; color: var(--gray-700) !important; }
+
+/* ── Chat bubbles ───────────────────────────────────────────────────────────── */
+[data-testid="stChatMessage"] {
+    background:    var(--white);
+    border:        1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    margin:        .4rem 0;
+    box-shadow:    var(--shadow-sm);
+    transition:    box-shadow .15s ease;
+}
+[data-testid="stChatMessage"]:hover { box-shadow: var(--shadow-md); }
+[data-testid="stChatMessageContent"] p { margin: 0; line-height: 1.65; }
+
+/* User message — subtle blue tint to distinguish from assistant */
+[data-testid="stChatMessage"][data-testid*="user"] {
+    background: var(--blue-50);
+    border-color: var(--blue-100);
+}
+
+/* ── Agent step cards ────────────────────────────────────────────────────────── */
+.step {
+    background:    var(--green-50);
+    border:        1px solid var(--green-100);
+    border-left:   3px solid var(--green-700);
+    border-radius: var(--radius-sm);
+    padding:       .45rem .7rem;
+    margin:        .2rem 0;
+    font-family:   'IBM Plex Mono', monospace;
+    font-size:     .72rem;
+    color:         var(--green-700);
+    line-height:   1.5;
+}
+
+/* ── Agent tools reference panel ─────────────────────────────────────────────── */
+.tools-panel {
+    background:    var(--blue-50);
+    border:        1px solid var(--blue-100);
+    border-left:   3px solid var(--blue-600);
+    border-radius: var(--radius-sm);
+    padding:       .75rem 1rem;
+    margin:        .5rem 0;
+    font-size:     .84rem;
+    line-height:   1.75;
+}
+.tools-panel b { color: var(--blue-700); }
+
+/* ── Chunk / retrieval cards ─────────────────────────────────────────────────── */
+.chunk {
+    background:    var(--white);
+    border:        1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    padding:       .45rem .65rem;
+    margin:        .2rem 0;
+    font-family:   'IBM Plex Mono', monospace;
+    font-size:     .7rem;
+    color:         var(--gray-700);
+    line-height:   1.5;
+    box-shadow:    var(--shadow-sm);
+}
+/* Score label — bold blue number */
+.cs  { color: var(--blue-600); font-weight: 600; }
+/* Source path — muted blue */
+.src { color: var(--blue-500); }
+
+/* ── Badges ──────────────────────────────────────────────────────────────────── */
+.badge {
+    display:        inline-flex;
+    align-items:    center;
+    font-family:    'IBM Plex Mono', monospace;
+    font-size:      .63rem;
+    font-weight:    600;
+    padding:        .18rem .5rem;
+    border-radius:  20px;   /* pill shape */
+    margin:         .1rem .15rem .1rem 0;
+    letter-spacing: .03em;
+    border:         1px solid transparent;
+}
+/* Query type badges */
+.b-fact { background: var(--blue-50);    color: var(--blue-700);   border-color: var(--blue-100); }
+.b-comp { background: var(--purple-100); color: var(--purple-700); border-color: #c4b5fd; }
+.b-gen  { background: var(--gray-100);   color: var(--gray-700);   border-color: var(--gray-200); }
+/* Confidence badges */
+.b-ok   { background: var(--green-100);  color: var(--green-700);  border-color: #bbf7d0; }
+.b-warn { background: var(--amber-100);  color: var(--amber-700);  border-color: #fde68a; }
+
+/* ── Sidebar ────────────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background:   var(--white) !important;
+    border-right: 1px solid var(--gray-200) !important;
+}
+/* Sidebar section label */
+.sidebar-section {
+    font-family:    'IBM Plex Mono', monospace;
+    font-size:      .68rem;
+    font-weight:    600;
+    color:          var(--gray-400);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin:         .8rem 0 .3rem;
+}
+
+/* ── Sidebar stats ───────────────────────────────────────────────────────────── */
 .stat {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: .72rem;
-    color: #7aafc8;
-    padding: .28rem 0;
-    border-bottom: 1px solid #daeaf4;
-    display: flex;
+    font-family:     'IBM Plex Sans', sans-serif;
+    font-size:       .82rem;
+    color:           var(--gray-600, #4b5563);
+    padding:         .32rem 0;
+    border-bottom:   1px solid var(--gray-100);
+    display:         flex;
     justify-content: space-between;
+    align-items:     center;
 }
-.sv { color: #1565a0; font-weight: 600; }
+/* Stat value — prominent blue number */
+.sv {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size:   .82rem;
+    color:       var(--blue-600);
+    font-weight: 600;
+}
 
-/* ── Buttons ─────────────────────────────────────────────────────────────── */
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
+/* Primary — solid blue */
 .stButton > button {
-    background: #1565a0 !important;
-    color: #ffffff !important;
-    font-family: 'IBM Plex Mono', monospace !important;
-    font-weight: 600 !important;
-    border: none !important;
-    border-radius: 6px !important;
-    transition: background .15s ease !important;
+    background:    var(--blue-600) !important;
+    color:         var(--white) !important;
+    font-family:   'IBM Plex Sans', sans-serif !important;
+    font-weight:   500 !important;
+    font-size:     .88rem !important;
+    border:        none !important;
+    border-radius: var(--radius-sm) !important;
+    padding:       .45rem 1rem !important;
+    transition:    background .15s ease, transform .1s ease, box-shadow .15s ease !important;
+    box-shadow:    0 1px 2px rgba(8,145,178,.3) !important;
+    letter-spacing: .01em !important;
 }
 .stButton > button:hover {
-    background: #0d47a1 !important;
+    background: var(--blue-700) !important;
+    box-shadow: 0 3px 8px rgba(8,145,178,.35) !important;
+    transform:  translateY(-1px) !important;
+}
+.stButton > button:active { transform: translateY(0) !important; }
+
+/* ── Form submit button (slightly different style to distinguish from actions) */
+[data-testid="stFormSubmitButton"] > button {
+    background:    var(--blue-600) !important;
+    color:         var(--white) !important;
+    font-family:   'IBM Plex Mono', monospace !important;
+    font-weight:   600 !important;
+    border-radius: var(--radius-sm) !important;
+    letter-spacing: .02em !important;
 }
 
-/* ── Sidebar background ──────────────────────────────────────────────────── */
-[data-testid="stSidebar"] {
-    background: #f4f9fc !important;
-    border-right: 1px solid #b3d4e8 !important;
-}
-
-/* ── Dividers ────────────────────────────────────────────────────────────── */
-hr { border-color: #daeaf4 !important; }
-
-/* ── Mode radio ──────────────────────────────────────────────────────────── */
-.stRadio > div {
-    background: #eaf4fd;
-    border-radius: 8px;
-    padding: .3rem .6rem;
-    border: 1px solid #b3d4e8;
-}
-
-/* ── Chat bubbles ────────────────────────────────────────────────────────── */
-[data-testid="stChatMessage"] {
-    background: #ffffff;
-    border: 1px solid #daeaf4;
-    border-radius: 10px;
-    margin: .3rem 0;
-}
-[data-testid="stChatMessageContent"] p { margin: 0; line-height: 1.6; }
-
-/* ── Expanders ───────────────────────────────────────────────────────────── */
+/* ── Expanders (URL, file upload panels) ────────────────────────────────────── */
 [data-testid="stExpander"] {
-    background: #ffffff;
-    border: 1px solid #b3d4e8 !important;
-    border-radius: 8px !important;
-    margin-bottom: .5rem;
+    background:    var(--white) !important;
+    border:        1px solid var(--gray-200) !important;
+    border-radius: var(--radius-md) !important;
+    margin-bottom: .6rem !important;
+    box-shadow:    var(--shadow-sm) !important;
+    overflow:      hidden !important;
+}
+[data-testid="stExpander"] > div:first-child {
+    background: var(--gray-50) !important;
+    border-bottom: 1px solid var(--gray-200) !important;
+    padding: .55rem .85rem !important;
 }
 
-/* ── Chat input ──────────────────────────────────────────────────────────── */
-.stChatInputContainer textarea {
-    font-family: 'IBM Plex Mono', monospace !important;
-    background: #ffffff !important;
-    border: 1px solid #b3d4e8 !important;
-    color: #0d2b45 !important;
-    border-radius: 8px !important;
-}
-.stChatInputContainer textarea:focus,
-[data-testid="stChatInputContainer"]:focus-within,
-input:focus,
-textarea:focus {
-    border-color: #1565a0 !important;
-    box-shadow: 0 0 0 2px rgba(21,101,160,.2) !important;
-    outline: none !important;
-}
-
-/* ── Text inputs (URL box, number inputs) ────────────────────────────────── */
+/* ── Text inputs ────────────────────────────────────────────────────────────── */
 .stTextInput > div > div > input,
-.stNumberInput > div > div > input {
-    font-family: 'IBM Plex Mono', monospace !important;
-    background: #ffffff !important;
-    border: 1px solid #b3d4e8 !important;
-    border-radius: 6px !important;
-    color: #0d2b45 !important;
+.stNumberInput > div > div > input,
+textarea {
+    font-family:   'IBM Plex Sans', sans-serif !important;
+    background:    var(--white) !important;
+    border:        1px solid var(--gray-200) !important;
+    border-radius: var(--radius-sm) !important;
+    color:         var(--gray-900) !important;
+    font-size:     .9rem !important;
+    transition:    border-color .15s ease, box-shadow .15s ease !important;
+}
+.stTextInput > div > div > input:focus,
+.stNumberInput > div > div > input:focus,
+textarea:focus {
+    border-color: var(--blue-600) !important;
+    box-shadow:   0 0 0 3px rgba(8,145,178,.15) !important;
+    outline:      none !important;
 }
 
-/* ── Global focus ring ───────────────────────────────────────────────────── */
-*:focus { outline-color: #1565a0 !important; }
-:root   { --primary-color: #1565a0 !important; }
+/* ── Chat input ─────────────────────────────────────────────────────────────── */
+.stChatInputContainer {
+    background:    var(--white) !important;
+    border:        1px solid var(--gray-200) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow:    var(--shadow-sm) !important;
+}
+.stChatInputContainer textarea {
+    font-family:   'IBM Plex Sans', sans-serif !important;
+    font-size:     .95rem !important;
+    border:        none !important;
+    background:    transparent !important;
+}
+[data-testid="stChatInputContainer"]:focus-within {
+    border-color: var(--blue-600) !important;
+    box-shadow:   0 0 0 3px rgba(8,145,178,.15) !important;
+}
+
+/* ── Checkboxes ─────────────────────────────────────────────────────────────── */
+.stCheckbox label { font-size: .88rem !important; color: var(--gray-700) !important; }
+
+/* ── Info / caption text ────────────────────────────────────────────────────── */
+.stCaption, [data-testid="stCaptionContainer"] {
+    color:     var(--gray-500) !important;
+    font-size: .82rem !important;
+}
+
+/* ── Dividers ───────────────────────────────────────────────────────────────── */
+hr { border: none !important; border-top: 1px solid var(--gray-200) !important; margin: .75rem 0 !important; }
+
+/* ── Progress bar ───────────────────────────────────────────────────────────── */
+[data-testid="stProgress"] > div > div {
+    background: var(--blue-600) !important;
+    border-radius: 4px !important;
+}
+
+/* ── Info boxes / notes ─────────────────────────────────────────────────────── */
+/* Used for tips and guidance notes rendered via st.markdown */
+.note {
+    background:    var(--blue-50);
+    border:        1px solid var(--blue-100);
+    border-left:   3px solid var(--blue-500);
+    border-radius: var(--radius-sm);
+    padding:       .55rem .8rem;
+    font-size:     .84rem;
+    color:         var(--blue-700);
+    margin:        .4rem 0 .6rem;
+    line-height:   1.55;
+}
+/* Warning note variant */
+.note-warn {
+    background:  var(--amber-100);
+    border-color: #fde68a;
+    border-left-color: var(--amber-700);
+    color:        var(--amber-700);
+}
+
+/* ── Global focus ring ──────────────────────────────────────────────────────── */
+*:focus-visible { outline: 2px solid var(--blue-600) !important; outline-offset: 2px !important; }
+:root { --primary-color: var(--blue-600) !important; }
+
+/* ── Scrollbar (WebKit) ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--gray-100); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--gray-300, #d1d5db); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gray-400); }
 </style>
 """
+
+# ── Badge CSS class mapping ────────────────────────────────────────────────────
+# Maps the query_type string returned by the pipeline to a CSS badge class.
 
 BADGE_CLASSES: dict = {
     'factual':    'b-fact',
@@ -188,10 +411,16 @@ BADGE_CLASSES: dict = {
     'summarise':  'b-gen',
 }
 
+# ── Confidence badge CSS class ─────────────────────────────────────────────────
+# True  = confident answer found,  False = low-confidence or no-info response.
+
 CONFIDENCE_BADGE: dict = {
     True:  'b-ok',
     False: 'b-warn',
 }
+
+# ── Chat avatar glyphs ────────────────────────────────────────────────────────
+# Shown next to each chat message to identify the speaker at a glance.
 
 AVATAR: dict = {
     'user':      '🧑',

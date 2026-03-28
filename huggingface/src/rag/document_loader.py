@@ -13,7 +13,11 @@ from src.rag.config import (
     PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES,
 )
 from src.rag import chunkers
-from src.rag.url_utils import detect_url_type, build_source_name, extract_links, url_matches_topic
+from src.rag import binary_chunkers
+from src.rag.url_utils import (
+    detect_url_type, build_source_name, extract_links, url_matches_topic,
+    is_same_domain,
+)
 
 __all__ = ['DocumentLoader']
 
@@ -261,7 +265,128 @@ class DocumentLoader:
               f"{len(all_chunks)} chunks total")
         return all_chunks
 
+    def chunk_topic_search(
+        self,
+        query: str,
+        num_results: int = 10,
+        depth: int = 1,
+        max_pages_per_result: int = 3,
+        allowed_types: Optional[Set[str]] = None,
+        topic_filter: str = '',
+        progress_callback: Optional[Callable] = None,
+    ) -> List[dict]:
+        """Search the web for a topic and index the top results.
+
+        Uses DuckDuckGo (no API key required) to find the top N pages for the
+        query, then crawls each result URL with chunk_url_recursive() using the
+        same depth and type controls as the manual URL crawl.
+
+        Args:
+            query:               The search query — e.g. "Elizabeth Olsen actress".
+            num_results:         How many search result URLs to fetch and index (1–20).
+            depth:               Crawl depth per result URL (1 = result page only,
+                                 2 = result page + its links).
+            max_pages_per_result: Hard cap on pages crawled per result URL.
+            allowed_types:       Set of doc types to index (None = all types).
+            topic_filter:        Keyword the URL path must contain to be crawled.
+            progress_callback:   Optional callback(url, dtype, chunk_count).
+
+        Returns:
+            Flat list of all chunk dicts from every crawled result URL.
+        """
+        # Search DuckDuckGo via the HTML form endpoint.
+        # This uses a plain POST request (requests + BeautifulSoup) rather than
+        # the duckduckgo-search library, which is subject to aggressive IP-level
+        # rate limiting on the JS API endpoints.  The HTML endpoint is the same
+        # one used by the public website and is not rate-limited in the same way.
+        print(f"\n  [SEARCH] Querying: {query!r}  (top {num_results} results)")
+        urls = self._search_duckduckgo_html(query, num_results)
+
+        all_chunks: List[dict] = []
+        for i, url in enumerate(urls):
+            print(f"  [SEARCH] [{i + 1}/{len(urls)}] {url[:80]}")
+            try:
+                chunks = self.chunk_url_recursive(
+                    url,
+                    depth=depth,
+                    max_pages=max_pages_per_result,
+                    allowed_types=allowed_types,
+                    topic_filter=topic_filter,
+                    progress_callback=progress_callback,
+                )
+                all_chunks.extend(chunks)
+            except Exception as error:
+                print(f"  [SEARCH] Error crawling {url}: {error}")
+
+        print(f"\n  [SEARCH] Done — {len(urls)} URLs crawled, "
+              f"{len(all_chunks)} chunks total")
+        return all_chunks
+
     # ----------------------------------------------------------------- Private
+
+    def _search_duckduckgo_html(self, query: str, num_results: int) -> List[str]:
+        """Search DuckDuckGo via the public HTML form endpoint and return URLs.
+
+        Uses a plain POST request instead of the duckduckgo-search library.
+        The HTML endpoint (html.duckduckgo.com/html/) is not subject to the
+        same aggressive IP-level rate limiting as the JS API endpoints that
+        duckduckgo-search v6 uses internally.
+
+        Args:
+            query:       The search query string.
+            num_results: Maximum number of result URLs to return.
+
+        Returns:
+            List of result URLs (ads and DuckDuckGo redirect links filtered out).
+        """
+        try:
+            import requests as _requests
+            from bs4 import BeautifulSoup
+        except ImportError as import_error:
+            print(f"  [SEARCH] Missing dependency: {import_error}")
+            return []
+
+        # Mimic a real browser so DuckDuckGo returns normal HTML results.
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/131.0.0.0 Safari/537.36'
+            ),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'https://duckduckgo.com',
+            'Referer': 'https://duckduckgo.com/',
+        }
+
+        try:
+            response = _requests.post(
+                'https://html.duckduckgo.com/html/',
+                data={'q': query},
+                headers=headers,
+                timeout=10,
+            )
+            response.raise_for_status()
+        except Exception as error:
+            print(f"  [SEARCH] DuckDuckGo HTML request failed: {error}")
+            return []
+
+        soup = BeautifulSoup(response.text, 'lxml')
+
+        # Collect up to num_results clean result URLs.
+        # Skip ad links — they go through duckduckgo.com/y.js rather than
+        # pointing directly to the destination.
+        urls: List[str] = []
+        for anchor in soup.select('a.result__a'):
+            href = anchor.get('href', '')
+            if href.startswith('http') and '/y.js?' not in href:
+                urls.append(href)
+                if len(urls) >= num_results:
+                    break
+
+        print(f"  [SEARCH] Found {len(urls)} result URLs")
+        return urls
 
     def _crawl_url(
         self,
@@ -274,6 +399,7 @@ class DocumentLoader:
         all_chunks: List[dict],
         progress_callback: Optional[Callable],
         is_seed: bool = False,
+        seed_domain: str = '',
     ) -> None:
         """Recursively fetch a URL and follow links up to the given depth.
 
@@ -298,11 +424,20 @@ class DocumentLoader:
         if url and not url.startswith(('http://', 'https://')):
             url = 'https://' + url
 
+        # Normalise to prevent double-fetching the same page under different forms
+        url = url.rstrip('/')    # /wiki/Article and /wiki/Article/ are the same page
+        url = url.split('#')[0]  # fragments (#section) are client-side only
+
         if url in visited or len(visited) >= max_pages:
             return
 
         # Apply topic filter to all pages except the seed URL
         if not is_seed and not url_matches_topic(url, topic_filter):
+            return
+
+        # Stay on the same domain as the seed — blocks cross-domain links such
+        # as subscription pages, paywalls, and magazine-sales sites.
+        if seed_domain and not is_same_domain(url, seed_domain):
             return
 
         visited.add(url)
@@ -357,16 +492,22 @@ class DocumentLoader:
             return
 
         links = extract_links(text, final_url, self.ext_to_type)
+        current_seed_domain = seed_domain if seed_domain else final_url
         for link in links:
             if len(visited) >= max_pages:
                 break
             self._crawl_url(
                 link, depth - 1, max_pages,
                 allowed_types, topic_filter, visited, all_chunks, progress_callback,
+                is_seed=False,
+                seed_domain=current_seed_domain,
             )
 
     def _dispatch_chunker(self, file_info: dict) -> List[dict]:
-        """Route a file_info dict to the correct chunker function in chunkers.py.
+        """Route a file_info dict to the correct chunker function.
+
+        Text formats (txt, md, csv, html) use chunkers.py.
+        Binary formats (pdf, docx, xlsx, xls, pptx) use binary_chunkers.py.
 
         Args:
             file_info: Dict with keys filepath, filename, detected_type, is_misplaced.
@@ -388,23 +529,23 @@ class DocumentLoader:
                                      self.chunk_sizes['txt_chunk_size'],
                                      self.chunk_sizes['txt_chunk_overlap'])
         elif t == 'pdf':
-            return chunkers.chunk_pdf(fp, fn,
-                                      self.chunk_sizes['pdf_chunk_sentences'])
+            return binary_chunkers.chunk_pdf(fp, fn,
+                                             self.chunk_sizes['pdf_chunk_sentences'])
         elif t == 'docx':
-            return chunkers.chunk_docx(fp, fn,
-                                       self.chunk_sizes['docx_chunk_paras'])
+            return binary_chunkers.chunk_docx(fp, fn,
+                                              self.chunk_sizes['docx_chunk_paras'])
         elif t == 'xlsx':
             if ext == '.xls':
-                return chunkers.chunk_xls(fp, fn)
+                return binary_chunkers.chunk_xls(fp, fn)
             elif ext == '.csv':
                 return chunkers.chunk_csv(fp, fn)
             else:
-                return chunkers.chunk_xlsx(fp, fn)
+                return binary_chunkers.chunk_xlsx(fp, fn)
         elif t == 'csv':
             return chunkers.chunk_csv(fp, fn)
         elif t == 'pptx':
-            return chunkers.chunk_pptx(fp, fn,
-                                       self.chunk_sizes['pptx_chunk_slides'])
+            return binary_chunkers.chunk_pptx(fp, fn,
+                                              self.chunk_sizes['pptx_chunk_slides'])
         elif t == 'html':
             return chunkers.chunk_html(fp, fn,
                                        self.chunk_sizes['html_chunk_sentences'])

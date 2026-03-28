@@ -342,6 +342,30 @@ if _needs_rerun: st.rerun()
 8. Commit → next step
 ```
 
+## Test types — use all of these for every feature
+
+Every feature must have tests from each of the following categories:
+
+| Type | What it checks |
+|------|---------------|
+| **Unit** | One function in isolation — correct output for known input |
+| **Functional** | End-to-end flow through a feature — inputs → expected outputs |
+| **Integration** | Multiple components working together (e.g. loader → store → pipeline) |
+| **Regression** | Edge cases that broke in the past — prevents them coming back |
+| **Boundary** | Minimum, maximum, and zero-value inputs |
+| **Negative** | Invalid input, missing data, network errors — must not crash |
+| **Parametrized combination** | Cross-product of modes × doc types × query types |
+
+Tests live in `tests/` (local) AND `huggingface/tests/` (HF space). Both must pass before any commit.
+
+## Always keep MD and requirements files up to date
+
+After every feature, fix, or refactor:
+- Update `README.md` if the public interface, feature list, or test counts changed
+- Update `CLAUDE.md` / `ARCHITECT_PROMPT.md` if a new rule or pattern was established
+- Update `requirements.txt` / `huggingface/requirements.txt` if dependencies changed
+- Do this as part of the same task — not as a separate step, not as a follow-up
+
 ---
 
 ## Mock strategy
@@ -468,6 +492,39 @@ i += 1  # skip the header row
 - Do not repeat the same import inside multiple functions. Import once at the top.
 - Do not add docstrings or comments to code you did not write or change.
 - Do not design for hypothetical future requirements. Write the minimum needed now.
+
+---
+
+## UI Standards — Always Apply
+
+Every UI screen, panel, or component must meet **the highest commercial product standard**.
+
+- **Pleasant color palette** — sea blue + teal green gradient (`--blue-600: #0891b2`, `--teal-600: #0d9488`). No raw Streamlit or Gradio defaults.
+- **Clean visual hierarchy** — clear headings, labels, consistent spacing, intentional whitespace
+- **Helpful notes on every input** — placeholder text with real examples, captions, and `help=` tooltips so the user never has to guess what a control does
+- **Convenient UX** — smart defaults, inline guidance, success/error feedback after every action
+- **Elegant proportions** — group related things, separate unrelated things; never cram controls together
+- **SaaS-quality standard** — aim for the level of polish seen in Hugging Face Spaces showcases and commercial tools
+- **Concise UI text** — all labels, headings, captions, and help text must be short and informative. No padding, no repetition. If it takes more than one line to read, it is too long.
+
+Any feature that affects the user's workflow must have a short note or caption explaining its purpose and how to use it effectively.
+
+---
+
+## Pre-commit MD update rule
+
+Before every final commit, update all relevant MD files — one at a time, in this order:
+
+1. `README.md`
+2. `CLAUDE.md`
+3. `ARCHITECT_PROMPT.md`
+4. `DESIGN.md`
+5. `CONTRIBUTING.md`
+6. `docs_technical/ARCHITECTURE.md`
+7. `docs_technical/BENCHMARK.md`
+8. `huggingface/README.md`
+
+For each file: read it, show the proposed changes and why, then wait for approval before writing. Do not batch updates. Do not skip files that may be affected. Do not commit until all relevant files have been reviewed and approved.
 
 ---
 

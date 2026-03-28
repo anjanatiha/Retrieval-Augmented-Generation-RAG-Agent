@@ -30,8 +30,10 @@ if HF_ROOT not in sys.path:
 from tests.conftest import sample_chunks, make_store_with_chunks
 
 from src.rag.chunkers import (
-    chunk_txt, chunk_md, chunk_pdf, chunk_docx,
-    chunk_xlsx, chunk_csv, chunk_pptx, chunk_html,
+    chunk_txt, chunk_md, chunk_csv, chunk_html,
+)
+from src.rag.binary_chunkers import (
+    chunk_pdf, chunk_docx, chunk_xlsx, chunk_pptx,
 )
 
 

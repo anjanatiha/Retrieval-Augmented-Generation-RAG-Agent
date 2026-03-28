@@ -54,6 +54,34 @@ Three similar lines of code is better than a premature abstraction. The private 
 
 ---
 
+## URL Crawling Architecture
+
+### Same-Domain Constraint
+
+Recursive crawling from a seed URL is constrained to stay within the **same hostname** as the seed. Cross-domain links are silently skipped.
+
+**Why:** Without this constraint, following links from a single Wikipedia article at depth 2 results in crawling external news sites, government pages, and unrelated domains — none of which the user intended to index. The constraint was added after observing real crawl logs that included paywall pages (`premium.britannica.com`), subscription login pages (`w1.buysub.com`), and magazine sales pages — all followed from a single legitimate seed URL.
+
+**Implementation:** `is_same_domain(url, seed_domain)` in `url_utils.py` strips `www.` from both sides before comparing hostnames. The seed domain is computed once from the final (post-redirect) URL of the first page and passed through all recursive `_crawl_url` calls as `seed_domain`.
+
+### Utility URL Filtering
+
+Before crawling a page, the URL is checked against `_UTILITY_URL_KEYWORDS` in `url_utils.py`. If any keyword appears in the URL path, the page is skipped without fetching.
+
+Blocked categories: login/auth pages, shopping carts, media download redirects, subscription flows, search results pages, and category index pages. These pages contain no document content and waste the page budget.
+
+### Topic Search — Why HTML Form Endpoint Instead of Library
+
+`chunk_topic_search` uses a direct `requests.POST` to `html.duckduckgo.com/html/` rather than the `duckduckgo-search` Python library.
+
+**Why:** `duckduckgo-search` v6.4.2 uses `primp` internally for browser impersonation. The `safari_17.4.1` impersonation profile that the library targets does not exist in the installed `primp` version, causing a persistent `RatelimitException` (HTTP 202) on every query — even with `backend='lite'`. The HTML form endpoint at `html.duckduckgo.com/html/` responds to a standard `POST` with a User-Agent header and never rate-limits. Results are parsed from `<a class="result__a">` anchor tags using BeautifulSoup. Ad links (containing `/y.js?`) are filtered out.
+
+### Live Crawl Progress (st.status)
+
+Both the recursive URL crawl and the topic search show a live `st.status()` log during crawling. Each page fetched calls `progress_callback(url, dtype, chunk_count)` which appends a line to the log and shows the last 8 lines in real time. This gives the user continuous feedback on a potentially long-running operation without blocking the Streamlit event loop.
+
+---
+
 ## Tradeoffs
 
 ### ChromaDB vs Pinecone / Weaviate

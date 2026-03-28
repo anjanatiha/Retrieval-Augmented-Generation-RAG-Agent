@@ -30,11 +30,14 @@ class TestHandlersImportContract:
             assert hasattr(handlers, name), f"ui.handlers is missing exported name: {name}"
 
     def test_expected_functions_present(self):
-        """The eight functions app.py calls are all defined in ui/handlers.py."""
+        """The handler functions app.py calls are defined in the right modules."""
         from ui.handlers import (
             handle_file_upload, handle_url_ingestion, handle_user_input,
+            render_sidebar,
+        )
+        from ui.renderers import (
             render_chat_history, render_clear_button, render_header,
-            render_mode_selector, render_sidebar,
+            render_mode_selector,
         )
         assert callable(render_header)
         assert callable(render_sidebar)
@@ -108,7 +111,7 @@ class TestPickAvatar:
 
     def _call(self, role: str) -> str:
         """Import and call _pick_avatar directly."""
-        from ui.handlers import _pick_avatar
+        from ui.renderers import _pick_avatar
         return _pick_avatar(role)
 
     def test_user_avatar(self):

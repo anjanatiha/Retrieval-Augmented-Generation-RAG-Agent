@@ -13,7 +13,7 @@ Read it fully before making any changes.
 
 - Every file has **one clear job** — if it does two things, split it
 - Every function does **one thing** and fits in ~30 lines
-- Entry points (`app.py`, `main.py`) stay **under 50 lines** — they only wire things together
+- Entry points (`app.py`, `main.py`) stay **under 50 lines** — they only wire things together; split immediately if exceeded
 - Handler and logic code goes in **dedicated modules** (`src/ui/handlers.py`, `src/cli/runner.py`, `src/handlers.py`)
 - **Plain English names** everywhere: `document_type` not `dtype`, `chunk_total` not `n`
 - **Type hints** on every function so readers know what goes in and comes out
@@ -275,9 +275,9 @@ _hallucination_pivots = [
 
 ---
 
-### `Agent` — owns the ReAct loop and all 5 tools
+### `Agent` — owns the ReAct loop and all 6 tools
 
-Tools (calculator, summarise, sentiment) are private methods — not separate classes.
+Tools (calculator, summarise, sentiment, translate) are private methods — not separate classes.
 They have no state of their own and are implementation details of the agent.
 
 **State:**
@@ -313,9 +313,18 @@ def _tool_rag_search(query)            # expand → hybrid retrieve → rerank �
 def _tool_calculator(expression)       # safe eval, ALLOWED_CHARS whitelist
 def _tool_summarise(text)              # adaptive length hint + LLM
 def _tool_sentiment(text_or_query)     # < 10 words → search first; else analyse directly
+def _tool_translate(language_and_text) # "Language: text" → translate; short → search first
 ```
 
-**5 tools:** `rag_search`, `calculator`, `summarise`, `sentiment`, `finish`
+**6 tools:** `rag_search`, `calculator`, `summarise`, `sentiment`, `translate`, `finish`
+
+**Translate tool routing:**
+```python
+# Input format: "TargetLanguage: text to translate"
+# No colon → defaults to English
+# < 15 words after colon → _tool_rag_search first, then translate retrieved content
+# ≥ 15 words → translate directly (content is a full passage, not a query)
+```
 
 **parse_tool_call — two patterns (preserve both):**
 ```python
@@ -479,6 +488,8 @@ def get_active_bm25(base_bm25)     # return session bm25 if updated, else base
 - If you encounter a decision point, **ask** — do not assume
 - Always run tests and the app before asking me to proceed
 - **When asked to add comments, docstrings, or any improvements — do it completely across ALL relevant files without asking. Do not ask for permission or confirmation mid-task.**
+- **After every feature or fix, keep all relevant MD files and requirements files up to date** — do not leave them stale. Update them as part of the same task, not as a separate step.
+- **Every new feature or fix must have tests** — written in the same pass, not after. Use the same test types already present in the suite: unit, functional, integration, regression, boundary, negative, parametrized combination. Sync tests to both `tests/` and `huggingface/tests/`.
 
 ---
 
@@ -538,7 +549,7 @@ def get_active_bm25(base_bm25)     # return session bm25 if updated, else base
 - Upload each of the 8 file types
 - Paste URLs (webpage + remote file types)
 - Chat mode — factual, comparison, summarise queries
-- Agent mode — all 5 tools: rag_search, calculator, summarise, sentiment, finish
+- Agent mode — all 6 tools: rag_search, calculator, summarise, sentiment, translate, finish
 - Check sidebar: pre/post rerank, confidence badge, query type badge, session stats
 - Say **"UI looks good, commit"** or report what is broken
 
@@ -686,8 +697,8 @@ Step 5:  Extract VectorStore (class)
 
 Step 6:  Extract Agent (class)
          → stubs → tests (red) → implement → green
-         → integration tests: all 5 tools, fast paths, bad format recovery
-         STOP: "please test UI — agent mode: calculator, summarise, sentiment, rag_search"
+         → integration tests: all 6 tools, fast paths, bad format recovery
+         STOP: "please test UI — agent mode: calculator, summarise, sentiment, translate, rag_search"
          → wait for "UI looks good, commit"
          commit: "refactor: extract Agent class"
 
@@ -755,10 +766,11 @@ Step 11: Final verification
 > Every class, every public method, every private method with non-obvious logic, every fixture, every test method must have a docstring or comment. No exceptions.
 > When writing new code or editing existing code, always add comments as part of the same task — never leave uncommented code behind.
 
-### File Size
-- **Maximum 500 lines per file.** If a file exceeds 500 lines, split it along a clear conceptual boundary before finishing the task — do not wait to be asked.
-- Entry points (`main.py`, `app.py`) must stay under 50 lines — they wire classes together and nothing else.
-- Test files split by concern (not just line count): one file per test category.
+### File Size — Hard Limits (enforced automatically, no exceptions)
+- **Source files: 500 lines maximum.** The moment any source file exceeds 500 lines, stop and split it before continuing. Do not finish the current task first. Do not wait to be asked.
+- **Entry points (`main.py`, `app.py`): 50 lines maximum.** If either exceeds 50 lines, move the excess into a handler or runner module immediately.
+- **Test files: 500 lines soft limit.** Split by concern (one class or feature per file) when exceeded — do not split arbitrarily by line count alone.
+- After every code change, mentally check: "Did any file cross its limit?" If yes, split before committing.
 
 ### Modularity
 - One responsibility per file. A file that does two things should be two files.
@@ -862,14 +874,15 @@ def _truncate_chunk(text, max_words=300, max_chars=1200):
 
 ## UI Standards — Always Apply
 
-Every UI screen, panel, or component must meet **commercial/professional product standards**.
+Every UI screen, panel, or component must meet **the highest commercial product standard**.
 
-- **Pleasant, cohesive color scheme** — no raw Streamlit or Gradio defaults; use a polished palette
+- **Pleasant color palette** — sea blue + teal green gradient (`--blue-600: #0891b2`, `--teal-600: #0d9488`). No raw Streamlit or Gradio defaults.
 - **Clean visual hierarchy** — clear headings, labels, consistent spacing, intentional whitespace
 - **Helpful notes on every input** — placeholder text with real examples, captions, and `help=` tooltips so the user never has to guess what a control does
-- **Convenient UX** — smart defaults, inline guidance, feedback messages (success/error) after every action
-- **Elegant proportions** — don't cram controls together; group related things, separate unrelated things
+- **Convenient UX** — smart defaults, inline guidance, success/error feedback after every action
+- **Elegant proportions** — group related things, separate unrelated things; never cram controls together
 - **SaaS-quality standard** — aim for the level of polish seen in Hugging Face Spaces showcases and commercial tools
+- **Concise UI text** — all button labels, sidebar headings, note boxes, captions, and help text must be short and informative. Say exactly what the user needs to know — no padding, no repetition. If a label takes more than one line to read, it is too long.
 
 Any feature that affects the user's workflow (e.g. topic filter, depth slider, document type checkboxes) **must** have a short note or caption explaining its purpose and how to use it effectively.
 

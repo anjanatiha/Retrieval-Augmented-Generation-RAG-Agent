@@ -22,11 +22,14 @@ import textwrap
 import pytest
 from unittest.mock import MagicMock, patch
 
-# ── Chunker functions are now standalone module-level functions ───────────────
+# ── Text-based chunker functions ─────────────────────────────────────────────
 from src.rag.chunkers import (
-    chunk_txt, chunk_md, chunk_pdf, chunk_docx,
-    chunk_xlsx, chunk_xls, chunk_csv, chunk_pptx,
-    chunk_html, truncate_chunk,
+    chunk_txt, chunk_md, chunk_csv, chunk_html, truncate_chunk,
+)
+
+# ── Binary-format chunker functions (moved to binary_chunkers.py) ─────────────
+from src.rag.binary_chunkers import (
+    chunk_pdf, chunk_docx, chunk_xlsx, chunk_xls, chunk_pptx,
 )
 
 

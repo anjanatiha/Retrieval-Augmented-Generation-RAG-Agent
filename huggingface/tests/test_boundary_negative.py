@@ -38,7 +38,8 @@ HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
-from src.rag.chunkers import chunk_xlsx, chunk_docx, chunk_csv, chunk_txt
+from src.rag.chunkers import chunk_csv, chunk_txt
+from src.rag.binary_chunkers import chunk_xlsx, chunk_docx
 
 from tests.conftest import sample_chunks, make_store_with_chunks
 

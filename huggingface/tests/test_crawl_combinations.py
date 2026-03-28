@@ -165,8 +165,9 @@ class TestTopicFilterPlusMaxPages:
 
         def _side_effect(url, **kwargs):
             fetched.append(url)
-            return _mock_response(page_html, final_url=url) if url != 'https://example.com/' \
-                else _mock_response(seed_html, final_url='https://example.com/')
+            # Trailing slash is stripped — check without it
+            return _mock_response(page_html, final_url=url) if url.rstrip('/') != 'https://example.com' \
+                else _mock_response(seed_html, final_url='https://example.com')
 
         with patch('requests.get', side_effect=_side_effect):
             _make_loader().chunk_url_recursive(
@@ -196,7 +197,8 @@ class TestTopicFilterPlusMaxPages:
             )
 
         assert len(set(fetched)) == 1  # only 1 unique page: the seed
-        assert 'https://example.com/' in fetched
+        # Trailing slash stripped by normalization — check without it.
+        assert 'https://example.com' in fetched
 
 
 # ---------------------------------------------------------------------------
@@ -204,10 +206,10 @@ class TestTopicFilterPlusMaxPages:
 # ---------------------------------------------------------------------------
 
 class TestCrossDomainPlusDepth:
-    """Combinations of cross-domain link following with depth."""
+    """Same-domain constraint: cross-domain links are blocked during recursive crawl."""
 
-    def test_cross_domain_link_followed_at_depth_1(self):
-        """A cross-domain link on the seed page is followed at depth=1."""
+    def test_cross_domain_link_blocked_at_depth_1(self):
+        """A cross-domain link on the seed page is NOT followed — same-domain constraint."""
         seed_html    = _html_with_links(
             'Seed page with external link.',
             ['https://other-domain.com/article'],
@@ -220,17 +222,17 @@ class TestCrossDomainPlusDepth:
             fetched.append(url)
             if 'other-domain' in url:
                 return _mock_response(article_html, final_url=url)
-            return _mock_response(seed_html, final_url='https://example.com/')
+            return _mock_response(seed_html, final_url='https://example.com')
 
         with patch('requests.get', side_effect=_side_effect):
             _make_loader().chunk_url_recursive(
                 'https://example.com/', depth=1, max_pages=10,
             )
 
-        assert 'https://other-domain.com/article' in fetched
+        assert 'https://other-domain.com/article' not in fetched
 
-    def test_cross_domain_link_at_depth_2_from_linked_page(self):
-        """A cross-domain link found on a level-1 page is followed at depth=2."""
+    def test_cross_domain_link_blocked_at_depth_2_from_linked_page(self):
+        """A cross-domain link found on a level-1 page is also blocked at depth=2."""
         seed_html  = _html_with_links('Seed.', ['https://example.com/page1'])
         page1_html = _html_with_links('Page1.', ['https://external.org/deep-article'])
         deep_html  = _html('Deep external article about quantum computing research.')
@@ -241,14 +243,14 @@ class TestCrossDomainPlusDepth:
             fetched.append(url)
             if 'external.org' in url: return _mock_response(deep_html,  final_url=url)
             if 'page1'         in url: return _mock_response(page1_html, final_url=url)
-            return _mock_response(seed_html, final_url='https://example.com/')
+            return _mock_response(seed_html, final_url='https://example.com')
 
         with patch('requests.get', side_effect=_side_effect):
             _make_loader().chunk_url_recursive(
                 'https://example.com/', depth=2, max_pages=10,
             )
 
-        assert 'https://external.org/deep-article' in fetched
+        assert 'https://external.org/deep-article' not in fetched
 
     def test_cross_domain_not_followed_at_depth_0(self):
         """At depth=0 no links are followed — cross-domain links are not an exception."""
@@ -276,10 +278,10 @@ class TestCrossDomainPlusDepth:
 # ---------------------------------------------------------------------------
 
 class TestCrossDomainPlusTopicFilter:
-    """Cross-domain link following combined with topic_filter."""
+    """Cross-domain links are blocked regardless of topic_filter."""
 
-    def test_cross_domain_link_passes_topic_filter(self):
-        """A cross-domain link whose path contains the topic IS followed."""
+    def test_cross_domain_link_blocked_even_with_matching_topic_filter(self):
+        """A cross-domain link is blocked even if its path matches the topic filter."""
         seed_html = _html_with_links(
             'Seed about programming.',
             ['https://docs.python.org/3/python/tutorial'],
@@ -291,14 +293,15 @@ class TestCrossDomainPlusTopicFilter:
         def _side_effect(url, **kwargs):
             fetched.append(url)
             return _mock_response(page_html, final_url=url) if 'docs.python' in url \
-                else _mock_response(seed_html, final_url='https://example.com/')
+                else _mock_response(seed_html, final_url='https://example.com')
 
         with patch('requests.get', side_effect=_side_effect):
             _make_loader().chunk_url_recursive(
                 'https://example.com/', depth=1, max_pages=10, topic_filter='python',
             )
 
-        assert 'https://docs.python.org/3/python/tutorial' in fetched
+        # Domain constraint takes priority over topic filter.
+        assert 'https://docs.python.org/3/python/tutorial' not in fetched
 
     def test_cross_domain_link_blocked_by_topic_filter(self):
         """A cross-domain link whose path does NOT contain the topic is skipped."""

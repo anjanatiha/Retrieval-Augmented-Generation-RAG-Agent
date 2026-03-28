@@ -11,3 +11,5 @@ beautifulsoup4>=4.11.0
 lxml>=4.9.0
 sentence-transformers>=2.2.0,<4.0
 huggingface_hub>=0.27.0,<1.0
+duckduckgo-search>=6.2.0,<7.0.0   # use backend='lite' to avoid rate limits
+curl-cffi>=0.7.0,<1.0.0            # required by duckduckgo-search v6

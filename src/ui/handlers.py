@@ -1,20 +1,13 @@
-"""ui/handlers.py — All Streamlit rendering and event-handler functions.
+"""ui/handlers.py — Streamlit event handlers for ingestion and chat.
 
 WHY THIS FILE EXISTS:
     app.py must stay under 50 lines so it is easy to read at a glance.
-    All the real UI work — showing chat messages, processing file uploads,
-    handling URL fetches — lives here instead.
-
-HOW IT IS ORGANISED:
-    Public functions (no leading underscore) are called directly from app.py.
-    Private helpers (leading underscore) are used only inside this module.
-    Sidebar rendering is in src/ui/sidebar.py (extracted to keep this file
-    under the 500-line limit).
+    Event handlers (URL ingestion, file upload, topic search, user input)
+    live here. Pure rendering functions live in renderers.py.
 
 ADDING A NEW PANEL OR FEATURE:
-    1. Write a new function here with a clear docstring.
+    1. Write a new handler function here with a clear docstring.
     2. Import it in app.py and call it in the right place.
-    You never need to touch the existing functions to add something new.
 """
 
 import logging
@@ -27,55 +20,18 @@ from src.rag.agent import Agent
 from src.rag.config import URL_CRAWL_MAX_DEPTH, URL_CRAWL_MAX_PAGES
 from src.rag.vector_store import VectorStore
 from src.ui.ingestion import process_url, process_url_recursive
+from src.ui.renderers import _format_agent_steps_html
 from src.ui.sidebar import render_sidebar
 
-# This module's logger — errors go to the logging system, not the terminal
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    'render_header',
-    'render_mode_selector',
     'handle_url_ingestion',
     'handle_file_upload',
-    'render_chat_history',
-    'render_clear_button',
+    'handle_topic_search',
     'handle_user_input',
     'render_sidebar',
 ]
-
-
-# ── Public rendering functions ─────────────────────────────────────────────────
-
-
-def render_header() -> None:
-    """Show the app title and tagline at the top of the main column."""
-    st.markdown('<div class="rag-title">Ask Your Documents</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="rag-sub">'
-        'chunking · hybrid search · reranking · agent · '
-        'PDF · TXT · DOCX · XLSX · PPTX · CSV · MD · HTML · URL'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def render_mode_selector() -> None:
-    """Show the Chat / Agent radio and save the user's choice in session state.
-
-    When Agent mode is selected, also shows a panel listing the available tools
-    so the user knows what they can ask the agent to do.
-    """
-    chosen_mode = st.radio(
-        "Mode:",
-        ["Chat", "Agent"],
-        horizontal=True,
-        index=0 if st.session_state.mode == 'chat' else 1,
-    )
-    # Store as lowercase so the rest of the code can compare with 'chat' / 'agent'
-    st.session_state.mode = chosen_mode.lower()
-
-    if st.session_state.mode == 'agent':
-        _render_agent_tools_panel()
 
 
 def handle_url_ingestion(loader, store: VectorStore) -> bool:
@@ -96,11 +52,13 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
     """
     needs_rerun = False
 
-    with st.expander("🌐 Add a URL to knowledge base", expanded=False):
+    with st.expander("🌐 Add a URL", expanded=False):
+
+        st.caption("Paste any public URL — webpage, PDF, DOCX, XLSX, CSV, PPTX, or Markdown.")
 
         # ── Toggle outside the form so it triggers an immediate rerun ──────
         use_recursive = st.checkbox(
-            "🕷️ Recursive crawl — follow links and index linked pages",
+            "🕷️ Recursive crawl — follow links and index multiple pages",
             value=False,
             key='use_recursive',
         )
@@ -112,35 +70,39 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
         allowed_types   = None
 
         if use_recursive:
+            st.markdown(
+                '<div class="note">💡 <b>Topic filter is strongly recommended for Wikipedia.</b><br/>'
+                'Without it, depth ≥ 2 follows every inline link — TIFF → Toronto → Ontario → …<br/>'
+                'Set topic = article name (e.g. <code>Elizabeth_Olsen</code>) to stay on one subject.</div>',
+                unsafe_allow_html=True,
+            )
+
             col_depth, col_pages = st.columns(2)
             with col_depth:
                 crawl_depth = st.number_input(
-                    "Depth (1 = direct links only)",
+                    "Depth",
                     min_value=1, max_value=3, value=URL_CRAWL_MAX_DEPTH,
+                    help="1 = only links on the seed page.  2 = links of links.  "
+                         "Higher values may be slow on large sites.",
                     key='crawl_depth',
                 )
             with col_pages:
                 crawl_max_pages = st.number_input(
                     "Max pages",
                     min_value=1, max_value=50, value=URL_CRAWL_MAX_PAGES,
+                    help="Hard cap on total pages fetched. Increase for larger sites.",
                     key='crawl_max_pages',
                 )
 
-            # Topic filter — only crawl pages whose URL path contains this word.
-            # Tip: for a specific article like /wiki/Elizabeth_Taylor, set the
-            # topic to "Elizabeth_Taylor" so the crawler stays on related pages
-            # instead of following every navigation link on the page.
             crawl_topic = st.text_input(
-                "Topic filter (optional)",
-                placeholder="e.g. Elizabeth_Taylor  or  python  or  machine-learning",
-                help="Only follow links whose URL path contains this keyword. "
-                     "Tip: use the article or page name (e.g. 'Elizabeth_Taylor') "
-                     "to stay on topic instead of following navigation links.",
+                "Topic filter — strongly recommended",
+                placeholder="e.g. Elizabeth_Olsen  ·  python  ·  machine-learning",
+                help="Only follow links whose URL path contains this word. "
+                     "Without it, depth ≥ 2 follows every inline link and explodes the page budget.",
                 key='crawl_topic',
             )
 
-            # Document type filter — choose which types to index during the crawl
-            st.caption("Index these document types:")
+            st.caption("Index these document types during the crawl:")
             type_cols   = st.columns(7)
             type_labels = ['HTML', 'PDF', 'DOCX', 'XLSX', 'CSV', 'PPTX', 'MD']
             type_keys   = ['html', 'pdf', 'docx', 'xlsx', 'csv', 'pptx', 'md']
@@ -155,10 +117,11 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
         # ── URL input + submit button inside the form (cleared on submit) ──
         with st.form('url_form', clear_on_submit=True):
             url_input = st.text_input(
-                "URL:",
-                placeholder="https://example.com/page  or  https://example.com/file.pdf",
+                "URL",
+                placeholder="https://example.com/page  ·  en.wikipedia.org/wiki/Elizabeth_Taylor  ·  https://site.com/file.pdf",
+                help="You can omit https:// — it will be added automatically.",
             )
-            submitted = st.form_submit_button("Fetch & index →")
+            submitted = st.form_submit_button("⬆ Fetch & index")
 
         if submitted and url_input.strip():
             if use_recursive:
@@ -197,10 +160,10 @@ def handle_file_upload(loader, store: VectorStore) -> bool:
     """
     needs_rerun = False
 
-    with st.expander("📎 Upload files or a folder to knowledge base", expanded=False):
-        st.caption("Select one file, multiple files, or all files from a folder at once.")
+    with st.expander("📎 Upload files", expanded=False):
+        st.caption("PDF, TXT, DOCX, XLSX, XLS, PPTX, CSV, Markdown, HTML — one or many at once.")
         uploaded_files = st.file_uploader(
-            "Supported: PDF, TXT, DOCX, XLSX, PPTX, CSV, MD, HTML",
+            "Choose files",
             type=[
                 "pdf", "txt", "docx", "doc", "xlsx", "xls",
                 "pptx", "ppt", "csv", "md", "markdown", "html", "htm",
@@ -209,7 +172,7 @@ def handle_file_upload(loader, store: VectorStore) -> bool:
             accept_multiple_files=True,
         )
 
-        if uploaded_files and st.button("Index files →", key="file_index_btn"):
+        if uploaded_files and st.button("⬆ Index files", key="file_index_btn"):
             for uploaded_file in uploaded_files:
                 _process_uploaded_file(uploaded_file, loader, store)
             needs_rerun = True
@@ -222,35 +185,102 @@ def handle_file_upload(loader, store: VectorStore) -> bool:
     return needs_rerun
 
 
-def render_chat_history() -> None:
-    """Display all previous messages in the conversation as chat bubbles."""
-    for message in st.session_state.display:
-        avatar = _pick_avatar(message['role'])
-        with st.chat_message(message['role'], avatar=avatar):
-            st.markdown(message['content'], unsafe_allow_html=True)
+def handle_topic_search(loader, store: VectorStore) -> bool:
+    """Show the topic search panel and index the top web results for a query.
 
-
-def render_clear_button(store: VectorStore) -> None:
-    """Show a Clear button below the chat when there are messages to clear.
-
-    Clicking it wipes the on-screen conversation and the store's memory so
-    the next question starts with a clean slate.
+    Searches DuckDuckGo (no API key needed) for the query, then crawls
+    each result URL using the same recursive pipeline as the URL crawl.
 
     Args:
-        store: VectorStore whose conversation history should also be cleared.
-    """
-    if not st.session_state.display:
-        return  # Nothing to clear yet — hide the button
+        loader: DocumentLoader — runs the search and chunking.
+        store:  VectorStore   — stores and indexes the resulting chunks.
 
-    _, button_column = st.columns([6, 1])
-    with button_column:
-        if st.button("🗑 Clear", use_container_width=True):
-            st.session_state.conv    = []
-            st.session_state.display = []
-            st.session_state.last    = None
-            st.session_state.total   = 0
-            store.clear_conversation()
-            st.rerun()
+    Returns:
+        True if results were indexed and the page should refresh. False otherwise.
+    """
+    needs_rerun = False
+
+    with st.expander("🔍 Search & index a topic", expanded=False):
+        st.caption("Search the web for a topic and index the top results automatically.")
+        st.markdown(
+            '<div class="note">Uses DuckDuckGo — no API key needed.<br/>'
+            'Each result URL is crawled to the chosen depth, same as the URL crawl.</div>',
+            unsafe_allow_html=True,
+        )
+
+        with st.form('topic_search_form', clear_on_submit=True):
+            query_input = st.text_input(
+                "Search query",
+                placeholder="e.g. Elizabeth Olsen actress  ·  Python asyncio tutorial",
+                help="Enter a topic or question. Top results will be fetched and indexed.",
+            )
+
+            col_results, col_depth, col_pages = st.columns(3)
+            with col_results:
+                num_results = st.number_input(
+                    "Results", min_value=1, max_value=20, value=5,
+                    help="How many search result URLs to fetch.",
+                )
+            with col_depth:
+                search_depth = st.number_input(
+                    "Depth", min_value=1, max_value=3, value=1,
+                    help="1 = result page only.  2 = also follow links on each result.",
+                )
+            with col_pages:
+                pages_per = st.number_input(
+                    "Pages per result", min_value=1, max_value=10, value=3,
+                    help="Max pages crawled per result URL (applies when depth > 1).",
+                )
+
+            submitted = st.form_submit_button("🔍 Search & index")
+
+        if submitted and query_input.strip():
+            try:
+                with st.status(
+                    f"Searching for '{query_input.strip()}'…", expanded=True
+                ) as status_box:
+                    crawl_log: list = []
+
+                    def progress_callback(page_url: str, dtype: str, chunk_count: int) -> None:
+                        """Called after each page is fetched — updates the live crawl log."""
+                        short_url = page_url[:70] + '...' if len(page_url) > 70 else page_url
+                        crawl_log.append(f"[{dtype.upper()}] {short_url} — {chunk_count} chunks")
+                        status_box.write('\n'.join(crawl_log[-8:]))
+
+                    new_chunks = loader.chunk_topic_search(
+                        query_input.strip(),
+                        num_results=int(num_results),
+                        depth=int(search_depth),
+                        max_pages_per_result=int(pages_per),
+                        progress_callback=progress_callback,
+                    )
+
+                    status_box.update(
+                        label=(
+                            f"Done — {len(crawl_log)} pages crawled, "
+                            f"{len(new_chunks)} chunks indexed"
+                        ),
+                        state="complete",
+                        expanded=False,
+                    )
+
+                if new_chunks:
+                    store.add_chunks(new_chunks, id_prefix='search')
+                    store.rebuild_bm25(store.chunks)
+                    st.success(
+                        f"Indexed {len(new_chunks)} chunks from "
+                        f"{int(num_results)} search results for '{query_input.strip()}'."
+                    )
+                    needs_rerun = True
+                else:
+                    st.warning(
+                        "Search returned no results. Try a more specific query."
+                    )
+            except Exception as error:
+                logger.error("Topic search failed: %s", error, exc_info=True)
+                st.error(f"Search error: {error}")
+
+    return needs_rerun
 
 
 def handle_user_input(user_input: str, store: VectorStore) -> None:
@@ -264,7 +294,6 @@ def handle_user_input(user_input: str, store: VectorStore) -> None:
         user_input: The text the user typed into the chat box.
         store:      VectorStore used for retrieval and response generation.
     """
-    # Clear any stale URL message so it doesn't reappear after a query
     st.session_state.url_msg = None
     st.session_state.display.append({'role': 'user', 'content': user_input})
 
@@ -287,33 +316,8 @@ def handle_user_input(user_input: str, store: VectorStore) -> None:
 # ── Private helpers ────────────────────────────────────────────────────────────
 
 
-def _render_agent_tools_panel() -> None:
-    """Show the agent tools reference card when agent mode is active."""
-    st.markdown(
-        """
-        <div class="tools-panel">
-        <b>🤖 Agent Tools Available</b><br><br>
-        <b>🔍 rag_search</b> — search your documents<br>
-        <i>e.g. "what skills does the resume mention?"</i><br><br>
-        <b>🧮 calculator</b> — evaluate math expressions<br>
-        <i>e.g. "what is 15% of 85000?"</i><br><br>
-        <b>📝 summarise</b> — summarise any document or section<br>
-        <i>e.g. "summarise the resume"</i><br><br>
-        <b>💬 sentiment</b> — analyse tone &amp; sentiment of content<br>
-        <i>e.g. "what is the sentiment of the resume?"</i><br><br>
-        <b>✅ finish</b> — returns the final answer
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def _process_uploaded_file(uploaded_file, loader, store: VectorStore) -> None:
     """Write an uploaded file to a temp path, chunk it, and index the chunks.
-
-    Called once per file when the user uploads one or many files at once.
-    Updates st.session_state.file_msg after each file so the user can see
-    rolling progress when a batch of files is being indexed.
 
     Args:
         uploaded_file: Streamlit UploadedFile object.
@@ -323,7 +327,6 @@ def _process_uploaded_file(uploaded_file, loader, store: VectorStore) -> None:
     file_extension = os.path.splitext(uploaded_file.name)[1].lower()
     document_type  = loader.ext_to_type.get(file_extension, 'txt')
 
-    # Chunkers need a real file path, so write to a temporary file first
     with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp:
         tmp.write(uploaded_file.read())
         tmp_path = tmp.name
@@ -342,7 +345,6 @@ def _process_uploaded_file(uploaded_file, loader, store: VectorStore) -> None:
             with st.spinner(f"Embedding {len(new_chunks)} chunks from {uploaded_file.name}..."):
                 store.add_chunks(new_chunks, id_prefix='file')
 
-            # Rebuild BM25 so the uploaded file appears in keyword search
             st.session_state.url_chunks.extend(new_chunks)
             store.rebuild_bm25(store.chunks)
             st.session_state.bm25_index = store.bm25_index
@@ -360,16 +362,10 @@ def _process_uploaded_file(uploaded_file, loader, store: VectorStore) -> None:
             )
 
     except Exception as error:
-        logger.error(
-            "File indexing failed for '%s': %s",
-            uploaded_file.name,
-            error,
-            exc_info=True,
-        )
+        logger.error("File indexing failed for '%s': %s", uploaded_file.name, error, exc_info=True)
         st.session_state.file_msg = ('err', f"Error indexing '{uploaded_file.name}': {error}")
 
     finally:
-        # Always delete the temp file — even if something went wrong above
         try:
             os.unlink(tmp_path)
         except OSError as cleanup_error:
@@ -415,38 +411,3 @@ def _run_pipeline(user_input: str, store: VectorStore, progress_slot) -> dict:
     progress_bar.progress(100, text="Done!")
     progress_slot.empty()
     return result
-
-
-def _format_agent_steps_html(steps: list) -> str:
-    """Turn a list of agent step dicts into an HTML string for the chat bubble.
-
-    Args:
-        steps: List of dicts with keys: 'step', 'tool', 'arg', 'result'.
-
-    Returns:
-        HTML string with one <div class="step"> per step.
-    """
-    html_parts = []
-    for step in steps:
-        # Truncate long arguments so they don't overflow the chat bubble
-        short_arg    = step["arg"][:50]    + "..." if len(step["arg"]) > 50    else step["arg"]
-        short_result = step["result"][:80] + "..." if len(step["result"]) > 80 else step["result"]
-        html_parts.append(
-            f'<div class="step">'
-            f'Step {step["step"]}: {step["tool"]}({short_arg}) → {short_result}'
-            f'</div>'
-        )
-    return "".join(html_parts)
-
-
-def _pick_avatar(role: str) -> str:
-    """Return the emoji avatar for a given message role.
-
-    Args:
-        role: 'user', 'agent', or 'assistant'.
-
-    Returns:
-        An emoji string.
-    """
-    avatars = {'user': '🧑', 'agent': '🤖', 'assistant': '💬'}
-    return avatars.get(role, '💬')

@@ -30,7 +30,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rank_bm25 import BM25Okapi
 
-from src.rag.chunkers import chunk_xlsx, chunk_docx, chunk_csv, chunk_txt
+from src.rag.chunkers import chunk_csv, chunk_txt
+from src.rag.binary_chunkers import chunk_xlsx, chunk_docx
 
 
 # ---------------------------------------------------------------------------

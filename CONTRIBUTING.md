@@ -42,7 +42,7 @@ ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
 ## Running the Tests
 
 ```bash
-# All 675 local tests (run this before every pull request)
+# All 807 local tests (run this before every pull request)
 pytest
 
 # With a line-by-line coverage report
@@ -78,13 +78,16 @@ All tests must be green before submitting a pull request.
 | **Regression** | Exact prompt text and phrase lists locked down | `test_hallucination_phrases_unchanged` |
 | **Boundary** | Empty files, single-item inputs, at-limit sizes | `test_xlsx_header_only_returns_empty` |
 | **Negative** | Wrong or missing input handled gracefully | `test_http_404_returns_empty_list` |
+| **Functional** | End-to-end flow through one feature path, limited mocking | `test_chunk_topic_search_returns_chunks` |
 | **Combination** | Parametrized matrix — all modes × all doc types × all URL types | `test_text_doc_type_pipeline[pdf]` |
+| **UI (AppTest)** | Streamlit app renders correctly using `streamlit.testing.v1.AppTest` | `test_mode_radio_has_chat_and_agent_options` |
+| **UI (mocked st)** | Handler functions called with mocked Streamlit — no server needed | `test_search_called_on_submission_with_query` |
 
 ---
 
 ## Test Files — Full Breakdown
 
-### Local (`tests/`) — 675 tests across 27 files
+### Local (`tests/`) — 807 tests across 31 files
 
 | File | Covers |
 |------|--------|
@@ -111,13 +114,18 @@ All tests must be green before submitting a pull request.
 | `test_url_pipeline.py` | URL → pipeline end-to-end |
 | `test_file_upload.py` | File upload pipeline |
 | `test_file_upload_tools.py` | Upload edge cases |
+| `test_crawl.py` | Recursive URL crawl — depth, same-domain constraint, utility URL filtering, progress callback |
+| `test_crawl_combinations.py` | Crawl × depth × topic filter × max pages parametrized matrix |
+| `test_topic_search.py` | DuckDuckGo HTML search + chunk_topic_search end-to-end |
+| `test_ui_app.py` | Streamlit app structure via AppTest — header, mode selector, session state |
+| `test_ui_components.py` | Each UI handler individually with mocked Streamlit |
 | `test_theme_session.py` | UI session state helpers |
-| `test_handlers.py` | Streamlit handlers and CLI runner |
+| `test_handlers.py` | Streamlit handlers (pure helpers) and CLI runner |
 | `test_logger.py` | Interaction logging |
 
-### HF Space (`huggingface/tests/`) — 262 tests across 13 files
+### HF Space (`huggingface/tests/`) — 344 tests across 15 files
 
-Same categories adapted for the HF deployment — InferenceClient instead of Ollama, EphemeralClient instead of persistent ChromaDB.
+Same categories adapted for the HF deployment — InferenceClient instead of Ollama, EphemeralClient instead of persistent ChromaDB. Includes `test_crawl.py`, `test_crawl_combinations.py`, and `test_topic_search.py`.
 
 ---
 
@@ -128,12 +136,17 @@ Same categories adapted for the HF deployment — InferenceClient instead of Oll
 ollama.embed    → {'embeddings': [[0.1, 0.2, ...]]}   # NOT ollama.embeddings
 ollama.chat     → {'message': {'content': 'mock response'}}
 requests.get    → Mock with .content, .headers, .encoding, .raise_for_status()
+requests.post   → Mock with .text (HTML body), .raise_for_status()
+                  # used for DuckDuckGo HTML endpoint in topic search tests
 chromadb        → chromadb.EphemeralClient()            # in integration tests
+streamlit (st)  → MagicMock() per-method                # in UI component tests
 
 # Never mock — use real libraries on real temporary files:
 fitz (PyMuPDF), python-docx, openpyxl, xlrd, python-pptx, beautifulsoup4
 BM25Okapi, chunk truncation, misplaced detection, calculator eval
 ```
+
+**UI test rule:** Use `streamlit.testing.v1.AppTest` for app-level structure tests (header, mode selector, session state). Use `unittest.mock.patch.object(st, 'method')` for individual handler tests that involve forms or widgets — this avoids the AppTest "nested forms" limitation in some Streamlit versions.
 
 The rule: mock anything that makes a network call or loads a model. Never mock the file parsing libraries — those are tested with real temporary files so bugs in parsing are caught.
 

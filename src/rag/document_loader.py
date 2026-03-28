@@ -3,7 +3,6 @@
 import os
 import re
 import sys
-import tempfile
 from typing import Callable, List, Optional, Set
 from urllib.parse import urlparse
 
@@ -14,9 +13,9 @@ from src.rag.config import (
     PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES,
 )
 from src.rag import chunkers
-from src.rag.url_utils import (
-    detect_url_type, build_source_name, extract_links, url_matches_topic,
-)
+from src.rag import binary_chunkers
+from src.rag.url_utils import detect_url_type, build_source_name
+from src.rag.url_crawl import chunk_content, crawl_url, search_duckduckgo_html
 
 __all__ = ['DocumentLoader']
 
@@ -309,7 +308,80 @@ class DocumentLoader:
               f"{len(all_chunks)} chunks total")
         return all_chunks
 
+    def chunk_topic_search(
+        self,
+        query: str,
+        num_results: int = 10,
+        depth: int = 1,
+        max_pages_per_result: int = 3,
+        allowed_types: Optional[Set[str]] = None,
+        topic_filter: str = '',
+        progress_callback: Optional[Callable] = None,
+    ) -> List[dict]:
+        """Search the web for a topic and index the top results.
+
+        Uses DuckDuckGo (no API key required) to find the top N pages for the
+        query, then crawls each result URL with chunk_url_recursive() using the
+        same depth and type controls as the manual URL crawl.
+
+        Args:
+            query:               The search query — e.g. "Elizabeth Olsen actress".
+            num_results:         How many search result URLs to fetch and index (1–20).
+            depth:               Crawl depth per result URL (1 = result page only,
+                                 2 = result page + its links).
+            max_pages_per_result: Hard cap on pages crawled per result URL.
+            allowed_types:       Set of doc types to index (None = all types).
+            topic_filter:        Keyword the URL path must contain to be crawled.
+                                 Leave empty to crawl all pages of each result.
+            progress_callback:   Optional callback(url, dtype, chunk_count) called
+                                 after each page is fetched.
+
+        Returns:
+            Flat list of all chunk dicts from every crawled result URL.
+        """
+        # Search DuckDuckGo via the HTML form endpoint.
+        # This uses a plain POST request (requests + BeautifulSoup) rather than
+        # the duckduckgo-search library, which is subject to aggressive IP-level
+        # rate limiting on the JS API endpoints.  The HTML endpoint is the same
+        # one used by the public website and is not rate-limited in the same way.
+        print(f"\n  [SEARCH] Querying: {query!r}  (top {num_results} results)")
+        urls = self._search_duckduckgo_html(query, num_results)
+
+        # Crawl each result URL and collect all chunks
+        all_chunks: List[dict] = []
+        for i, url in enumerate(urls):
+            print(f"  [SEARCH] [{i + 1}/{len(urls)}] {url[:80]}")
+            try:
+                chunks = self.chunk_url_recursive(
+                    url,
+                    depth=depth,
+                    max_pages=max_pages_per_result,
+                    allowed_types=allowed_types,
+                    topic_filter=topic_filter,
+                    progress_callback=progress_callback,
+                )
+                all_chunks.extend(chunks)
+            except Exception as error:
+                # Log but continue — one bad result URL should not abort the rest
+                print(f"  [SEARCH] Error crawling {url}: {error}")
+
+        print(f"\n  [SEARCH] Done — {len(urls)} URLs crawled, "
+              f"{len(all_chunks)} chunks total")
+        return all_chunks
+
     # ----------------------------------------------------------------- Private
+
+    def _search_duckduckgo_html(self, query: str, num_results: int) -> List[str]:
+        """Delegate to url_crawl.search_duckduckgo_html — no class state needed.
+
+        Args:
+            query:       The search query string.
+            num_results: Maximum number of result URLs to return.
+
+        Returns:
+            List of result URLs (ads and DuckDuckGo redirect links filtered out).
+        """
+        return search_duckduckgo_html(query, num_results)
 
     def _chunk_content(
         self,
@@ -318,15 +390,7 @@ class DocumentLoader:
         dtype: str,
         source_name: str,
     ) -> List[dict]:
-        """Route fetched URL content to the correct chunker based on detected type.
-
-        Binary formats (pdf, docx, xlsx, pptx, xls) are written to a temporary
-        file on disk so the existing file-based chunkers can read them. The
-        temp file is always deleted after chunking, even if an error occurs.
-
-        Text formats (csv, md) are also written to a temp file because the
-        chunkers expect a filepath. Plain text and HTML are chunked directly
-        from the decoded string without touching disk.
+        """Delegate to url_crawl.chunk_content, passing this loader's settings.
 
         Args:
             content:     Raw response bytes from the HTTP request.
@@ -337,83 +401,11 @@ class DocumentLoader:
         Returns:
             List of chunk dicts. Empty list if chunking fails or type is unknown.
         """
-        # Binary formats — write bytes to a temp file, chunk it, then delete
-        binary_types = {'pdf', 'docx', 'xlsx', 'pptx', 'xls'}
-        if dtype in binary_types:
-            # Choose the right file extension so the chunker knows what format it is
-            extension_map = {
-                'pdf': '.pdf', 'docx': '.docx', 'xlsx': '.xlsx',
-                'pptx': '.pptx', 'xls': '.xls',
-            }
-            suffix = extension_map[dtype]
-            try:
-                # Write to a named temp file that persists until we delete it
-                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                    tmp.write(content)
-                    tmp_path = tmp.name
-
-                # Build a fake file_info dict so _dispatch_chunker can handle it
-                file_info = {
-                    'filepath':      tmp_path,
-                    'filename':      source_name,
-                    'detected_type': dtype,
-                    'found_in':      '',
-                    'canonical_dir': '',
-                    'is_misplaced':  False,
-                }
-                return self._dispatch_chunker(file_info)
-            except Exception as error:
-                print(f"  [ERROR] Could not chunk {dtype.upper()} from URL: {error}")
-                return []
-            finally:
-                # Always clean up the temp file — even if an exception was raised
-                if 'tmp_path' in locals() and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-
-        # CSV and Markdown — write decoded text to a temp file
-        if dtype in ('csv', 'md'):
-            suffix = '.csv' if dtype == 'csv' else '.md'
-            try:
-                with tempfile.NamedTemporaryFile(
-                    suffix=suffix, delete=False, mode='w', encoding='utf-8'
-                ) as tmp:
-                    tmp.write(text or '')
-                    tmp_path = tmp.name
-
-                file_info = {
-                    'filepath':      tmp_path,
-                    'filename':      source_name,
-                    'detected_type': dtype,
-                    'found_in':      '',
-                    'canonical_dir': '',
-                    'is_misplaced':  False,
-                }
-                return self._dispatch_chunker(file_info)
-            except Exception as error:
-                print(f"  [ERROR] Could not chunk {dtype.upper()} from URL: {error}")
-                return []
-            finally:
-                if 'tmp_path' in locals() and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-
-        # Plain text — chunk line by line directly from the decoded string
-        if dtype == 'txt':
-            return chunkers.chunk_txt_from_string(
-                text or '', source_name,
-                self.chunk_sizes['txt_chunk_size'],
-                self.chunk_sizes['txt_chunk_overlap'],
-            )
-
-        # HTML / webpage — strip tags and chunk sentences directly from the string
-        if dtype == 'html':
-            return chunkers.chunk_html_from_string(
-                text or '', source_name,
-                self.chunk_sizes['html_chunk_sentences'],
-            )
-
-        # Unknown type — skip with a notice
-        print(f"  [SKIP] No URL chunker for type '{dtype}' ({source_name})")
-        return []
+        return chunk_content(
+            content, text, dtype, source_name,
+            chunk_sizes=self.chunk_sizes,
+            dispatch_chunker_fn=self._dispatch_chunker,
+        )
 
     def _crawl_url(
         self,
@@ -426,22 +418,9 @@ class DocumentLoader:
         all_chunks: List[dict],
         progress_callback: Optional[Callable],
         is_seed: bool = False,
+        seed_domain: str = '',
     ) -> None:
-        """Recursively fetch a URL and follow links up to the given depth.
-
-        This is the internal engine behind chunk_url_recursive(). It mutates
-        the shared `visited` set and `all_chunks` list so the caller can track
-        progress across the full crawl without returning values at each level.
-
-        Recursion stops when:
-          - The URL has already been visited
-          - The max_pages cap is reached
-          - depth reaches 0
-          - The URL does not match the topic filter (unless it is the seed URL)
-          - The URL fails to fetch
-
-        Document URLs (PDF, DOCX, etc.) are chunked but NOT recursed into —
-        they do not contain HTML links to follow.
+        """Delegate to url_crawl.crawl_url, passing this loader's settings.
 
         Args:
             url:               Absolute URL to fetch.
@@ -451,96 +430,24 @@ class DocumentLoader:
             topic_filter:      Keyword the URL path must contain. Ignored for the seed URL.
             visited:           Shared set of already-fetched URLs (mutated in place).
             all_chunks:        Shared list accumulating all chunk dicts (mutated in place).
-            progress_callback: Optional callback called after each page is fetched.
-                               Signature: callback(url, detected_type, chunk_count).
-            is_seed:           True only for the very first (user-supplied) URL — the seed
-                               is always fetched regardless of the topic filter.
+            progress_callback: Optional callback — signature: callback(url, dtype, chunk_count).
+            is_seed:           True only for the very first URL the user supplied.
+            seed_domain:       Domain to stay on. Empty string means no restriction yet.
         """
-        # Add https:// if the URL has no scheme (e.g. en.wikipedia.org/wiki/...)
-        # Without a scheme, urlparse returns an empty netloc and urljoin produces bare
-        # paths (/wiki/SomeLink) that are rejected by the http:// check in extract_links.
-        if url and not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-
-        # Stop if we have already visited this URL or hit the page cap
-        if url in visited or len(visited) >= max_pages:
-            return
-
-        # Apply topic filter to all pages except the seed URL
-        # (the seed is always crawled — the user explicitly chose it)
-        if not is_seed and not url_matches_topic(url, topic_filter):
-            return
-
-        # Mark as visited before fetching to prevent parallel loops
-        visited.add(url)
-
-        try:
-            import requests
-        except ImportError:
-            print("  [WARNING] requests not installed. pip install requests")
-            return
-
-        # Fetch the page content
-        try:
-            response = requests.get(url, timeout=30, headers={
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                              'AppleWebKit/537.36 (KHTML, like Gecko) '
-                              'Chrome/120.0.0.0 Safari/537.36'
-            }, allow_redirects=True, stream=True)
-            response.raise_for_status()
-            content = response.content
-        except Exception as fetch_error:
-            print(f"  [CRAWL] Could not fetch: {url} — {fetch_error}")
-            return
-
-        # Detect the document type using the same 4-priority pipeline as chunk_url()
-        # Use the final URL after any HTTP redirects (e.g. example.com → www.example.com)
-        # so that relative links on the page resolve correctly and domain checks work.
-        final_url    = response.url if hasattr(response, 'url') else url
-        content_type = response.headers.get('Content-Type', '')
-        dtype        = detect_url_type(final_url, content, content_type, self.ext_to_type)
-        source_name  = build_source_name(final_url)
-
-        print(f"  [CRAWL] [{dtype.upper()}] {source_name}")
-
-        # Decode text content for text-based formats
-        text = None
-        if dtype not in ('pdf', 'docx', 'xlsx', 'pptx', 'xls'):
-            try:
-                text = content.decode(response.encoding or 'utf-8', errors='replace')
-            except Exception:
-                text = content.decode('utf-8', errors='replace')
-
-        # Only index this page if its type is in the allowed set (or no filter set)
-        chunks: List[dict] = []
-        if allowed_types is None or dtype in allowed_types:
-            chunks = self._chunk_content(content, text, dtype, source_name)
-            all_chunks.extend(chunks)
-
-        # Call the progress callback so the UI can update its progress bar
-        if progress_callback is not None:
-            progress_callback(url, dtype, len(chunks))
-
-        # Only follow links from HTML pages — PDFs and DOCX files have no links to crawl
-        html_types = {'html'}
-        if dtype not in html_types or depth <= 0 or text is None:
-            return
-
-        # Use final_url (post-redirect) as the base so relative links resolve correctly
-        # and domain comparison uses the actual domain the browser landed on.
-        links = extract_links(text, final_url, self.ext_to_type)
-
-        # Recurse into each discovered link, reducing depth by one each level
-        for link in links:
-            if len(visited) >= max_pages:
-                break
-            self._crawl_url(
-                link, depth - 1, max_pages,
-                allowed_types, topic_filter, visited, all_chunks, progress_callback,
-            )
+        crawl_url(
+            url, depth, max_pages,
+            allowed_types, topic_filter, visited, all_chunks, progress_callback,
+            ext_to_type=self.ext_to_type,
+            chunk_content_fn=self._chunk_content,
+            is_seed=is_seed,
+            seed_domain=seed_domain,
+        )
 
     def _dispatch_chunker(self, file_info: dict) -> List[dict]:
-        """Route a file_info dict to the correct chunker function in chunkers.py.
+        """Route a file_info dict to the correct chunker function.
+
+        Text formats (txt, md, csv, html) use chunkers.py.
+        Binary formats (pdf, docx, xlsx, xls, pptx) use binary_chunkers.py.
 
         Args:
             file_info: Dict with keys filepath, filename, detected_type, is_misplaced.
@@ -562,24 +469,24 @@ class DocumentLoader:
                                      self.chunk_sizes['txt_chunk_size'],
                                      self.chunk_sizes['txt_chunk_overlap'])
         elif t == 'pdf':
-            return chunkers.chunk_pdf(fp, fn,
-                                      self.chunk_sizes['pdf_chunk_sentences'])
+            return binary_chunkers.chunk_pdf(fp, fn,
+                                             self.chunk_sizes['pdf_chunk_sentences'])
         elif t == 'docx':
-            return chunkers.chunk_docx(fp, fn,
-                                       self.chunk_sizes['docx_chunk_paras'])
+            return binary_chunkers.chunk_docx(fp, fn,
+                                              self.chunk_sizes['docx_chunk_paras'])
         elif t == 'xlsx':
             # .xls uses xlrd (legacy binary format); .csv routed correctly if misplaced
             if ext == '.xls':
-                return chunkers.chunk_xls(fp, fn)
+                return binary_chunkers.chunk_xls(fp, fn)
             elif ext == '.csv':
                 return chunkers.chunk_csv(fp, fn)
             else:
-                return chunkers.chunk_xlsx(fp, fn)
+                return binary_chunkers.chunk_xlsx(fp, fn)
         elif t == 'csv':
             return chunkers.chunk_csv(fp, fn)
         elif t == 'pptx':
-            return chunkers.chunk_pptx(fp, fn,
-                                       self.chunk_sizes['pptx_chunk_slides'])
+            return binary_chunkers.chunk_pptx(fp, fn,
+                                              self.chunk_sizes['pptx_chunk_slides'])
         elif t == 'html':
             return chunkers.chunk_html(fp, fn,
                                        self.chunk_sizes['html_chunk_sentences'])

@@ -26,7 +26,8 @@ def render_sidebar(store: VectorStore, local_chunks: list) -> None:
         store:        VectorStore — used to generate source labels for chunks.
         local_chunks: All chunks loaded from the local ./docs folder.
     """
-    st.markdown("### Pipeline")
+    # Section heading — styled with the .sidebar-section CSS class (uppercase, muted)
+    st.markdown('<div class="sidebar-section">Pipeline</div>', unsafe_allow_html=True)
 
     if st.session_state.last:
         pipeline_data = st.session_state.last['data']
@@ -60,7 +61,8 @@ def _render_pipeline_chat_info(data: dict, store: VectorStore) -> None:
     st.markdown(f'<span class="badge {confidence_class}">{confidence_label}</span>', unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("**Before rerank**")
+    # "Before rerank" heading using the muted uppercase sidebar-section style
+    st.markdown('<div class="sidebar-section">Before rerank</div>', unsafe_allow_html=True)
     for chunk_entry, similarity_score in data['retrieved'][:4]:
         source_label = store._source_label(chunk_entry)
         st.markdown(
@@ -70,7 +72,8 @@ def _render_pipeline_chat_info(data: dict, store: VectorStore) -> None:
             unsafe_allow_html=True,
         )
 
-    st.markdown("**After rerank**")
+    # "After rerank" heading — shows both similarity score and LLM rerank score
+    st.markdown('<div class="sidebar-section">After rerank</div>', unsafe_allow_html=True)
     for chunk_entry, similarity_score, rerank_score in data['reranked']:
         source_label = store._source_label(chunk_entry)
         st.markdown(
@@ -88,7 +91,7 @@ def _render_pipeline_agent_info(data: dict) -> None:
     Args:
         data: The result dict returned by agent.run().
     """
-    st.markdown("**Agent Steps**")
+    st.markdown('<div class="sidebar-section">Agent Steps</div>', unsafe_allow_html=True)
     for step in data['steps']:
         st.markdown(
             f'<div class="step">{step["step"]}. {step["tool"]}</div>',
@@ -134,7 +137,7 @@ def _render_session_stats(local_chunks: list) -> None:
     url_chunk_count = len(st.session_state.url_chunks)
     total_chunks    = len(local_chunks) + url_chunk_count
 
-    st.markdown("**Session**")
+    st.markdown('<div class="sidebar-section">Session</div>', unsafe_allow_html=True)
     stats = [
         ("Queries",    st.session_state.total),
         ("Memory",     f"{len(st.session_state.conv) // 2} turns"),
@@ -162,7 +165,7 @@ def _render_document_type_counts(local_chunks: list) -> None:
         document_type = chunk.get('type', '?')
         type_counts[document_type] = type_counts.get(document_type, 0) + 1
 
-    st.markdown("**Document Types**")
+    st.markdown('<div class="sidebar-section">Document Types</div>', unsafe_allow_html=True)
     for document_type, count in sorted(type_counts.items()):
         st.markdown(
             f'<div class="stat">{document_type.upper()} '

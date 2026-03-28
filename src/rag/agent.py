@@ -33,7 +33,8 @@ Available tools:
 2. calculator - evaluate a math expression
 3. summarise  - summarise a piece of text
 4. sentiment  - analyse the sentiment/tone of a passage or topic from the documents
-5. finish     - return the final answer to the user
+5. translate  - translate text to any language. Format: "TargetLanguage: text to translate"
+6. finish     - return the final answer to the user
 
 You MUST respond in EXACTLY this format with NO other text before or after:
 TOOL: tool_name(your argument here)
@@ -43,6 +44,8 @@ TOOL: rag_search(NLP experience)
 TOOL: calculator(16 * 365)
 TOOL: summarise(cats sleep a lot and are nocturnal hunters...)
 TOOL: sentiment(customer reviews)
+TOOL: translate(Spanish: The candidate has ten years of experience in machine learning.)
+TOOL: translate(French: What are the main findings of this report?)
 TOOL: finish(Yes, the candidate has NLP experience including POS tagging and language modeling.)
 
 Rules:
@@ -55,6 +58,10 @@ Rules:
 - For simple math questions, call calculator once then finish
 - For simple factual questions, call rag_search once then finish
 - For sentiment questions (e.g. "what is the tone", "is this positive", "sentiment of"), call sentiment with a keyword or passage then finish
+- For translation questions (e.g. "translate to", "in Spanish", "en français"):
+  * If translating document content: call rag_search first, then translate with the result
+  * If translating a given passage: call translate directly
+  * Format: translate(TargetLanguage: text)
 - For summarisation or comprehensive tasks (e.g. "summarise", "tell me about", "what is in"):
   * Make multiple SEPARATE rag_search calls, one per topic
   * For a resume: search "work experience", then "education", then "skills", then "projects" as separate calls
@@ -211,9 +218,11 @@ Rules:
         elif tool_name == 'sentiment':
             result = self._tool_sentiment(tool_arg)
             self.collected_context.append(f"[Sentiment analysis: {tool_arg}]\n{result}")
+        elif tool_name == 'translate':
+            result = self._tool_translate(tool_arg)
         else:
             result = (f"Unknown tool '{tool_name}'. "
-                      f"Available: rag_search, calculator, summarise, sentiment, finish")
+                      f"Available: rag_search, calculator, summarise, sentiment, translate, finish")
         return result
 
     def _synthesize_final_answer(self, query, context):
@@ -361,3 +370,56 @@ Rules:
             return resp['message']['content'].strip()
         except Exception as e:
             return f"Sentiment analysis error: {e}"
+
+    def _tool_translate(self, language_and_text: str) -> str:
+        """Translate text to any target language.
+
+        Accepts input in one of two forms:
+        - "TargetLanguage: text to translate"  → translate the text directly
+        - "TargetLanguage: short keyword query" → search the knowledge base first,
+          then translate the retrieved content
+
+        If no colon separator is found, the whole argument is treated as the text
+        to translate and the language defaults to English.
+
+        Args:
+            language_and_text: A string in the format "Language: text",
+                               e.g. "Spanish: The candidate has ten years of experience."
+
+        Returns:
+            The translated text as a plain string, with a note of the source language
+            detected by the model.
+        """
+        # Split on the first colon to get target language and the content to translate
+        if ':' in language_and_text:
+            target_language, content = language_and_text.split(':', 1)
+            target_language = target_language.strip()
+            content         = content.strip()
+        else:
+            # No language prefix — default to English
+            target_language = 'English'
+            content         = language_and_text.strip()
+
+        # If the content looks like a short search query (under 15 words),
+        # retrieve relevant document text first so we translate real content
+        if len(content.split()) < 15:
+            retrieved = self._tool_rag_search(content)
+            # Only use retrieved text if the search returned something useful
+            if retrieved.strip():
+                content = retrieved
+
+        prompt = (
+            f"Translate the following text to {target_language}.\n"
+            f"Return ONLY the translation — no explanation, no original text, "
+            f"no notes. Just the translated text.\n\n"
+            f"Text to translate:\n{content}"
+        )
+        try:
+            resp = ollama.chat(
+                model=LANGUAGE_MODEL,
+                messages=[{'role': 'user', 'content': prompt}],
+                options={"temperature": 0},
+            )
+            return resp['message']['content'].strip()
+        except Exception as error:
+            return f"Translation error: {error}"

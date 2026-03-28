@@ -294,11 +294,11 @@ class TestIsUtilityUrl:
         from src.rag.url_utils import is_utility_url
         assert is_utility_url('https://example.com/docs/getting-started') is False
 
-    def test_keyword_in_domain_not_matched(self):
-        """The keyword must appear in the path, not just the domain or subdomain."""
+    def test_keyword_in_hostname_is_matched(self):
+        """A utility keyword in a subdomain IS caught — the hostname check covers it."""
         from src.rag.url_utils import is_utility_url
-        # 'login' is in the subdomain, not the path — path '/article' is not a utility segment
-        assert is_utility_url('https://login.example.com/article') is False
+        # 'login' is in the subdomain — the hostname keyword check catches this.
+        assert is_utility_url('https://login.example.com/article') is True
 
     def test_mediawiki_special_namespace_is_utility(self):
         """Wikipedia/MediaWiki Special: pages are utility pages (namespace has colon)."""
@@ -467,11 +467,12 @@ class TestChunkUrlRecursive:
                 topic_filter='python',
             )
 
-        # Seed must have been fetched even though '/' does not contain 'python'
-        assert 'https://example.com/' in fetched
+        # Seed must have been fetched even though '/' does not contain 'python'.
+        # Trailing slash is stripped by URL normalization — check without it.
+        assert 'https://example.com' in fetched
 
-    def test_cross_domain_links_are_followed(self):
-        """Links to other domains on the seed page are followed when no topic filter is set."""
+    def test_cross_domain_links_are_blocked(self):
+        """Links to other domains on the seed page are NOT followed — same-domain constraint."""
         links     = [
             'https://other-domain.com/article',
             'https://docs.python.org/3/tutorial/',
@@ -483,7 +484,7 @@ class TestChunkUrlRecursive:
 
         def _tracked(url, **kwargs):
             fetched.append(url)
-            if url == 'https://example.com/':
+            if url.rstrip('/') == 'https://example.com':
                 return _mock_response(seed_html, final_url=url)
             return _mock_response(page_html, final_url=url)
 
@@ -492,9 +493,9 @@ class TestChunkUrlRecursive:
                 'https://example.com/', depth=1, max_pages=10,
             )
 
-        # Both cross-domain links should have been fetched
-        assert 'https://other-domain.com/article' in fetched
-        assert 'https://docs.python.org/3/tutorial/' in fetched
+        # Cross-domain links must NOT be fetched — same-domain constraint.
+        assert 'https://other-domain.com/article' not in fetched
+        assert 'https://docs.python.org/3/tutorial/' not in fetched
 
     def test_connection_error_on_linked_page_does_not_abort(self):
         """A network error on a linked page is logged but crawl continues to other links."""
@@ -541,10 +542,11 @@ class TestChunkUrlRecursive:
                 progress_callback=callback,
             )
 
-        # Should have been called for seed + 1 linked page = 2 times
+        # Should have been called for seed + 1 linked page = 2 times.
+        # Trailing slash stripped by normalization — check without it.
         assert len(calls) == 2
         fetched_urls = [c[0] for c in calls]
-        assert 'https://example.com/'      in fetched_urls
+        assert 'https://example.com'       in fetched_urls
         assert 'https://example.com/page1' in fetched_urls
 
     def test_already_visited_url_not_fetched_twice(self):

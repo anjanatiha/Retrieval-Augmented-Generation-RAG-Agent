@@ -184,6 +184,32 @@ class TestExtractLinks:
         links = extract_links(html.decode(), 'https://example.com/', {})
         assert links == []
 
+    def test_hreflang_links_are_excluded(self):
+        """Links with a hreflang attribute are skipped — they are interlanguage links.
+
+        Wikipedia articles have 100+ sidebar links like:
+          <a href="https://af.wikipedia.org/wiki/Elizabeth_Taylor" hreflang="af">Afrikaans</a>
+          <a href="https://ar.wikipedia.org/wiki/..." hreflang="ar">العربية</a>
+
+        These point to the same article in other languages and must NOT be crawled —
+        a RAG system normally wants one language, not 100+ duplicates.
+        """
+        from src.rag.url_utils import extract_links
+        # Page has one content link and two interlanguage (hreflang) links
+        html = (
+            b'<html><body>'
+            b'<a href="/wiki/Cleopatra">Cleopatra film</a>'
+            b'<a href="https://af.wikipedia.org/wiki/Elizabeth_Taylor" hreflang="af">Afrikaans</a>'
+            b'<a href="https://ar.wikipedia.org/wiki/Elizabeth_Taylor" hreflang="ar">Arabic</a>'
+            b'</body></html>'
+        )
+        links = extract_links(html.decode(), 'https://en.wikipedia.org/', {})
+        # Content link must be kept
+        assert any('Cleopatra' in link for link in links)
+        # Interlanguage links must be dropped
+        assert not any('af.wikipedia.org' in link for link in links)
+        assert not any('ar.wikipedia.org' in link for link in links)
+
 
 # ---------------------------------------------------------------------------
 # 2. url_utils — url_matches_topic
@@ -294,11 +320,24 @@ class TestIsUtilityUrl:
         from src.rag.url_utils import is_utility_url
         assert is_utility_url('https://example.com/docs/getting-started') is False
 
-    def test_keyword_in_domain_not_matched(self):
-        """The keyword must appear in the path, not just the domain or subdomain."""
+    def test_keyword_in_hostname_is_matched(self):
+        """A utility keyword in the hostname (subdomain) is enough to filter the URL.
+
+        donate.wikimedia.org, auth.wikimedia.org, login.example.com etc. are
+        utility subdomains even if the path looks like content.
+        """
         from src.rag.url_utils import is_utility_url
-        # 'login' is in the subdomain, not the path — path '/article' is not a utility segment
-        assert is_utility_url('https://login.example.com/article') is False
+        # 'login' subdomain — this is an authentication server, not a content page
+        assert is_utility_url('https://login.example.com/article') is True
+        # 'donate' subdomain — fundraising page regardless of path
+        assert is_utility_url('https://donate.wikimedia.org/w/index.php?title=Landing') is True
+        # 'auth' subdomain — authentication server
+        assert is_utility_url('https://auth.wikimedia.org/enwiki/wiki/Special:CreateAccount') is True
+
+    def test_normal_hostname_content_path_not_utility(self):
+        """A plain content hostname with a content path is not a utility URL."""
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://www.example.com/docs/getting-started') is False
 
     def test_mediawiki_special_namespace_is_utility(self):
         """Wikipedia/MediaWiki Special: pages are utility pages (namespace has colon)."""
@@ -331,6 +370,58 @@ class TestIsUtilityUrl:
         from src.rag.url_utils import is_utility_url
         assert is_utility_url('https://en.wikipedia.org/wiki/Elizabeth_Taylor') is False
         assert is_utility_url('https://en.wikipedia.org/wiki/Python_(programming_language)') is False
+
+    def test_wiki_main_page_is_utility(self):
+        """Wikipedia Main_Page and Wikimedia sister sites' Main_Page are utility pages.
+
+        These are home/portal pages, not article content. Filtering them keeps the
+        crawl on the article the user actually asked for.
+        """
+        from src.rag.url_utils import is_utility_url
+        # Wikipedia itself
+        assert is_utility_url('https://en.wikipedia.org/wiki/Main_Page') is True
+        # Wikimedia sister projects — all link to their own Main_Page in nav sidebars
+        assert is_utility_url('https://commons.wikimedia.org/wiki/Main_Page') is True
+        assert is_utility_url('https://meta.wikimedia.org/wiki/Main_Page') is True
+        assert is_utility_url('https://en.wikisource.org/wiki/Main_Page') is True
+
+    def test_disambiguation_page_is_utility(self):
+        """Disambiguation pages are utility pages — they list name variants, not content.
+
+        Following disambiguation pages causes exponential crawl growth: each variant
+        article links to many more pages, rapidly filling the max_pages budget with
+        content unrelated to the original article.
+        """
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://en.wikipedia.org/wiki/Elizabeth_Taylor_(disambiguation)') is True
+        assert is_utility_url('https://en.wikipedia.org/wiki/Dame_(disambiguation)') is True
+        assert is_utility_url('https://en.wikipedia.org/wiki/Taylor_(disambiguation)') is True
+
+    def test_bare_domain_url_is_utility(self):
+        """URLs with no path (bare domain) are utility pages — organizational landing pages.
+
+        Wikipedia footer links like https://wikimediafoundation.org and
+        https://stats.wikimedia.org have no article path and are not content pages.
+        """
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://wikimediafoundation.org') is True
+        assert is_utility_url('https://stats.wikimedia.org') is True
+        assert is_utility_url('https://developer.wikimedia.org') is True
+        assert is_utility_url('https://www.wikimedia.org') is True
+        # A real article path is NOT a bare domain
+        assert is_utility_url('https://en.wikipedia.org/wiki/Elizabeth_Taylor') is False
+
+    def test_mediawiki_action_api_is_utility(self):
+        """MediaWiki /w/index.php URLs (action, history, print, cite) are utility pages.
+
+        These are never plain article content — they are the MediaWiki backend
+        used for editing, printing, version history, and citation tools.
+        """
+        from src.rag.url_utils import is_utility_url
+        assert is_utility_url('https://en.wikipedia.org/w/index.php?title=Main_Page&action=edit') is True
+        assert is_utility_url('https://en.wikipedia.org/w/index.php?title=Main_Page&oldid=123') is True
+        assert is_utility_url('https://en.wikipedia.org/w/index.php?title=Main_Page&printable=yes') is True
+        assert is_utility_url('https://en.wikipedia.org/w/index.php?title=Special:CiteThis') is True
 
 
 # ---------------------------------------------------------------------------
@@ -467,11 +558,17 @@ class TestChunkUrlRecursive:
                 topic_filter='python',
             )
 
-        # Seed must have been fetched even though '/' does not contain 'python'
-        assert 'https://example.com/' in fetched
+        # Seed must have been fetched even though '/' does not contain 'python'.
+        # The trailing slash is stripped by URL normalization, so we check without it.
+        assert 'https://example.com' in fetched
 
-    def test_cross_domain_links_are_followed(self):
-        """Links to other domains on the seed page are followed when no topic filter is set."""
+    def test_cross_domain_links_are_blocked(self):
+        """Links to other domains on the seed page are NOT followed — same-domain constraint.
+
+        Cross-domain following was removed because real-world pages link to
+        subscription sites, paywalls, and ad networks.  Staying on the seed
+        domain keeps crawled content relevant and avoids junk pages.
+        """
         links     = [
             'https://other-domain.com/article',
             'https://docs.python.org/3/tutorial/',
@@ -483,7 +580,7 @@ class TestChunkUrlRecursive:
 
         def _tracked(url, **kwargs):
             fetched.append(url)
-            if url == 'https://example.com/':
+            if url.rstrip('/') == 'https://example.com':
                 return _mock_response(seed_html, final_url=url)
             return _mock_response(page_html, final_url=url)
 
@@ -492,9 +589,9 @@ class TestChunkUrlRecursive:
                 'https://example.com/', depth=1, max_pages=10,
             )
 
-        # Both cross-domain links should have been fetched
-        assert 'https://other-domain.com/article' in fetched
-        assert 'https://docs.python.org/3/tutorial/' in fetched
+        # Cross-domain links must NOT be fetched — same-domain constraint.
+        assert 'https://other-domain.com/article' not in fetched
+        assert 'https://docs.python.org/3/tutorial' not in fetched
 
     def test_connection_error_on_linked_page_does_not_abort(self):
         """A network error on a linked page is logged but crawl continues to other links."""
@@ -541,10 +638,11 @@ class TestChunkUrlRecursive:
                 progress_callback=callback,
             )
 
-        # Should have been called for seed + 1 linked page = 2 times
+        # Should have been called for seed + 1 linked page = 2 times.
+        # Trailing slash on seed is stripped by normalization.
         assert len(calls) == 2
         fetched_urls = [c[0] for c in calls]
-        assert 'https://example.com/'      in fetched_urls
+        assert 'https://example.com'       in fetched_urls
         assert 'https://example.com/page1' in fetched_urls
 
     def test_already_visited_url_not_fetched_twice(self):

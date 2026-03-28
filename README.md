@@ -32,7 +32,9 @@ Supports PDF, Word, Excel, PowerPoint, CSV, Markdown, HTML, and plain text. Work
 - **Chat with your documents** — ask questions about PDFs, Word docs, spreadsheets, presentations, CSV, Markdown, or HTML files
 - **Works with structured data** — accurately retrieves from resumes, spreadsheets, and tables (where most RAG systems fail)
 - **Agent mode** — autonomous ReAct agent with 5 tools: search, calculator, summarise, sentiment, and finish
-- **Multiple input methods** — drop files into a folder, upload via UI, or paste any public URL
+- **Multiple input methods** — drop files into a folder, upload via UI, paste any public URL, or search a topic
+- **Topic search** — search DuckDuckGo for a topic, crawl the top results, and index them automatically (no API key)
+- **Recursive URL crawling** — follow links up to depth 3, filtered to same domain only, with optional keyword filter
 - **Fully local** — LLaMA 3.2 and BGE embeddings run via Ollama — nothing leaves your machine
 
 ---
@@ -46,7 +48,7 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 | **NLP & Information Retrieval** | Hybrid BM25 + dense vector search, query expansion, query classification, type-aware LLM reranking, hallucination filtering |
 | **LLM Application Engineering** | RAG pipeline design, ReAct agent loop with tool calling, prompt engineering across 7 document-type-specific reranker prompts |
 | **Software Architecture** | 4-class design with strict separation of concerns, stateless module functions vs stateful class methods, 500-line file cap |
-| **Testing** | 937 tests across 40 files — unit, integration, contract, regression, boundary, negative, parametrized combination |
+| **Testing** | 807 tests across 31 files — unit, functional, integration, contract, regression, boundary, negative, parametrized combination, UI (AppTest + mocked st) |
 | **Deployment** | Local Ollama + Hugging Face Space using InferenceClient, persistent ChromaDB vector store, CI/CD pipeline |
 | **Data Engineering** | 9 format-specific chunkers — row-level XLSX/CSV extraction, table extraction with merged cell deduplication for DOCX |
 
@@ -155,6 +157,10 @@ python3 main.py --benchmark   # run the evaluation suite
 
 **Remote URLs** — paste any public URL in the UI: webpages, PDFs, DOCX, XLSX, CSV, PPTX are all fetched, type-detected, and indexed automatically.
 
+**Topic search** — enter a search query; the top DuckDuckGo results are crawled and indexed in one click (no API key, no rate limits).
+
+**Recursive crawl** — follow links from a seed URL up to depth 3, limited to the same domain, with an optional keyword filter to stay on topic.
+
 ---
 
 ## Agent Mode
@@ -261,8 +267,8 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 │   └── tool_benchmarks.py    ← Tool benchmark suite
 ├── src/ui/                   ← Streamlit UI modules
 ├── src/cli/                  ← Terminal interface
-├── tests/                    ← 675 local tests (27 files)
-├── huggingface/              ← HF Space deployment (262 tests)
+├── tests/                    ← 807 local tests (31 files)
+├── huggingface/              ← HF Space deployment (344 tests)
 ├── benchmark_docs/           ← Sample files for self-contained benchmarking
 │   ├── python-language.txt
 │   ├── team-members.csv
@@ -279,7 +285,7 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 
 ## Testing
 
-**675 local tests · 262 HF Space tests · 937 total**
+**807 local tests · 344 HF Space tests · 1151 total**
 
 ```bash
 pytest                          # all local tests
@@ -287,7 +293,7 @@ pytest --cov=src                # with coverage report
 cd huggingface && pytest        # HF Space tests
 ```
 
-Test types: unit · integration · contract · regression · boundary · negative · parametrized combination.
+Test types: unit · functional · integration · contract · regression · boundary · negative · parametrized combination · UI (AppTest + mocked Streamlit).
 
 > For the full test file breakdown, mock strategy, and category descriptions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -319,13 +325,13 @@ Results saved to `benchmark_results.json`, `benchmark_results.csv`, and `tool_be
 
 ![Streamlit Pipeline](assets/streamlit_rag_after.png)
 
-Features: chat and agent mode toggle · URL ingestion · file upload · step-by-step progress bar · pre/post rerank chunks · confidence and query-type badges · session stats · clear button.
+Features: chat and agent mode toggle · URL ingestion · recursive URL crawl · topic search with live crawl log · file upload · step-by-step progress bar · pre/post rerank chunks · confidence and query-type badges · session stats · clear button.
 
 ---
 
 ## Built With
 
-`Python 3.11` · `Ollama` · `ChromaDB` · `rank-bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
+`Python 3.11` · `Ollama` · `ChromaDB` · `rank-bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
 
 **Development:** Built with the assistance of [Claude](https://claude.ai) (Anthropic) — used for code generation, architecture review, test writing, and documentation. All design decisions and direction were set by the author.
 

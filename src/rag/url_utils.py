@@ -49,14 +49,25 @@ _CONTENT_TYPE_MAP = {
 
 # ── Utility URL keywords ──────────────────────────────────────────────────────
 
-# Pages with these words in their URL path are navigation/boilerplate pages
-# that rarely contain useful document content. They are skipped during crawling.
+# Pages with these words in their URL path OR hostname are navigation/boilerplate
+# pages that rarely contain useful document content. Skipped during crawling.
 _UTILITY_URL_KEYWORDS = {
-    'login', 'signin', 'signup', 'register', 'logout', 'signout',
-    'cart', 'checkout', 'basket', 'payment',
+    # Authentication and account management
+    'login', 'signin', 'signup', 'register', 'logout', 'signout', 'auth',
+    # E-commerce and subscriptions
+    'cart', 'checkout', 'basket', 'payment', 'subscribe', 'unsubscribe',
+    'newsletter', 'membership', 'premium',
+    # Search and category index pages — not document content
+    'search',
+    # Legal / compliance
     'contact', 'privacy', 'terms', 'cookie', 'gdpr',
+    # Admin / user pages
     'admin', 'dashboard', 'account', 'profile', 'settings',
-    'subscribe', 'unsubscribe', 'newsletter',
+    # Fundraising / infrastructure / geo-lookup tools
+    'donate', 'geohack',
+    # NOTE: 'main_page' is NOT here — the split regex uses '_' as a delimiter
+    # so the compound slug would never match. It is handled via a direct
+    # substring check in is_utility_url() instead.
 }
 
 
@@ -151,13 +162,16 @@ def build_source_name(url: str) -> str:
 def is_utility_url(url: str) -> bool:
     """Return True if the URL appears to be a navigation or utility page.
 
-    Checks two things:
-        1. Whether any known utility keyword (login, cart, privacy, etc.)
-           appears as a path segment in the URL.
-        2. Whether any path segment contains a colon, which indicates a
-           MediaWiki namespace page (Special:, Talk:, Help:, Wikipedia:,
-           Portal:, etc.). These are navigation/meta pages on wiki sites
-           and rarely contain useful document content.
+    Runs four checks in order:
+
+        1. Utility keywords in path segments — login, donate, main_page, etc.
+        2. Utility keywords in the hostname — catches donate.wikimedia.org,
+           auth.wikimedia.org and similar subdomain-namespaced utility sites.
+        3. MediaWiki action API endpoint — /w/index.php is the MediaWiki
+           backend used for edit, history, print, and citation pages; these
+           are never plain article content.
+        4. MediaWiki namespace colons in path segments — Special:, Talk:,
+           Help:, Wikipedia:, Portal:, etc.
 
     Args:
         url: The URL to check.
@@ -165,17 +179,55 @@ def is_utility_url(url: str) -> bool:
     Returns:
         True if the URL looks like a utility page, False otherwise.
     """
-    # Only check the path portion — not the domain, which may contain keywords
-    path       = urlparse(url).path.lower()
+    parsed   = urlparse(url)
+    path     = parsed.path.lower()
+    hostname = parsed.netloc.lower()
+
+    # Split path into individual segments for keyword matching
     path_parts = set(re.split(r'[/\-_.]', path))
 
-    # Check known utility keywords (login, cart, privacy, admin, etc.)
+    # ── Check 1: utility keywords in path segments ────────────────────────
+    # NOTE: the split uses '_' as a delimiter, so compound slugs like main_page
+    # become ['main', 'page'] and would never match 'main_page' as a token.
+    # For that case we use the direct substring check in Check 1b below.
     if path_parts & _UTILITY_URL_KEYWORDS:
         return True
 
-    # Check for MediaWiki-style namespace prefixes (Special:, Talk:, Help:, etc.)
-    # These appear as path segments containing a colon — e.g. /wiki/Special:Search.
-    # Colons in URL paths are very unusual outside of wiki namespaces.
+    # ── Check 1b: direct substring match for underscore-joined keywords ───
+    # Handles /wiki/Main_Page, /wiki/Main_Page/subpage, etc.
+    if 'main_page' in path:
+        return True
+
+    # ── Check 1c: disambiguation pages ────────────────────────────────────
+    # /wiki/Elizabeth_Taylor_(disambiguation) is an index of name variants,
+    # NOT article content. Following it causes exponential crawl growth because
+    # each variant article then links to more pages.
+    if 'disambiguation' in path:
+        return True
+
+    # ── Check 1d: bare domain URLs (no meaningful path) ───────────────────
+    # https://wikimediafoundation.org, https://stats.wikimedia.org etc.
+    # appear in Wikipedia's footer. They have no article path — just a domain.
+    # These are organizational landing pages, not document content.
+    if not path or path == '/':
+        return True
+
+    # ── Check 2: utility keywords in hostname ─────────────────────────────
+    # Catches donate.wikimedia.org, auth.wikimedia.org, etc. where the
+    # utility signal is in the subdomain, not the path.
+    hostname_parts = set(re.split(r'[.\-]', hostname))
+    if hostname_parts & _UTILITY_URL_KEYWORDS:
+        return True
+
+    # ── Check 3: MediaWiki action API endpoint ────────────────────────────
+    # /w/index.php is used for ?action=edit, ?action=history, ?printable=yes,
+    # ?title=Special:CiteThis, etc. None of these are article content pages.
+    if '/w/index.php' in path:
+        return True
+
+    # ── Check 4: MediaWiki namespace colons in path segments ──────────────
+    # Special:, Talk:, Help:, Wikipedia:, Portal: etc. all contain a colon.
+    # Colons in URL path segments are extremely rare outside wiki namespaces.
     if any(':' in segment for segment in path_parts if segment):
         return True
 
@@ -260,13 +312,21 @@ def extract_links(html_content: str, base_url: str, ext_to_type: dict) -> List[s
         Deduplicated list of absolute URLs that are candidates for crawling,
         in the order they appeared on the page.
     """
-    # Parse the HTML and collect all href attribute values
+    # Parse the HTML and collect all href attribute values.
+    # Skip links that carry a hreflang attribute — these are interlanguage links
+    # (e.g. Wikipedia's sidebar "other languages" links: af.wikipedia.org, ar.wikipedia.org…).
+    # They always point to the same content in a different language and are rarely
+    # useful for a single-language RAG knowledge base.
     try:
         from bs4 import BeautifulSoup
         soup  = BeautifulSoup(html_content, 'html.parser')
-        hrefs = [tag.get('href', '') for tag in soup.find_all('a', href=True)]
+        hrefs = [
+            tag.get('href', '')
+            for tag in soup.find_all('a', href=True)
+            if not tag.get('hreflang')   # skip interlanguage / alternate-language links
+        ]
     except ImportError:
-        # Fallback if BeautifulSoup is not installed
+        # Fallback if BeautifulSoup is not installed — hreflang filter not applied
         hrefs = re.findall(r'href=["\']([^"\']+)["\']', html_content)
 
     clean_links = []

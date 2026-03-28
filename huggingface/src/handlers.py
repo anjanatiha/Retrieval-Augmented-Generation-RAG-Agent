@@ -1,39 +1,29 @@
-"""handlers.py — All Gradio event handlers and the UI builder for the HF Space.
+"""handlers.py — Gradio event handlers and singleton initialisation for the HF Space.
 
-WHY THIS FILE EXISTS:
-    app.py must stay under 50 lines so it is easy to read at a glance.
-    All the real work — initialising singletons, handling chat, file uploads,
-    URL fetches, and building the Gradio UI — lives here instead.
+Owns: singletons (_loader, _store), formatting helpers, all event handler functions,
+and private pipeline runners. UI layout lives in ui_builder.py. CSS lives in theme.py.
 
-HOW IT IS ORGANISED:
-    _initialize()   — creates DocumentLoader and VectorStore once (lazy singleton)
-    _chunk_count()  — quick helper to read the current chunk count
-    Helpers         — _pipeline_summary(), _agent_steps_md() for formatting output
-    Handlers        — chat(), upload_file(), fetch_url(), clear_chat()
-    build_demo()    — assembles and returns the Gradio Blocks app
-
-ADDING A NEW FEATURE:
-    1. Write a new handler function here with a clear docstring.
-    2. Add its inputs/outputs to build_demo().
-    You never need to change app.py.
+To add a feature: write a handler here, wire it in ui_builder.py. Never touch app.py.
 """
 
 import logging
 import os
 import re
-import tempfile
 
 import gradio as gr
 
 from src.rag.agent import Agent
-from src.rag.config import EXT_TO_TYPE, URL_CRAWL_MAX_DEPTH, URL_CRAWL_MAX_PAGES
 from src.rag.document_loader import DocumentLoader
 from src.rag.vector_store import VectorStore
 
 # Module-level logger — errors go to the logging system, not the terminal
 logger = logging.getLogger(__name__)
 
-__all__ = ['build_demo']
+__all__ = [
+    'chat', 'upload_file', 'fetch_url', 'fetch_url_recursive',
+    'search_topic', 'clear_chat', 'clear_added_chunks',
+    '_initialize', '_chunk_count',
+]
 
 # ── Singletons ─────────────────────────────────────────────────────────────────
 # These are created once on first use and reused for the lifetime of the Space.
@@ -77,8 +67,8 @@ def _pipeline_summary(data: dict) -> str:
     if not data:
         return ""
 
-    query_type  = data.get('query_type', '')
-    best_score  = data.get('best_score', 0.0)
+    query_type   = data.get('query_type', '')
+    best_score   = data.get('best_score', 0.0)
     is_confident = data.get('is_confident', False)
 
     lines = [
@@ -328,8 +318,8 @@ def fetch_url_recursive(url: str, depth: int, max_pages: int,
     allowed     = {t for t, checked in type_map.items() if checked}
     allowed_set = allowed if allowed else None   # None means "all types"
 
-    clean_url   = url.strip()
-    pages_done  = [0]   # mutable list so the callback can update it
+    clean_url  = url.strip()
+    pages_done = [0]   # mutable list so the callback can update it
 
     def _progress_callback(page_url: str, dtype: str, chunk_count: int) -> None:
         """Update the Gradio progress bar after each page is crawled."""
@@ -370,6 +360,71 @@ def fetch_url_recursive(url: str, depth: int, max_pages: int,
         logger.error("Recursive crawl failed for '%s': %s", clean_url, error, exc_info=True)
         return (
             f"❌ Crawl error: {error}",
+            f"Chunks in knowledge base: {_chunk_count()}",
+        )
+
+
+def search_topic(query: str, num_results: int, depth: int,
+                 pages_per: int, progress=None):
+    """Search DuckDuckGo for a topic and index the top result pages.
+
+    Args:
+        query:       The search query.
+        num_results: Number of search result URLs to fetch (1–20).
+        depth:       Crawl depth per result URL (1–3).
+        pages_per:   Max pages crawled per result URL.
+        progress:    Optional gr.Progress for the progress bar.
+
+    Returns:
+        Tuple of (status_message, chunk_counter_markdown).
+    """
+    if progress is None:
+        progress = gr.Progress()
+
+    loader, store = _initialize()
+
+    if not query or not query.strip():
+        return "No query provided.", f"Chunks in knowledge base: {_chunk_count()}"
+
+    pages_done = [0]
+
+    def _progress_callback(page_url: str, dtype: str, chunk_count: int) -> None:
+        """Update the Gradio progress bar after each page is fetched."""
+        pages_done[0] += 1
+        fraction = min(0.9, pages_done[0] / max(int(num_results) * int(pages_per), 1))
+        short    = page_url[:60] + '...' if len(page_url) > 60 else page_url
+        progress(fraction, desc=f"[{dtype.upper()}] {short}")
+
+    try:
+        progress(0.05, desc=f"Searching for '{query.strip()}'...")
+        new_chunks = loader.chunk_topic_search(
+            query.strip(),
+            num_results=int(num_results),
+            depth=int(depth),
+            max_pages_per_result=int(pages_per),
+            progress_callback=_progress_callback,
+        )
+
+        if new_chunks:
+            progress(0.92, desc=f"Embedding {len(new_chunks)} chunks...")
+            store.add_chunks(new_chunks, id_prefix='search')
+            progress(0.97, desc="Rebuilding search index...")
+            store.rebuild_bm25(store.chunks)
+            progress(1.0, desc="Done")
+            return (
+                f"✅ Indexed {len(new_chunks)} chunks from "
+                f"{int(num_results)} search results for \"{query.strip()}\".",
+                f"Chunks in knowledge base: **{_chunk_count()}**",
+            )
+        else:
+            return (
+                "⚠️ No content extracted. Try a different query.",
+                f"Chunks in knowledge base: {_chunk_count()}",
+            )
+    except Exception as error:
+        logger.error("Topic search failed for '%s': %s", query, error, exc_info=True)
+        return (
+            f"❌ Search error: {error}",
             f"Chunks in knowledge base: {_chunk_count()}",
         )
 
@@ -421,10 +476,10 @@ def _run_agent_mode(message: str, store: VectorStore):
     Returns:
         Tuple of (formatted_response_string, pipeline_info_string).
     """
-    agent        = Agent(store)
-    result       = agent.run(message, streamlit_mode=True)
-    steps_md     = _agent_steps_md(result['steps'])
-    response     = f"{steps_md}\n**Answer:** {result['answer']}"
+    agent         = Agent(store)
+    result        = agent.run(message, streamlit_mode=True)
+    steps_md      = _agent_steps_md(result['steps'])
+    response      = f"{steps_md}\n**Answer:** {result['answer']}"
     pipeline_info = f"**Agent mode** — {len(result['steps'])} steps"
     return response, pipeline_info
 
@@ -442,318 +497,3 @@ def _run_chat_mode(message: str, store: VectorStore):
     result        = store.run_pipeline(message, streamlit_mode=True)
     pipeline_info = _pipeline_summary(result)
     return result['response'], pipeline_info
-
-
-# ── Gradio UI builder ──────────────────────────────────────────────────────────
-
-# IBM Plex Mono stylesheet — polished to match Streamlit version
-_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap');
-
-/* ── Base ────────────────────────────────────────────────────────────────── */
-.gradio-container {
-    font-family: 'IBM Plex Sans', sans-serif;
-    max-width: 1200px;
-    margin: 0 auto;
-    background: #f8fbfd;
-}
-
-/* ── Header ──────────────────────────────────────────────────────────────── */
-.rag-title {
-    font-family: 'IBM Plex Mono', monospace;
-    color: #1565a0;
-    font-size: 1.8rem;
-    font-weight: 600;
-    padding-left: .6rem;
-    border-left: 4px solid #1565a0;
-    margin-bottom: .25rem;
-}
-.rag-sub {
-    color: #7aafc8;
-    font-size: 0.75rem;
-    padding-left: .6rem;
-    margin-bottom: 1rem;
-    font-family: 'IBM Plex Mono', monospace;
-}
-
-/* ── Chatbot ─────────────────────────────────────────────────────────────── */
-.chatbot .message {
-    font-family: 'IBM Plex Sans', sans-serif;
-    font-size: 0.92rem;
-    line-height: 1.6;
-    border-radius: 8px !important;
-}
-.chatbot .user { background: #eaf4fd !important; border: 1px solid #b3d4e8 !important; }
-.chatbot .bot  { background: #ffffff !important; border: 1px solid #daeaf4 !important; }
-
-/* ── Buttons ─────────────────────────────────────────────────────────────── */
-button.primary {
-    background: #1565a0 !important;
-    color: #ffffff !important;
-    font-family: 'IBM Plex Mono', monospace !important;
-    font-weight: 600 !important;
-    border: none !important;
-    border-radius: 6px !important;
-    transition: background .15s ease !important;
-}
-button.primary:hover { background: #0d47a1 !important; }
-button.secondary {
-    background: #ffffff !important;
-    color: #1565a0 !important;
-    border: 1px solid #1565a0 !important;
-    font-family: 'IBM Plex Mono', monospace !important;
-    font-weight: 600 !important;
-    border-radius: 6px !important;
-}
-button.secondary:hover { background: #eaf4fd !important; }
-
-/* ── Accordions / panels ─────────────────────────────────────────────────── */
-.accordion {
-    border: 1px solid #b3d4e8 !important;
-    border-radius: 8px !important;
-    background: #ffffff !important;
-    margin-bottom: .5rem;
-}
-
-/* ── Text inputs ─────────────────────────────────────────────────────────── */
-input[type="text"], textarea {
-    font-family: 'IBM Plex Mono', monospace !important;
-    border: 1px solid #b3d4e8 !important;
-    border-radius: 6px !important;
-    background: #ffffff !important;
-    color: #0d2b45 !important;
-}
-input[type="text"]:focus, textarea:focus {
-    border-color: #1565a0 !important;
-    box-shadow: 0 0 0 2px rgba(21,101,160,.2) !important;
-    outline: none !important;
-}
-
-/* ── Hide Gradio footer ──────────────────────────────────────────────────── */
-footer { display: none !important; }
-"""
-
-
-def build_demo():
-    """Assemble and return the complete Gradio Blocks app.
-
-    All UI components, layout, and event wiring are defined here.
-    app.py calls this once and launches the returned demo object.
-
-    Returns:
-        A configured gradio.Blocks instance ready to launch.
-    """
-    with gr.Blocks(css=_CSS, title="RAG Agent — Ask Your Documents") as demo:
-
-        gr.HTML("""
-        <div class="rag-title">Ask Your Documents</div>
-        <div class="rag-sub">
-            chunking · hybrid search · reranking · agent ·
-            PDF · TXT · DOCX · XLSX · PPTX · CSV · MD · HTML · URL
-        </div>
-        """)
-
-        with gr.Row():
-
-            # ── Left column: chat + ingestion ──────────────────────────────
-            with gr.Column(scale=3):
-
-                chatbot = gr.Chatbot(
-                    label="Conversation",
-                    height=480,
-                    show_copy_button=True,
-                    type='messages',
-                )
-
-                with gr.Row():
-                    msg_box = gr.Textbox(
-                        placeholder="Ask a question about your documents...",
-                        label="",
-                        show_label=False,
-                        scale=5,
-                    )
-                    mode_radio = gr.Radio(
-                        choices=["Chat", "Agent"],
-                        value="Chat",
-                        label="Mode",
-                        scale=1,
-                    )
-
-                with gr.Row():
-                    submit_btn = gr.Button("Send", variant="primary", scale=4)
-                    clear_btn  = gr.Button("🗑 Clear", scale=1)
-
-                gr.Markdown("---")
-
-                with gr.Accordion("📎 Upload files or a folder", open=False):
-                    gr.Markdown("Select one file, multiple files, or all files from a folder.")
-                    file_upload = gr.File(
-                        label="Supported: PDF, TXT, DOCX, XLSX, XLS, PPTX, CSV, MD, HTML",
-                        file_types=[
-                            ".pdf", ".txt", ".docx", ".doc", ".xlsx", ".xls",
-                            ".pptx", ".ppt", ".csv", ".md", ".markdown", ".html", ".htm",
-                        ],
-                        file_count="multiple",
-                    )
-                    upload_btn = gr.Button("Index files →", variant="secondary")
-                    upload_msg = gr.Markdown("")
-
-                with gr.Accordion("🌐 Add a URL", open=False):
-                    url_input = gr.Textbox(
-                        placeholder="https://example.com/page  or  https://example.com/file.pdf",
-                        label="Public URL",
-                    )
-                    url_btn = gr.Button("Fetch & index →", variant="secondary")
-                    url_msg = gr.Markdown("")
-
-                with gr.Accordion("🕷️ Recursive web crawl", open=False):
-                    gr.Markdown(
-                        "Follow links on the page and index all discovered pages. "
-                        "⚠️ Depth 1, max 10 pages on HF free CPU to avoid timeout."
-                    )
-                    crawl_url_input = gr.Textbox(
-                        placeholder="https://example.com  (seed URL to start crawling from)",
-                        label="Seed URL",
-                    )
-                    with gr.Row():
-                        crawl_depth = gr.Slider(
-                            minimum=1, maximum=3, value=URL_CRAWL_MAX_DEPTH, step=1,
-                            label="Depth",
-                        )
-                        crawl_max_pages = gr.Slider(
-                            minimum=1, maximum=50, value=URL_CRAWL_MAX_PAGES, step=1,
-                            label="Max pages",
-                        )
-                    crawl_topic_input = gr.Textbox(
-                        placeholder="e.g. Elizabeth_Taylor  or  python  or  machine-learning",
-                        label="Topic filter (optional) — only follow links whose URL path contains this word. "
-                              "Tip: use the article name (e.g. 'Elizabeth_Taylor') to stay on topic.",
-                    )
-                    gr.Markdown("**Index these types:**")
-                    with gr.Row():
-                        crawl_html  = gr.Checkbox(value=True,  label="HTML")
-                        crawl_pdf   = gr.Checkbox(value=True,  label="PDF")
-                        crawl_docx  = gr.Checkbox(value=True,  label="DOCX")
-                        crawl_xlsx  = gr.Checkbox(value=True,  label="XLSX")
-                        crawl_csv   = gr.Checkbox(value=True,  label="CSV")
-                        crawl_pptx  = gr.Checkbox(value=True,  label="PPTX")
-                        crawl_md    = gr.Checkbox(value=True,  label="MD")
-                    crawl_btn = gr.Button("Start crawl →", variant="secondary")
-                    crawl_msg = gr.Markdown("")
-
-            # ── Right column: pipeline info ────────────────────────────────
-            with gr.Column(scale=1):
-
-                startup_status    = gr.Markdown(value="⏳ Initializing...", label="")
-                chunk_counter     = gr.Markdown(value="Chunks in knowledge base: **0**", label="")
-                clear_chunks_btn  = gr.Button("🗑 Clear added content", variant="secondary", size="sm")
-                clear_chunks_msg  = gr.Markdown("")
-
-                gr.Markdown("### Agent Tools")
-                gr.Markdown("""
-**🔍 rag_search** — search your documents
-*e.g. "what skills does the resume mention?"*
-
-**🧮 calculator** — evaluate math expressions
-*e.g. "what is 15% of 85000?"*
-
-**📝 summarise** — summarise a document section
-*e.g. "summarise the resume"*
-
-**💬 sentiment** — analyse tone & sentiment
-*e.g. "what is the sentiment of the resume?"*
-
-**✅ finish** — return the final answer
-""")
-
-                gr.Markdown("---")
-                gr.Markdown("### Pipeline")
-                pipeline_box = gr.Markdown(
-                    value="*Pipeline info will appear here after your first query.*",
-                    label="",
-                )
-
-        # ── Event wiring ──────────────────────────────────────────────────
-
-        def _submit(message, history, mode):
-            """Handle both the Send button and pressing Enter in the text box."""
-            new_history, info = chat(message, history, mode)
-            return new_history, info, ""   # the "" clears the message box
-
-        submit_btn.click(
-            fn=_submit,
-            inputs=[msg_box, chatbot, mode_radio],
-            outputs=[chatbot, pipeline_box, msg_box],
-        )
-        msg_box.submit(
-            fn=_submit,
-            inputs=[msg_box, chatbot, mode_radio],
-            outputs=[chatbot, pipeline_box, msg_box],
-        )
-        clear_btn.click(fn=clear_chat, outputs=[chatbot, pipeline_box])
-        clear_chunks_btn.click(
-            fn=clear_added_chunks,
-            outputs=[clear_chunks_msg, chunk_counter],
-        )
-
-        def _upload(file_objs):
-            """Thin wrapper to map upload_file outputs to Gradio components."""
-            status_message, counter_text = upload_file(file_objs)
-            return status_message, counter_text
-
-        upload_btn.click(
-            fn=_upload,
-            inputs=[file_upload],
-            outputs=[upload_msg, chunk_counter],
-        )
-
-        def _fetch(url):
-            """Wrapper that also clears the URL input box after fetching."""
-            status_message, counter_text = fetch_url(url)
-            return status_message, counter_text, ""  # "" clears the URL box
-
-        url_btn.click(
-            fn=_fetch,
-            inputs=[url_input],
-            outputs=[url_msg, chunk_counter, url_input],
-        )
-
-        def _crawl(url, depth, max_pages, topic,
-                   use_html, use_pdf, use_docx, use_xlsx, use_csv, use_pptx, use_md):
-            """Wrapper that maps Gradio inputs to fetch_url_recursive and clears the URL box."""
-            status, counter = fetch_url_recursive(
-                url, depth, max_pages, topic,
-                use_html, use_pdf, use_docx, use_xlsx, use_csv, use_pptx, use_md,
-            )
-            return status, counter, ""   # "" clears the crawl URL input
-
-        crawl_btn.click(
-            fn=_crawl,
-            inputs=[
-                crawl_url_input, crawl_depth, crawl_max_pages, crawl_topic_input,
-                crawl_html, crawl_pdf, crawl_docx,
-                crawl_xlsx, crawl_csv, crawl_pptx, crawl_md,
-            ],
-            outputs=[crawl_msg, chunk_counter, crawl_url_input],
-        )
-
-        def _on_load(progress=None):
-            """Eagerly initialise both singletons on page load so the first query is fast."""
-            if progress is None:
-                progress = gr.Progress()
-            progress(0.1, desc="Starting up...")
-            global _loader, _store
-            if _loader is None:
-                progress(0.3, desc="Loading document processor...")
-                _loader = DocumentLoader()
-            if _store is None:
-                progress(0.5, desc="Loading embedding model (first run may take 1-2 min)...")
-                _store = VectorStore()
-                progress(0.8, desc="Initializing vector store...")
-                _store.build_or_load([])
-            progress(1.0, desc="Ready!")
-            return "✅ Ready", f"Chunks in knowledge base: **{_chunk_count()}**"
-
-        demo.load(fn=_on_load, outputs=[startup_status, chunk_counter])
-
-    return demo
