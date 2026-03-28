@@ -22,7 +22,7 @@ A finer decomposition (e.g. a `QueryExpander` class, a `Reranker` class, a `Hybr
 ## What Each Class Owns and Why
 
 ### `DocumentLoader`
-Owns all ingestion logic: reading files from disk, misplaced file detection, URL fetching, and dispatching to the correct format chunker. The 9 format-specific chunker functions (txt, md, pdf, docx, xlsx, xls, csv, pptx, html) live in `chunkers.py` as stateless module-level functions — they take a file path and return a list of chunk dicts with no class state of their own. `DocumentLoader._dispatch_chunker` routes each file to the right function from `chunkers.py`. This split keeps `DocumentLoader` focused on ingestion orchestration while `chunkers.py` handles format-specific parsing detail.
+Owns all ingestion logic: reading files from disk, misplaced file detection, URL fetching, and dispatching to the correct format chunker. The 9 format-specific chunker functions are split across two modules: text-based formats (txt, md, csv, html) live in `chunkers.py`, and binary formats (pdf, docx, xlsx, xls, pptx) live in `binary_chunkers.py`. Both modules contain stateless module-level functions — they take a file path and return a list of chunk dicts with no class state of their own. `DocumentLoader._dispatch_chunker` routes each file to the right function. URL crawling and DuckDuckGo topic search functions live in `url_crawl.py`; URL type detection, link extraction, and topic filtering helpers live in `url_utils.py`. This split keeps `DocumentLoader` focused on ingestion orchestration while each module handles one clear concern.
 
 `scan_all_files()` uses `os.walk` for unlimited-depth recursive scanning. A folder dropped anywhere under `./docs/` at any nesting level — containing any mix of file types — will have all its files detected and processed. Type is determined by file extension, not folder name. The relative path from `docs_root` is stored as the chunk source (e.g. `project/data/q1.xlsx`) so files with the same name in different subfolders remain distinguishable in citations.
 
@@ -30,7 +30,7 @@ Owns all ingestion logic: reading files from disk, misplaced file detection, URL
 Owns ChromaDB, BM25, hybrid retrieval, reranking, query expansion, query classification, response generation, hallucination filtering, and conversation history. These all operate on the same two data structures — the vector collection and the chunk list. Splitting them would require passing the collection and chunks to every caller, which is worse than grouping them under one owner.
 
 ### `Agent`
-Owns the ReAct loop and all 5 tools as private methods. The tools (calculator, summarise, sentiment, rag_search) have no independent state — they are pure operations that happen to live inside the agent's context. Making each tool a class would add 5 empty `__init__` methods and 5 objects that exist only to call one function.
+Owns the ReAct loop and all 6 tools as private methods. The tools (calculator, summarise, sentiment, translate, rag_search) have no independent state — they are pure operations that happen to live inside the agent's context. Making each tool a class would add 6 empty `__init__` methods and 6 objects that exist only to call one function.
 
 ### `Benchmarker`
 Owns all RAG pipeline evaluation orchestration: running the pipeline per test case, printing the report, persisting JSON history, and exporting to CSV. All 7 scoring functions live as stateless module-level functions in `metrics.py` — they have no state of their own and are imported by `Benchmarker`. Takes a `VectorStore` as a dependency so it runs the exact same pipeline the user runs in production.
@@ -43,14 +43,14 @@ The 4 terminal print functions (`print_per_query_table`, `print_summary_table`, 
 
 ## Why Tools Are Private Methods on Agent, Not Separate Classes
 
-The 5 agent tools have no state of their own. `_tool_calculator` is `eval()` with a safety check. `_tool_summarise` is one `ollama.chat` call. `_tool_sentiment` is one `ollama.chat` call with an optional prior RAG search. None of them maintain anything between calls.
+The 6 agent tools have no state of their own. `_tool_calculator` is `eval()` with a safety check. `_tool_summarise` is one `ollama.chat` call. `_tool_sentiment` is one `ollama.chat` call with an optional prior RAG search. `_tool_translate` routes through RAG search for short queries, then translates. None of them maintain anything between calls.
 
 Making them classes would require:
 - An empty `__init__` or a store reference injected into each
 - An `execute()` or `run()` method containing one function call
 - An import chain that risks circular dependencies
 
-Three similar lines of code is better than a premature abstraction. The private method prefix (`_`) makes the boundary clear: these are implementation details of the agent, not public API.
+A private method is better than a premature abstraction. The private method prefix (`_`) makes the boundary clear: these are implementation details of the agent, not public API.
 
 ---
 

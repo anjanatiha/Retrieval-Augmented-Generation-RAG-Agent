@@ -42,7 +42,7 @@ ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
 ## Running the Tests
 
 ```bash
-# All 807 local tests (run this before every pull request)
+# All 848 local tests (run this before every pull request)
 pytest
 
 # With a line-by-line coverage report
@@ -87,7 +87,7 @@ All tests must be green before submitting a pull request.
 
 ## Test Files — Full Breakdown
 
-### Local (`tests/`) — 807 tests across 31 files
+### Local (`tests/`) — 848 tests across 31+ files
 
 | File | Covers |
 |------|--------|
@@ -123,7 +123,7 @@ All tests must be green before submitting a pull request.
 | `test_handlers.py` | Streamlit handlers (pure helpers) and CLI runner |
 | `test_logger.py` | Interaction logging |
 
-### HF Space (`huggingface/tests/`) — 344 tests across 15 files
+### HF Space (`huggingface/tests/`) — 385 tests across 15+ files
 
 Same categories adapted for the HF deployment — InferenceClient instead of Ollama, EphemeralClient instead of persistent ChromaDB. Includes `test_crawl.py`, `test_crawl_combinations.py`, and `test_topic_search.py`.
 
@@ -156,27 +156,32 @@ The rule: mock anything that makes a network call or loads a model. Never mock t
 
 ```
 src/rag/
-  config.py           ← all constants — edit here to change models, thresholds, chunk sizes
-  chunkers.py         ← add a new file format here (one function per format)
-  document_loader.py  ← ingestion orchestration and URL fetching
-  vector_store.py     ← retrieval pipeline and response generation
-  agent.py            ← ReAct loop and tools
-  benchmarker.py      ← evaluation orchestration and output
-  benchmark_report.py ← stateless terminal report formatting functions
-  metrics.py          ← 7 stateless scoring functions
-  tool_benchmarks.py  ← calculator/sentiment/summarise benchmark module
+  config.py             ← all constants — edit here to change models, thresholds, chunk sizes
+  chunkers.py           ← text-based chunker functions (txt, md, csv, html)
+  binary_chunkers.py    ← binary format chunker functions (pdf, docx, xlsx, xls, pptx)
+  url_crawl.py          ← stateless URL crawl and DuckDuckGo search functions
+  url_utils.py          ← URL type detection, link extraction, topic filtering helpers
+  document_loader.py    ← ingestion orchestration and URL fetching
+  vector_store.py       ← retrieval pipeline and response generation
+  agent.py              ← ReAct loop and 6 tools
+  benchmarker.py        ← evaluation orchestration and output
+  benchmark_report.py   ← stateless terminal report formatting functions
+  metrics.py            ← 7 stateless scoring functions
+  tool_benchmarks.py    ← calculator/sentiment/summarise benchmark module
 src/ui/
-  handlers.py         ← Streamlit event handlers
-  theme.py            ← CSS and style constants
-  session.py          ← session state helpers
+  handlers.py           ← event handlers (url, file, topic, user input)
+  renderers.py          ← pure Streamlit render functions
+  sidebar.py            ← sidebar rendering
+  theme.py              ← CSS and style constants
+  session.py            ← session state helpers
 src/cli/
-  runner.py           ← terminal chat, agent, and benchmark entry points
+  runner.py             ← terminal chat, agent, and benchmark entry points
 ```
 
 **The core rule:** Classes own state. Modules own stateless functions. This distinction is strict.
 
 - `DocumentLoader`, `VectorStore`, `Agent`, `Benchmarker` are classes — they own state
-- `config`, `logger`, `chunkers`, `metrics`, `benchmark_report`, `tool_benchmarks` are modules — they own stateless functions
+- `config`, `logger`, `chunkers`, `binary_chunkers`, `url_crawl`, `url_utils`, `metrics`, `benchmark_report`, `tool_benchmarks` are modules — they own stateless functions
 
 If you find yourself adding state to a module function, it should probably be a method on the relevant class instead.
 
@@ -186,7 +191,7 @@ If you find yourself adding state to a module function, it should probably be a 
 
 1. Add the file extension to `EXT_TO_TYPE` in `src/rag/config.py`
 2. Add a folder entry to `DOC_FOLDERS` in `src/rag/config.py`
-3. Write a `chunk_yourformat(filepath, filename)` function in `src/rag/chunkers.py`
+3. Write a `chunk_yourformat(filepath, filename)` function in `src/rag/chunkers.py` (text formats) or `src/rag/binary_chunkers.py` (binary formats)
 4. Add the routing case to `_dispatch_chunker()` in `src/rag/document_loader.py`
 5. Write unit tests in `tests/test_document_loader.py`
 6. Write integration tests in `tests/test_integration_loader.py` (use a real temp file — do not mock the parser)

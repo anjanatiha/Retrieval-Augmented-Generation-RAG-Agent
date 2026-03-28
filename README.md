@@ -31,7 +31,7 @@ Supports PDF, Word, Excel, PowerPoint, CSV, Markdown, HTML, and plain text. Work
 
 - **Chat with your documents** — ask questions about PDFs, Word docs, spreadsheets, presentations, CSV, Markdown, or HTML files
 - **Works with structured data** — accurately retrieves from resumes, spreadsheets, and tables (where most RAG systems fail)
-- **Agent mode** — autonomous ReAct agent with 5 tools: search, calculator, summarise, sentiment, and finish
+- **Agent mode** — autonomous ReAct agent with 6 tools: search, calculator, summarise, sentiment, translate, and finish
 - **Multiple input methods** — drop files into a folder, upload via UI, paste any public URL, or search a topic
 - **Topic search** — search DuckDuckGo for a topic, crawl the top results, and index them automatically (no API key)
 - **Recursive URL crawling** — follow links up to depth 3, filtered to same domain only, with optional keyword filter
@@ -48,9 +48,9 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 | **NLP & Information Retrieval** | Hybrid BM25 + dense vector search, query expansion, query classification, type-aware LLM reranking, hallucination filtering |
 | **LLM Application Engineering** | RAG pipeline design, ReAct agent loop with tool calling, prompt engineering across 7 document-type-specific reranker prompts |
 | **Software Architecture** | 4-class design with strict separation of concerns, stateless module functions vs stateful class methods, 500-line file cap |
-| **Testing** | 807 tests across 31 files — unit, functional, integration, contract, regression, boundary, negative, parametrized combination, UI (AppTest + mocked st) |
+| **Testing** | 848 tests across 31+ files — unit, functional, integration, contract, regression, boundary, negative, parametrized combination, UI (AppTest + mocked st) |
 | **Deployment** | Local Ollama + Hugging Face Space using InferenceClient, persistent ChromaDB vector store, CI/CD pipeline |
-| **Data Engineering** | 9 format-specific chunkers — row-level XLSX/CSV extraction, table extraction with merged cell deduplication for DOCX |
+| **Data Engineering** | 9 format-specific chunkers split across two modules — text formats (txt, md, csv, html) in `chunkers.py`, binary formats (pdf, docx, xlsx, xls, pptx) in `binary_chunkers.py` |
 
 **Key design decisions:**
 - **Hybrid search over pure dense retrieval** — BM25 + dense fusion achieves higher recall than either alone, especially for structured documents
@@ -173,6 +173,7 @@ The ReAct agent reasons about which tool to use, calls it, observes the result, 
 | `calculator` | Evaluates safe arithmetic expressions |
 | `summarise` | Summarises a passage with adaptive length |
 | `sentiment` | Returns Sentiment, Tone, Key phrases, and Explanation |
+| `translate` | Translates to any target language; short queries search the knowledge base first |
 | `finish` | Returns the final answer |
 
 ---
@@ -232,9 +233,12 @@ streamlit run app.py
 |-----------|---------------|
 | `DocumentLoader` | File scanning, URL fetching, chunker dispatch |
 | `VectorStore` | ChromaDB, BM25, hybrid retrieval, reranking, response generation |
-| `Agent` | ReAct loop and all 5 tools |
+| `Agent` | ReAct loop and all 6 tools |
 | `Benchmarker` | 7-metric evaluation, CSV export, run comparison |
-| `chunkers` module | 9 stateless format-specific chunker functions |
+| `chunkers` module | Stateless text-based chunker functions (txt, md, csv, html) |
+| `binary_chunkers` module | Stateless binary format chunker functions (pdf, docx, xlsx, xls, pptx) |
+| `url_crawl` module | Stateless URL crawl and DuckDuckGo search functions |
+| `url_utils` module | URL type detection, source name building, link extraction, topic filtering |
 | `metrics` module | 7 stateless scoring functions |
 | `benchmark_report` module | Stateless terminal report formatting |
 | `tool_benchmarks` module | Calculator / sentiment / summarise benchmark suite |
@@ -257,7 +261,10 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 ├── src/rag/                  ← Core RAG system
 │   ├── config.py             ← All constants
 │   ├── logger.py             ← Interaction logging
-│   ├── chunkers.py           ← 9 format chunker functions
+│   ├── chunkers.py           ← Text-based chunker functions (txt, md, csv, html)
+│   ├── binary_chunkers.py    ← Binary format chunker functions (pdf, docx, xlsx, xls, pptx)
+│   ├── url_crawl.py          ← URL crawl and DuckDuckGo search functions
+│   ├── url_utils.py          ← URL type detection, link extraction, topic filtering
 │   ├── document_loader.py    ← DocumentLoader class
 │   ├── vector_store.py       ← VectorStore class
 │   ├── agent.py              ← Agent class
@@ -266,9 +273,14 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 │   ├── metrics.py            ← 7 scoring functions
 │   └── tool_benchmarks.py    ← Tool benchmark suite
 ├── src/ui/                   ← Streamlit UI modules
+│   ├── handlers.py           ← Event handlers (url, file, topic, user input)
+│   ├── renderers.py          ← Pure Streamlit render functions
+│   ├── sidebar.py            ← Sidebar rendering
+│   ├── session.py            ← Session state helpers
+│   └── theme.py              ← CSS and style constants
 ├── src/cli/                  ← Terminal interface
-├── tests/                    ← 807 local tests (31 files)
-├── huggingface/              ← HF Space deployment (344 tests)
+├── tests/                    ← 848 local tests (31+ files)
+├── huggingface/              ← HF Space deployment (385 tests)
 ├── benchmark_docs/           ← Sample files for self-contained benchmarking
 │   ├── python-language.txt
 │   ├── team-members.csv
@@ -285,7 +297,7 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 
 ## Testing
 
-**807 local tests · 344 HF Space tests · 1151 total**
+**848 local tests · 385 HF Space tests · 1233 total**
 
 ```bash
 pytest                          # all local tests

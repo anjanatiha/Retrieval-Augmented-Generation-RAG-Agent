@@ -36,35 +36,48 @@ They are private methods on Agent.
 
 ---
 
-## Project structure to create
+## Project structure (current)
 
 ```
 rag/
 ├── src/
-│   └── rag/
+│   ├── rag/
+│   │   ├── __init__.py
+│   │   ├── config.py              ← MODULE: constants only
+│   │   ├── logger.py              ← MODULE: stateless log functions
+│   │   ├── chunkers.py            ← MODULE: text-based chunkers (txt, md, csv, html)
+│   │   ├── binary_chunkers.py     ← MODULE: binary format chunkers (pdf, docx, xlsx, xls, pptx)
+│   │   ├── url_crawl.py           ← MODULE: URL crawl and DuckDuckGo search
+│   │   ├── url_utils.py           ← MODULE: URL type detection, link extraction, topic filter
+│   │   ├── document_loader.py     ← CLASS: DocumentLoader
+│   │   ├── vector_store.py        ← CLASS: VectorStore
+│   │   ├── agent.py               ← CLASS: Agent (6 tools)
+│   │   ├── benchmarker.py         ← CLASS: Benchmarker
+│   │   ├── benchmark_report.py    ← MODULE: stateless terminal report formatting
+│   │   ├── metrics.py             ← MODULE: 7 stateless scoring functions
+│   │   └── tool_benchmarks.py     ← MODULE: tool benchmark suite
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── handlers.py            ← MODULE: event handlers (url, file, topic, user input)
+│   │   ├── renderers.py           ← MODULE: pure Streamlit render functions
+│   │   ├── sidebar.py             ← MODULE: sidebar rendering
+│   │   ├── theme.py               ← MODULE: CSS + style constants
+│   │   └── session.py             ← MODULE: session state helpers
+│   └── cli/
 │       ├── __init__.py
-│       ├── config.py              ← MODULE: constants only
-│       ├── logger.py              ← MODULE: stateless log functions
-│       ├── document_loader.py     ← CLASS: DocumentLoader
-│       ├── vector_store.py        ← CLASS: VectorStore
-│       ├── agent.py               ← CLASS: Agent
-│       └── benchmarker.py         ← CLASS: Benchmarker
-├── ui/
-│   ├── __init__.py
-│   ├── theme.py                   ← MODULE: CSS + style constants
-│   └── session.py                 ← MODULE: session state helpers
-├── tests/
-│   ├── __init__.py
-│   ├── test_document_loader.py
-│   ├── test_vector_store.py
-│   ├── test_agent.py
-│   ├── test_benchmarker.py
-│   └── test_integration.py
+│       └── runner.py              ← MODULE: terminal chat, agent, benchmark entry points
+├── tests/                         ← 848 local tests (31+ files)
+├── huggingface/                   ← HF Space deployment (385 tests)
+│   └── src/
+│       ├── handlers.py
+│       ├── theme.py
+│       ├── ui_builder.py          ← build_demo()
+│       └── rag/                   ← same structure as src/rag/
 ├── app.py                         ← Streamlit thin wrapper (<50 lines)
 ├── main.py                        ← CLI thin wrapper (<50 lines)
 ├── requirements.txt               ← add lxml only
-├── pyproject.toml                 ← new
-├── DESIGN.md                      ← new: architectural decisions
+├── pyproject.toml
+├── DESIGN.md
 ├── CLAUDE.md
 └── README.md
 ```
@@ -132,7 +145,7 @@ class VectorStore:
 ```
 
 ### CLASS 3: `Agent`
-Owns ReAct loop and all 5 tools as private methods.
+Owns ReAct loop and all 6 tools as private methods.
 
 ```python
 class Agent:
@@ -151,6 +164,7 @@ class Agent:
     def _tool_calculator(self, expression)      # safe eval
     def _tool_summarise(self, text)             # adaptive length
     def _tool_sentiment(self, text_or_query)    # optional RAG search
+    def _tool_translate(self, language_and_text)  # any→any language; short queries search first
 ```
 
 ### CLASS 4: `Benchmarker`
@@ -174,7 +188,7 @@ class Benchmarker:
 
 ---
 
-## The 4 modules
+## The modules
 
 ```python
 # config.py — constants only, no functions
@@ -189,6 +203,11 @@ def log_interaction(query, qtype, chunks_used, sim_scores, response)
 def _read_log() -> list
 def _write_log(entries: list)
 
+# chunkers.py — text-based chunker functions (txt, md, csv, html)
+# binary_chunkers.py — binary format chunker functions (pdf, docx, xlsx, xls, pptx)
+# url_crawl.py — stateless URL crawl and DuckDuckGo search functions
+# url_utils.py — URL type detection, link extraction, topic filtering helpers
+
 # ui/theme.py — constants
 CSS: str            # IBM Plex Mono stylesheet — preserve every rule
 BADGE_CLASSES: dict
@@ -198,6 +217,13 @@ AVATAR: dict
 # ui/session.py — functions
 def init_session_state()
 def get_active_bm25(base_bm25)
+
+# ui/renderers.py — pure Streamlit render functions
+def render_header()
+def render_footer()
+def render_chat_history(display)
+def render_clear_button()
+def render_mode_selector()
 ```
 
 ---

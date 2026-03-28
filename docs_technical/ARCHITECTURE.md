@@ -139,7 +139,7 @@ Most RAG systems stop at retrieve-and-generate. This system adds:
 │       ├── OBSERVE: 19000.0                                          │
 │       └── ACT:   TOOL: finish(20% of $95,000 = $19,000)           │
 │                                                                     │
-│  Tools: rag_search │ calculator │ summarise │ sentiment │ finish    │
+│  Tools: rag_search │ calculator │ summarise │ sentiment │ translate │ finish │
 │                                                                     │
 │  ⑭ CONVERSATION MEMORY                                             │
 │       ├── Every Q&A turn stored as {role, content}                 │
@@ -536,7 +536,7 @@ Step 6 — FINISH
 | `calculator` | An arithmetic expression | Evaluates safely — only `0123456789+-*/(). ` allowed |
 | `summarise` | A passage of text | Adaptive length: 2–3 sentences for short, 6–8 for long text |
 | `sentiment` | Text or a query | Returns Sentiment, Tone, Key phrases, Explanation |
-| `translate` | `"Language: text"` or just text | Translates to any target language; short queries search the knowledge base first |
+| `translate` | `"Language: text"` or just text | Translates to any target language; queries under 15 words search the knowledge base first |
 | `finish` | The final answer | Ends the loop and returns to the user |
 
 **Translate tool routing logic:**
