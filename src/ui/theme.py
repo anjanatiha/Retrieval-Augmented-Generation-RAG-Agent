@@ -166,15 +166,15 @@ html, body, [class*="css"] {
 
 /* ── Agent step cards ────────────────────────────────────────────────────────── */
 .step {
-    background:    #f0fdfa;
-    border:        1px solid #ccfbf1;
-    border-left:   3px solid #0f766e;
-    border-radius: 6px;
+    background:    var(--green-50);
+    border:        1px solid var(--green-100);
+    border-left:   3px solid var(--green-700);
+    border-radius: var(--radius-sm);
     padding:       .45rem .7rem;
     margin:        .2rem 0;
     font-family:   'IBM Plex Mono', monospace;
     font-size:     .72rem;
-    color:         #0f766e;
+    color:         var(--green-700);
     line-height:   1.5;
 }
 
