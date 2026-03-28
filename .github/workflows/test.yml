@@ -55,7 +55,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Install dev dependencies
-        run: pip install pytest pytest-cov pytest-mock
+        run: pip install pytest pytest-cov pytest-mock xlwt
 
       # Install the package itself (no deps — already installed above)
       # so that `from src.rag import ...` imports work in tests
