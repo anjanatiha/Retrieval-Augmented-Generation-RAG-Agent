@@ -1,8 +1,4 @@
-"""vector_store.py — VectorStore class.
-
-Owns ChromaDB, BM25, hybrid search, reranking, query pipeline,
-response generation, and conversation history.
-"""
+"""vector_store.py — VectorStore class: ChromaDB, BM25, retrieval pipeline, response generation."""
 
 import re
 import sys
@@ -18,6 +14,7 @@ from src.rag.config import (
 )
 from src.rag import logger
 from src.rag.reranker import rerank_prompt
+from src.rag.query_utils import classify_query, smart_top_n, build_instruction_prompt
 
 
 class VectorStore:
@@ -109,17 +106,20 @@ class VectorStore:
         """
         self.bm25_index = BM25Okapi([c['text'].lower().split() for c in all_chunks])
 
-    def run_pipeline(self, query: str, streamlit_mode: bool = False) -> dict:
-        """Run the full RAG pipeline for a user query.
+    def prepare_pipeline(self, query: str) -> dict:
+        """Run all pipeline steps before the LLM call and return a token stream.
+
+        Splits the pipeline so Streamlit can stream tokens to the UI with
+        st.write_stream(). Call finalize_pipeline() after the stream is consumed.
 
         Args:
-            query:          The user's question.
-            streamlit_mode: If True, collect tokens into a string and return a result dict.
-                            If False, stream tokens to the terminal.
+            query: The user's question.
 
         Returns:
-            dict with keys: response, query_type, queries, is_confident,
-            best_score, retrieved, reranked.
+            dict with keys: query_type, queries, is_confident, best_score,
+            retrieved, reranked, and either:
+            - 'stream': a generator that yields string tokens (when confident), or
+            - 'response': a fixed string message (when not confident).
         """
         qtype      = self._classify_query(query)
         top_n      = self._smart_top_n(qtype)
@@ -129,22 +129,19 @@ class VectorStore:
         is_confident, best_score = self._check_confidence(retrieved)
         reranked   = self._rerank(query, retrieved, top_n=top_rerank)
 
-        context_lines = []
-        for e, _, _ in reranked:
-            label = self._source_label(e)
-            context_lines.append(f" - [{e['source']} {label}] {e['text']}")
-        context = '\n'.join(context_lines)
+        # Always append user message before the LLM call
+        self.conversation_history.append({'role': 'user', 'content': query})
 
         if not is_confident:
-            full_response = (
+            # Low-confidence path — return a fixed message without calling the LLM
+            fixed_response = (
                 "I could not find relevant information in the provided documents to answer this question. "
                 "Please upload a document or add a URL that contains the relevant information."
             )
-            self.conversation_history.append({'role': 'user', 'content': query})
-            self.conversation_history.append({'role': 'assistant', 'content': full_response})
-            logger.log_interaction(query, qtype, 0, [], full_response)
+            self.conversation_history.append({'role': 'assistant', 'content': fixed_response})
+            logger.log_interaction(query, qtype, 0, [], fixed_response)
             return {
-                'response':     full_response,
+                'response':     fixed_response,
                 'query_type':   qtype,
                 'queries':      queries,
                 'is_confident': False,
@@ -153,28 +150,29 @@ class VectorStore:
                 'reranked':     reranked,
             }
 
+        # Build context string from reranked chunks
+        context_lines = []
+        for e, _, _ in reranked:
+            label = self._source_label(e)
+            context_lines.append(f" - [{e['source']} {label}] {e['text']}")
+        context = '\n'.join(context_lines)
+
         instruction_prompt = self._build_instruction_prompt(context, qtype)
 
-        self.conversation_history.append({'role': 'user', 'content': query})
-        stream = ollama.chat(
+        # Start the LLM stream — tokens will arrive one by one
+        ollama_stream = ollama.chat(
             model=LANGUAGE_MODEL,
             messages=[{'role': 'system', 'content': instruction_prompt},
                       *self.conversation_history],
             stream=True,
         )
 
-        full_response = (''.join(c['message']['content'] for c in stream)
-                         if streamlit_mode else self.stream_response(stream))
-
-        full_response = self._filter_hallucination(full_response)
-
-        self.conversation_history.append({'role': 'assistant', 'content': full_response})
-
-        sim_scores = [s for _, s, _ in reranked]
-        logger.log_interaction(query, qtype, len(reranked), sim_scores, full_response)
+        # Wrap as a generator of plain strings so callers don't need to know
+        # the Ollama chunk format — both CLI and Streamlit use the same interface
+        token_stream = (chunk['message']['content'] for chunk in ollama_stream)
 
         return {
-            'response':     full_response,
+            'stream':       token_stream,
             'query_type':   qtype,
             'queries':      queries,
             'is_confident': is_confident,
@@ -183,11 +181,72 @@ class VectorStore:
             'reranked':     reranked,
         }
 
-    def stream_response(self, stream) -> str:
-        """Print a streaming Ollama response to the terminal token by token.
+    def finalize_pipeline(self, query: str, qtype: str, reranked: list,
+                          raw_response: str) -> str:
+        """Apply post-processing after the LLM stream has been fully consumed.
+
+        Call this after st.write_stream() or stream_response() has consumed
+        the token stream returned by prepare_pipeline().
 
         Args:
-            stream: the iterable returned by ollama.chat(..., stream=True).
+            query:        The original user query.
+            qtype:        The query type (factual, comparison, general, summarise).
+            reranked:     The reranked chunks from prepare_pipeline().
+            raw_response: The full response string collected from the stream.
+
+        Returns:
+            The hallucination-filtered response string.
+        """
+        # Remove any hallucinated content that pivots away from the retrieved context
+        filtered_response = self._filter_hallucination(raw_response)
+
+        # Append to conversation history so future turns have full context
+        self.conversation_history.append({'role': 'assistant', 'content': filtered_response})
+
+        # Log for analytics
+        sim_scores = [s for _, s, _ in reranked]
+        logger.log_interaction(query, qtype, len(reranked), sim_scores, filtered_response)
+
+        return filtered_response
+
+    def run_pipeline(self, query: str, streamlit_mode: bool = False) -> dict:
+        """Run the full RAG pipeline for a user query.
+
+        Args:
+            query:          The user's question.
+            streamlit_mode: If True, collect tokens silently (no terminal output).
+                            If False, stream tokens to the terminal with typing effect.
+
+        Returns:
+            dict with keys: response, query_type, queries, is_confident,
+            best_score, retrieved, reranked.
+        """
+        # Run all steps before the LLM call
+        result = self.prepare_pipeline(query)
+
+        # Low-confidence path — response is already set, nothing to stream
+        if 'stream' not in result:
+            return result
+
+        if streamlit_mode:
+            # Collect all tokens silently — caller handles display
+            raw_response = ''.join(result['stream'])
+        else:
+            # Print tokens to the terminal with a typing effect
+            raw_response = self.stream_response(result['stream'])
+
+        # Apply post-processing and update state
+        filtered_response = self.finalize_pipeline(
+            query, result['query_type'], result['reranked'], raw_response
+        )
+        result['response'] = filtered_response
+        return result
+
+    def stream_response(self, token_stream) -> str:
+        """Print a streaming token stream to the terminal token by token.
+
+        Args:
+            token_stream: iterable of string tokens from prepare_pipeline().
 
         Returns:
             The full response string.
@@ -199,11 +258,10 @@ class VectorStore:
         print('\r' + ' ' * 30 + '\r', end='', flush=True)
         print("Chatbot: ", end='', flush=True)
         full = ''
-        for chunk in stream:
-            c = chunk['message']['content']
-            sys.stdout.write(c)
+        for token in token_stream:
+            sys.stdout.write(token)
             sys.stdout.flush()
-            full += c
+            full += token
         print()
         return full
 
@@ -325,23 +383,8 @@ class VectorStore:
     # ── Private — query ──────────────────────────────────────────────────────
 
     def _classify_query(self, query: str) -> str:
-        """Classifies query as summarise / comparison / factual / general."""
-        q = query.lower()
-        summarise_signals  = ['summarise', 'summarize', 'summary', 'overview',
-                              'tell me about', 'what is in', 'describe', 'explain',
-                              'give me a summary', 'resume']
-        comparison_signals = ['compare', 'difference', 'vs', 'versus', 'better', 'worse',
-                              'pros and cons', 'which is', 'how does', 'contrast']
-        factual_signals    = ['what is', 'what are', 'who is', 'who are', 'when did',
-                              'where is', 'how many', 'how much', 'does', 'did', 'has',
-                              'have', 'list', 'name', 'define', 'tell me']
-        if any(s in q for s in summarise_signals):
-            return 'summarise'
-        if any(s in q for s in comparison_signals):
-            return 'comparison'
-        if any(s in q for s in factual_signals):
-            return 'factual'
-        return 'general'
+        """Classify the query type — delegates to query_utils.classify_query."""
+        return classify_query(query)
 
     def _expand_query(self, query: str) -> list:
         """Generates 2 alternative phrasings of the query using the LLM."""
@@ -365,45 +408,26 @@ class VectorStore:
             return [query]
 
     def _check_confidence(self, results: list) -> tuple:
-        # Skip LLM call entirely when no chunk clears the threshold — prevents hallucination on empty context.
+        """Check whether the top result clears the similarity threshold.
+
+        Uses the SIMILARITY_THRESHOLD constant imported from config so that
+        tests can patch src.rag.vector_store.SIMILARITY_THRESHOLD directly.
+        Skips the LLM when no chunk clears the threshold — prevents hallucination.
+        """
         if not results:
             return False, 0.0
         best = results[0][1]
         return best >= SIMILARITY_THRESHOLD, best
 
     def _smart_top_n(self, query_type: str) -> int:
-        # Budget scales with query complexity — factual queries have a clear correct answer so 5 chunks is enough;
-        # comparison needs both sides of the argument (15); summarise needs the full document scope (TOP_RETRIEVE).
-        return {'factual': 5, 'comparison': 15, 'general': 10,
-                'summarise': TOP_RETRIEVE}.get(query_type, TOP_RETRIEVE)
+        """Return retrieval budget for the query type — delegates to query_utils.smart_top_n."""
+        return smart_top_n(query_type)
 
     # ── Private — response ───────────────────────────────────────────────────
 
     def _build_instruction_prompt(self, context: str, query_type: str = 'factual') -> str:
-        # Length hints keep answers proportional to query complexity — factual stays short,
-        # summarise gets room to cover all key points.
-        _length_hints = {
-            'factual':    '2-3 sentences',
-            'general':    '3-4 sentences',
-            'comparison': '4-6 sentences covering each item being compared',
-            'summarise':  '6-8 sentences covering all key points',
-        }
-        length_hint = _length_hints.get(query_type, '2-3 sentences')
-        return (
-            "You are a document question-answering assistant.\n"
-            "Answer the question using ONLY the context passages provided below.\n"
-            "STRICT RULES:\n"
-            "- Do NOT use your training data or general knowledge under any circumstances.\n"
-            "- If the context does not contain the answer, say exactly: "
-            "'The provided documents do not contain information about this topic.'\n"
-            "- Do NOT speculate, infer, or elaborate beyond what the context states.\n"
-            f"- Answer in {length_hint}.\n"
-            "- At the end of your answer, cite ONLY the bracketed source labels from the context "
-            "(e.g. [filename.pdf p3] or [example.com/page s12]). "
-            "Do NOT copy any bibliographic references, footnotes, or citations that appear "
-            "inside the text.\n\n"
-            f"CONTEXT:\n{context}"
-        )
+        """Build the LLM system prompt — delegates to query_utils.build_instruction_prompt."""
+        return build_instruction_prompt(context, query_type)
 
     def _source_label(self, entry: dict) -> str:
         """Returns a consistent location label for any doc type."""

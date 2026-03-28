@@ -413,22 +413,44 @@ def _run_agent(user_input: str, store: VectorStore, progress_slot) -> dict:
 
 
 def _run_pipeline(user_input: str, store: VectorStore, progress_slot) -> dict:
-    """Run the RAG pipeline and return the result dict.
+    """Run the RAG pipeline with tokens streamed directly into the chat UI.
+
+    Shows a progress bar during retrieval and reranking, clears it before
+    the LLM call, then streams tokens into a chat message bubble in real time
+    using st.write_stream(). The response appears word by word — no waiting.
 
     Args:
         user_input:    The question the user typed.
-        store:         VectorStore that runs the full pipeline.
-        progress_slot: A st.empty() slot for showing a progress bar.
+        store:         VectorStore that runs the pipeline.
+        progress_slot: A st.empty() slot for the progress bar.
 
     Returns:
-        Pipeline result dict with keys: 'response', 'retrieved', 'reranked',
-        'is_confident', 'best_score', 'query_type'.
+        Pipeline result dict with keys: response, retrieved, reranked,
+        is_confident, best_score, query_type.
     """
+    # Show progress bar while retrieval and reranking complete (these take time)
     progress_bar = progress_slot.progress(0, text="Classifying query...")
     progress_bar.progress(25, text="Retrieving documents...")
     progress_bar.progress(55, text="Reranking results...")
-    progress_bar.progress(75, text="Generating answer...")
-    result = store.run_pipeline(user_input, streamlit_mode=True)
-    progress_bar.progress(100, text="Done!")
+    progress_bar.progress(90, text="Ready...")
+
+    # Run all pipeline steps up to the LLM call
+    result = store.prepare_pipeline(user_input)
+
+    # Clear the progress bar — the streaming response is the visual feedback now
     progress_slot.empty()
+
+    # Low-confidence path — fixed response, nothing to stream
+    if 'stream' not in result:
+        return result
+
+    # Stream tokens directly into a chat message bubble as they arrive
+    with st.chat_message('assistant', avatar='💬'):
+        raw_response = st.write_stream(result['stream'])
+
+    # Apply hallucination filter, update conversation history, and log
+    filtered_response = store.finalize_pipeline(
+        user_input, result['query_type'], result['reranked'], raw_response
+    )
+    result['response'] = filtered_response
     return result
