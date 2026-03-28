@@ -1,10 +1,33 @@
 # RAG Agent — Retrieval-Augmented Generation System
 
-A fully local, production-grade RAG system. Upload your documents — PDFs, spreadsheets, Word files, presentations, CSVs, web pages — ask questions in plain English, and get accurate, cited answers. Everything runs on your machine with no API keys, no cloud services, and no data leaving your device.
+Upload your documents. Ask questions in plain English. Get accurate answers with source citations — all running on your machine, no cloud, no API keys, no data leaving your device.
 
-**[► Try the live demo — no installation needed](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)**
+Supports PDF, Word, Excel, PowerPoint, CSV, Markdown, HTML, and plain text. Works with resumes, reports, spreadsheets, codebases, and any mixed folder of documents.
+
+---
+
+## Get Started
+
+**No installation — try it in your browser:**
+
+**[► Open Live Demo on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)** — upload a file, ask a question, done.
 
 ![Hugging Face Demo](assets/huggingface_ragdoll.png)
+
+**Run locally** (for private documents — nothing leaves your machine):
+
+```bash
+git clone https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent.git
+cd Retrieval-Augmented-Generation-RAG-Agent
+pip install -r requirements.txt
+ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
+ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
+streamlit run app.py
+```
+
+Drop your documents into `./docs/`, open `http://localhost:8501`, and start asking questions.
+
+> Need Python or Ollama? See the [full installation guide](#installation).
 
 ---
 
