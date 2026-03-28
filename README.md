@@ -68,14 +68,14 @@ Measured against 15 questions across 4 domains (cat facts, Python language, team
 
 | Metric | Score | Kind |
 |--------|-------|------|
-| Faithfulness | **0.802** | LLM-as-judge |
-| Answer Relevancy | **0.828** | LLM-as-judge |
-| Ground Truth Match | **0.640** | F1 word overlap |
-| Keyword Recall | **0.934** | Fraction of expected keywords found |
-| Context Relevance | **0.700** | Mean cosine similarity of retrieved chunks |
-| Precision@5 | **0.720** | Relevant chunks in top 5 |
-| MRR | **0.900** | Rank of first relevant chunk |
-| **Overall** | **0.789** | Mean across all 7 metrics |
+| Faithfulness | **0.967** | LLM-as-judge |
+| Answer Relevancy | **0.867** | LLM-as-judge |
+| Ground Truth Match | **0.748** | F1 word overlap |
+| Keyword Recall | **0.967** | Fraction of expected keywords found |
+| Context Relevance | **0.656** | Mean cosine similarity of retrieved chunks |
+| Precision@5 | **0.453** | Relevant chunks in top 5 |
+| MRR | **1.000** | Rank of first relevant chunk |
+| **Overall** | **0.808** | Mean across all 7 metrics |
 
 **Agent tool benchmark:** calculator 5/5 · sentiment 4/4 · summarise 3/3
 

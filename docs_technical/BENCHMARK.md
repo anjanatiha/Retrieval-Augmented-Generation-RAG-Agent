@@ -233,37 +233,39 @@ The RAG pipeline benchmark tests retrieval and generation quality — it uses th
 
 ```
 ════════════════════════════════════════════════════════════════════════
-  RAG PIPELINE BENCHMARK  ·  2026-03-27 14:32:01  ·  15 questions
+  RAG PIPELINE BENCHMARK  ·  2026-03-28 00:55:24  ·  15 questions
 ════════════════════════════════════════════════════════════════════════
 
   [1/15] How many hours do cats sleep per day?
-         faith=0.75  relev=0.88  gt=0.68  kw=1.00  ctx=0.71  p@5=0.80  mrr=1.00  1243ms
+         faith=1.00  relev=0.75  gt=0.62  kw=1.00  ctx=0.78  p@5=0.40  mrr=1.00  11588ms
+  [2/15] Can cats see in dim light?
+         faith=1.00  relev=1.00  gt=0.45  kw=1.00  ctx=0.78  p@5=0.60  mrr=1.00  12395ms
   ...
 
 ════════════════════════════════════════════════════════════════════════
   SUMMARY
 ════════════════════════════════════════════════════════════════════════
 
-  Metric                    Mean    Std    Min    Max  Bar
+  Metric                     Mean    Std    Min    Max  Bar
   ──────────────────────────────────────────────────────────────────
-  faithfulness (LLM)       0.802  0.068  0.750  0.880  [████████████████░░░░]
-  answer_relevancy (LLM)   0.828  0.068  0.750  0.880  [████████████████░░░░]
-  ground_truth_match       0.640  0.063  0.550  0.720  [████████████░░░░░░░░]
-  keyword_recall           0.934  0.149  0.670  1.000  [██████████████████░░]
-  context_relevance        0.700  0.015  0.680  0.720  [██████████████░░░░░░]
-  precision_at_5           0.720  0.110  0.600  0.800  [██████████████░░░░░░]
-  mrr                      0.900  0.224  0.500  1.000  [██████████████████░░]
+  faithfulness (LLM)      0.967  0.088  0.750  1.000  [███████████████████░]
+  answer_relevancy (LLM)  0.867  0.160  0.500  1.000  [█████████████████░░░]
+  ground_truth_match      0.748  0.218  0.421  1.000  [██████████████░░░░░░]
+  keyword_recall          0.967  0.129  0.500  1.000  [███████████████████░]
+  context_relevance       0.656  0.144  0.276  0.779  [█████████████░░░░░░░]
+  precision_at_5          0.453  0.207  0.200  0.800  [█████████░░░░░░░░░░░]
+  mrr                     1.000  0.000  1.000  1.000  [████████████████████]
 
-  latency_ms               1155     62   1089   1243  ms
+  latency_ms              11665   1085   9760  13030  ms
   ──────────────────────────────────────────────────────────────────
-  overall                  0.789  0.039  0.747  0.841  [███████████████░░░░░]
+  overall                  0.808  0.067  0.635  0.901  [████████████████░░░░]
 
 ════════════════════════════════════════════════════════════════════════
   vs PREVIOUS RUN
 ════════════════════════════════════════════════════════════════════════
-  faithfulness_llm          0.741 → 0.802  ▲0.061
-  answer_relevancy_llm      0.781 → 0.828  ▲0.047
-  overall                   0.743 → 0.789  ▲0.046
+  keyword_recall             1.000 →  0.967  ▼0.033
+  context_relevance          0.719 →  0.656  ▼0.063
+  overall                    0.721 →  0.808  ▲0.087
 
 ════════════════════════════════════════════════════════════════════════
   AGENT TOOL BENCHMARK
@@ -271,9 +273,16 @@ The RAG pipeline benchmark tests retrieval and generation quality — it uses th
   #    Tool           Status  Input                                     Note
   ────────────────────────────────────────────────────────────────────────
   1    calculator     PASS    '6 * 7'                                   6 * 7 = 42
-  2    calculator     PASS    '(100 + 50) / 3'                          ≈ 50.0
-  3    calculator     PASS    'sqrt(4)'                                 letter chars rejected
-  ...
+  2    calculator     PASS    '(100 + 50) / 3'                          (100 + 50) / 3 ≈ 50.0
+  3    calculator     PASS    'sqrt(4)'                                 letter chars not allowed
+  4    calculator     PASS    '365 * 24'                                365 * 24 = 8760
+  5    calculator     PASS    '15% of 85000'                            15% of 85000 = 12750.0
+  6    sentiment      PASS    'I absolutely love this product...'       4 fields present
+  7    sentiment      PASS    'This is a terrible experience...'        4 fields present
+  8    sentiment      PASS    'Water boils at 100 degrees Celsius...'   4 fields present
+  9    sentiment      PASS    'I absolutely love this product...'       valid label
+  10   summarise      PASS    'Python was created by Guido...'          mentions Python or Guido
+  11   summarise      PASS    'Machine learning is a subset...'         mentions machine learning
   12   summarise      PASS    'The sky is blue. The sun is yellow.'     non-empty summary
 
 ────────────────────────────────────────────────────────────────────────
