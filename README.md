@@ -9,6 +9,7 @@
 [![ChromaDB](https://img.shields.io/badge/Vector%20DB-ChromaDB-orange)](https://www.trychroma.com)
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
 [![Runs Locally](https://img.shields.io/badge/runs-100%25%20locally-success)](README.md)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
 A fully local, production-grade Retrieval-Augmented Generation system. Upload documents, ask questions in plain English, and get accurate answers with source citations — no cloud, no API keys, no data leaving your machine.
 
@@ -90,8 +91,57 @@ Measured against 15 questions across 4 domains (cat facts, Python language, team
 | | URL | Stack |
 |-|-----|-------|
 | Hugging Face Space | [anjanatiha2024/Rag-Agent](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent) | Gradio + InferenceClient |
+| Docker | `docker compose up` | Docker + Ollama container |
 | Local web UI | `streamlit run app.py` | Streamlit + Ollama |
 | Local terminal | `python main.py` | argparse + Ollama |
+
+---
+
+## Docker
+
+Run the full stack — app and Ollama — with one command. No Python setup required.
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose)
+- ~3 GB free disk space for models
+
+### Steps
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent.git
+cd Retrieval-Augmented-Generation-RAG-Agent
+
+# 2. Pull the models (one-time, ~2.3 GB total)
+docker compose run --rm ollama ollama pull hf.co/CompendiumLabs/bge-base-en-v1.5-gguf
+docker compose run --rm ollama ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
+
+# 3. Start the full stack
+docker compose up
+```
+
+Open `http://localhost:8501` in your browser.
+
+**NVIDIA GPU (faster inference):**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+```
+
+Requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+
+**Add your documents:**
+
+Place files in `./docs/` on your host — they are mounted into the container automatically.
+
+```bash
+# Stop and remove containers (data is preserved in Docker volumes)
+docker compose down
+
+# Stop and remove all data including ChromaDB and models
+docker compose down -v
+```
 
 ---
 
@@ -270,6 +320,9 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 ├── docs_technical/               ← Deep-dive documentation
 │   ├── ARCHITECTURE.md           ← Full pipeline and algorithm reference
 │   └── BENCHMARK.md             ← Benchmark methodology and metric formulas
+├── Dockerfile                    ← Container image for the app
+├── docker-compose.yml            ← App + Ollama full stack
+├── docker-compose.gpu.yml        ← NVIDIA GPU override
 ├── DESIGN.md                     ← Architectural decisions and tradeoffs
 ├── CONTRIBUTING.md               ← Dev setup, code standards, PR guidelines
 └── docs/                         ← Your documents go here (git-ignored)
@@ -351,7 +404,7 @@ Features: chat and agent mode · URL ingestion · recursive crawl · topic searc
 
 ## Built With
 
-`Python 3.11` · `Ollama` · `ChromaDB` · `rank-bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings` · `pre-commit` · `RAGAS` (optional)
+`Python 3.11` · `Ollama` · `ChromaDB` · `rank-bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings` · `Docker` · `pre-commit` · `RAGAS` (optional)
 
 **Development:** Built with the assistance of [Claude](https://claude.ai) (Anthropic) — used for code generation, architecture review, test writing, and documentation. All design decisions and direction were set by the author.
 
