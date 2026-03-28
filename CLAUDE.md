@@ -860,6 +860,21 @@ def _truncate_chunk(text, max_words=300, max_chars=1200):
 
 ---
 
+## UI Standards — Always Apply
+
+Every UI screen, panel, or component must meet **commercial/professional product standards**.
+
+- **Pleasant, cohesive color scheme** — no raw Streamlit or Gradio defaults; use a polished palette
+- **Clean visual hierarchy** — clear headings, labels, consistent spacing, intentional whitespace
+- **Helpful notes on every input** — placeholder text with real examples, captions, and `help=` tooltips so the user never has to guess what a control does
+- **Convenient UX** — smart defaults, inline guidance, feedback messages (success/error) after every action
+- **Elegant proportions** — don't cram controls together; group related things, separate unrelated things
+- **SaaS-quality standard** — aim for the level of polish seen in Hugging Face Spaces showcases and commercial tools
+
+Any feature that affects the user's workflow (e.g. topic filter, depth slider, document type checkboxes) **must** have a short note or caption explaining its purpose and how to use it effectively.
+
+---
+
 ## What NOT to Do
 
 - Do not modify `rag_app.py` — it is the source of truth, read-only
