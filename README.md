@@ -289,7 +289,7 @@ cd huggingface && pytest        # HF Space tests
 
 Test types: unit · integration · contract · regression · boundary · negative · parametrized combination.
 
-> For the full test file breakdown, mock strategy, and category descriptions, see [docs_technical/CONTRIBUTING.md](docs_technical/CONTRIBUTING.md).
+> For the full test file breakdown, mock strategy, and category descriptions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -337,5 +337,5 @@ Features: chat and agent mode toggle · URL ingestion · file upload · step-by-
 - [DESIGN.md](DESIGN.md) — architectural decisions, class ownership, tradeoffs, production scaling
 - [docs_technical/ALGORITHM.md](docs_technical/ALGORITHM.md) — full pipeline algorithm explanations
 - [docs_technical/BENCHMARK.md](docs_technical/BENCHMARK.md) — benchmark methodology and metric formulas
-- [docs_technical/CONTRIBUTING.md](docs_technical/CONTRIBUTING.md) — dev setup and contribution guide
+- [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup and contribution guide
 - [Based on](https://huggingface.co/blog/ngxson/make-your-own-rag) — significantly extended with hybrid search, type-aware reranking, 9 format support, agent mode, benchmarking, and Streamlit UI
