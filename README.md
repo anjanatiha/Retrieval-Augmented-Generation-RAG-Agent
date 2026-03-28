@@ -1,6 +1,7 @@
 # RAG Agent — Retrieval-Augmented Generation System
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3110/)
+[![Release](https://img.shields.io/badge/release-v1.0.0-2ea44f)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/releases/tag/v1.0.0)
 [![Tests](https://img.shields.io/badge/tests-828%20passing-2ea44f?logo=pytest&logoColor=white)](tests/)
 [![HF Space](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-FF6B35)](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
