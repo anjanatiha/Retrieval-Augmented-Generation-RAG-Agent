@@ -230,6 +230,10 @@ class DocumentLoader:
             return []
 
         url = url.strip()
+        # Add https:// if the user pasted a URL without a scheme (e.g. en.wikipedia.org/...)
+        # Without a scheme, urlparse returns an empty netloc and requests raises MissingSchema.
+        if url and not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
         print(f"\n  Fetching URL: {url}")
         try:
             resp = requests.get(url, timeout=30, headers={
@@ -452,6 +456,12 @@ class DocumentLoader:
             is_seed:           True only for the very first (user-supplied) URL — the seed
                                is always fetched regardless of the topic filter.
         """
+        # Add https:// if the URL has no scheme (e.g. en.wikipedia.org/wiki/...)
+        # Without a scheme, urlparse returns an empty netloc and urljoin produces bare
+        # paths (/wiki/SomeLink) that are rejected by the http:// check in extract_links.
+        if url and not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+
         # Stop if we have already visited this URL or hit the page cap
         if url in visited or len(visited) >= max_pages:
             return

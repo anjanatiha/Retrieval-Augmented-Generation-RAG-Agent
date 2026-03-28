@@ -72,6 +72,10 @@ class DocumentLoader:
             return []
 
         url = url.strip()
+        # Add https:// if the user pasted a URL without a scheme (e.g. en.wikipedia.org/...)
+        # Without a scheme, urlparse returns an empty netloc and requests raises MissingSchema.
+        if url and not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
         try:
             resp = requests.get(url, timeout=60, headers={
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
@@ -288,6 +292,12 @@ class DocumentLoader:
             progress_callback: Optional callback after each page.
             is_seed:           True only for the seed URL — always crawled regardless of filter.
         """
+        # Add https:// if the URL has no scheme (e.g. en.wikipedia.org/wiki/...)
+        # Without a scheme, urlparse returns an empty netloc and urljoin produces bare
+        # paths (/wiki/SomeLink) that are rejected by the http:// check in extract_links.
+        if url and not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+
         if url in visited or len(visited) >= max_pages:
             return
 

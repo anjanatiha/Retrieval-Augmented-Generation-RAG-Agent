@@ -569,3 +569,124 @@ class TestChunkUrlRecursive:
         assert len(chunks) >= 2
         sources = [c['source'] for c in chunks]
         assert any('example.com' in s for s in sources)
+
+
+# ---------------------------------------------------------------------------
+# 6. URL scheme normalization (no https:// prefix)
+# ---------------------------------------------------------------------------
+
+class TestUrlSchemeNormalization:
+    """URLs without a scheme (no https://) are automatically fixed before fetching.
+
+    Without a scheme, urlparse returns an empty netloc and urljoin produces bare
+    paths (/wiki/Page) that are rejected, so no links can be extracted. requests
+    also raises MissingSchema and fails silently. Adding https:// fixes both.
+    """
+
+    def _make_loader(self):
+        """Return a fresh DocumentLoader."""
+        from src.rag.document_loader import DocumentLoader
+        return DocumentLoader()
+
+    def test_chunk_url_adds_https_when_missing(self):
+        """chunk_url auto-adds https:// when the user omits it."""
+        html     = _html('Elizabeth Taylor was a legendary actress and humanitarian.')
+        html_url = 'https://en.wikipedia.org/wiki/Elizabeth_Taylor'
+
+        fetched  = []
+
+        def _tracked(url, **kwargs):
+            fetched.append(url)
+            return _mock_response(html, final_url=html_url)
+
+        with patch('requests.get', side_effect=_tracked):
+            chunks = self._make_loader().chunk_url(
+                'en.wikipedia.org/wiki/Elizabeth_Taylor'   # no https://
+            )
+
+        # The actual request should have used https://
+        assert all(u.startswith('https://') for u in fetched)
+        assert len(chunks) >= 1
+
+    def test_chunk_url_recursive_adds_https_for_seed(self):
+        """chunk_url_recursive auto-adds https:// to the seed URL when missing."""
+        seed_html = _html_with_links(
+            'Elizabeth Taylor was born on February 27 1932 in London England.',
+            [],  # no links to follow — just verify the seed is fetched correctly
+        )
+        html_url = 'https://en.wikipedia.org/wiki/Elizabeth_Taylor'
+
+        fetched = []
+
+        def _tracked(url, **kwargs):
+            fetched.append(url)
+            return _mock_response(seed_html, final_url=html_url)
+
+        with patch('requests.get', side_effect=_tracked):
+            chunks = self._make_loader().chunk_url_recursive(
+                'en.wikipedia.org/wiki/Elizabeth_Taylor',   # no https://
+                depth=0, max_pages=10,
+            )
+
+        # Seed should have been fetched with https://
+        assert all(u.startswith('https://') for u in fetched)
+        assert len(chunks) >= 1
+
+    def test_links_resolve_correctly_after_scheme_normalization(self):
+        """After adding https://, relative links on the page resolve to full URLs."""
+        # Wikipedia-style page with absolute-path links (/wiki/...)
+        seed_html = _html_with_links(
+            'Elizabeth Taylor appeared in National Velvet in 1944.',
+            ['/wiki/National_Velvet_(film)', '/wiki/Montgomery_Clift'],
+        )
+        page_html  = _html('National Velvet is a 1944 American drama film.')
+        base_url   = 'https://en.wikipedia.org/wiki/Elizabeth_Taylor'
+
+        fetched = []
+
+        def _tracked(url, **kwargs):
+            fetched.append(url)
+            if 'Elizabeth_Taylor' in url:
+                return _mock_response(seed_html, final_url=base_url)
+            return _mock_response(page_html, final_url=url)
+
+        with patch('requests.get', side_effect=_tracked):
+            chunks = self._make_loader().chunk_url_recursive(
+                'en.wikipedia.org/wiki/Elizabeth_Taylor',   # no https://
+                depth=1, max_pages=10,
+            )
+
+        # Relative /wiki/ links should have been resolved to full https URLs
+        assert any('National_Velvet' in u for u in fetched)
+        assert any('Montgomery_Clift' in u for u in fetched)
+        # All fetched URLs should be proper https URLs
+        assert all(u.startswith('https://') for u in fetched)
+
+    def test_already_has_https_not_doubled(self):
+        """If the URL already has https://, it is not modified."""
+        html  = _html('Test content about stars and galaxies in the universe.')
+        fetched = []
+
+        def _tracked(url, **kwargs):
+            fetched.append(url)
+            return _mock_response(html, final_url='https://example.com/')
+
+        with patch('requests.get', side_effect=_tracked):
+            self._make_loader().chunk_url('https://example.com/')
+
+        # Should not become https://https://example.com/
+        assert all(u == 'https://example.com/' for u in fetched)
+
+    def test_http_url_not_upgraded_to_https(self):
+        """An explicit http:// URL is left as-is (not forced to https)."""
+        html  = _html('Test content about rivers and lakes in the world.')
+        fetched = []
+
+        def _tracked(url, **kwargs):
+            fetched.append(url)
+            return _mock_response(html, final_url='http://example.com/')
+
+        with patch('requests.get', side_effect=_tracked):
+            self._make_loader().chunk_url('http://example.com/')
+
+        assert all(u.startswith('http://') for u in fetched)
