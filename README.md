@@ -1623,10 +1623,14 @@ UI features:
 
 `Python 3.11` · `Ollama` · `ChromaDB` · `rank-bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings`
 
+**Development tools:**
+This project was developed with the assistance of **[Claude](https://claude.ai)** (Anthropic) — used throughout for code generation, architecture review, test writing, and documentation. All design decisions, requirements, and direction were set by the author.
+
 ---
 
 ## Related
 
 - **[Live demo on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)** — try it in your browser, no setup needed
 - **[DESIGN.md](DESIGN.md)** — architectural decisions, class ownership, tradeoffs, and production scaling path
+- **[Claude by Anthropic](https://claude.ai)** — AI assistant used during development
 - **[Based on](https://huggingface.co/blog/ngxson/make-your-own-rag)** — significantly extended with hybrid search, type-aware reranking, 9 format support, agent mode, benchmarking, persistent vector DB, and Streamlit UI
