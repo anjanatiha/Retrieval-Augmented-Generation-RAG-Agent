@@ -225,18 +225,21 @@ def extract_links(html_content: str, base_url: str, ext_to_type: dict) -> List[s
     """Extract crawlable links from an HTML page.
 
     Resolves relative URLs to absolute, then filters out:
-        - Links to other domains or subdomains
         - Fragment-only links (#section)
         - mailto:, tel:, javascript: links
         - Utility/navigation pages (login, cart, privacy, etc.)
         - Duplicate URLs
 
+    Links to other domains ARE included — the crawler follows whatever
+    links appear on the page. The max_pages cap and topic_filter in
+    chunk_url_recursive() control how far the crawl goes.
+
     Args:
         html_content: Decoded HTML string.
-        base_url:     The URL the page was fetched from — used for relative
-                      link resolution and domain comparison.
-        ext_to_type:  Extension → type mapping (not used directly but kept
-                      for future type-specific filtering).
+        base_url:     The URL the page was fetched from — used for
+                      resolving relative links to absolute URLs.
+        ext_to_type:  Extension → type mapping (reserved for future
+                      type-specific filtering).
 
     Returns:
         Deduplicated list of absolute URLs that are candidates for crawling,
@@ -269,11 +272,7 @@ def extract_links(html_content: str, base_url: str, ext_to_type: dict) -> List[s
         # Remove the fragment portion (#section) — fragments are not separate pages
         absolute_url = absolute_url.split('#')[0]
 
-        # Only follow links on the same domain — no subdomains
-        if not is_same_domain(absolute_url, base_url):
-            continue
-
-        # Skip navigation and boilerplate pages
+        # Skip navigation and boilerplate pages (login, cart, privacy, etc.)
         if is_utility_url(absolute_url):
             continue
 
