@@ -153,19 +153,19 @@ def score_ground_truth_match(response: str, ground_truth: str) -> float:
         Float in [0.0, 1.0]. 1.0 = perfect word overlap with the ground truth.
     """
     # Strip common words that add noise — keep only meaningful content words
-    gt_words = set(ground_truth.lower().split()) - _STOPWORDS
-    r_words  = set(response.lower().split())     - _STOPWORDS
+    ground_truth_words = set(ground_truth.lower().split()) - _STOPWORDS
+    response_words     = set(response.lower().split())     - _STOPWORDS
 
-    if not gt_words or not r_words:
+    if not ground_truth_words or not response_words:
         return 0.0
 
-    intersection = gt_words & r_words
+    intersection = ground_truth_words & response_words
 
     # Precision: of the words the response used, how many were in the ground truth?
-    precision = len(intersection) / len(r_words)
+    precision = len(intersection) / len(response_words)
 
     # Recall: of the ground truth words, how many appeared in the response?
-    recall = len(intersection) / len(gt_words)
+    recall = len(intersection) / len(ground_truth_words)
 
     if precision + recall == 0:
         return 0.0

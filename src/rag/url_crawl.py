@@ -27,10 +27,11 @@ __all__ = ['chunk_content', 'crawl_url', 'search_duckduckgo_html']
 def search_duckduckgo_html(query: str, num_results: int) -> List[str]:
     """Search DuckDuckGo via the public HTML form endpoint and return result URLs.
 
-    Uses a plain POST request instead of the duckduckgo-search library.
-    The HTML endpoint (html.duckduckgo.com/html/) is not subject to the
-    same aggressive IP-level rate limiting as the JS API endpoints that
-    duckduckgo-search v6 uses internally.
+    Uses the HTML form endpoint (html.duckduckgo.com) rather than a third-party
+    library to avoid rate-limiting and dependency on the duckduckgo-search package,
+    which breaks frequently across versions. The HTML endpoint is the same one used
+    by the public website and is not subject to the aggressive IP-level rate limiting
+    applied to the JS API endpoints that duckduckgo-search v6 uses internally.
 
     Args:
         query:       The search query string.

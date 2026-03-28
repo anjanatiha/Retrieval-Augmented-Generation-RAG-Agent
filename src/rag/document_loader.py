@@ -294,6 +294,7 @@ class DocumentLoader:
 
         Returns:
             Flat list of all chunk dicts from every crawled URL.
+            Returns an empty list if the seed URL is unreachable. Returns partial results if max_pages is reached before all links are followed.
         """
         visited: Set[str] = set()
         all_chunks: List[dict] = []
@@ -444,16 +445,14 @@ class DocumentLoader:
         )
 
     def _dispatch_chunker(self, file_info: dict) -> List[dict]:
-        """Route a file_info dict to the correct chunker function.
-
-        Text formats (txt, md, csv, html) use chunkers.py.
-        Binary formats (pdf, docx, xlsx, xls, pptx) use binary_chunkers.py.
+        """Route a single file to the correct chunker function based on its detected type.
 
         Args:
-            file_info: Dict with keys filepath, filename, detected_type, is_misplaced.
+            file_info: Dict with keys filepath, filename, detected_type, is_misplaced
+                       as produced by scan_all_files().
 
         Returns:
-            List of chunk dicts. Empty list when the type is unrecognised.
+            List of chunk dicts from the appropriate chunker, or [] on error.
         """
         fp  = file_info['filepath']
         fn  = file_info['filename']

@@ -81,7 +81,7 @@ Rules:
 
     # ── Public ──────────────────────────────────────────────────────────────
 
-    def run(self, user_query, streamlit_mode=False):
+    def run(self, user_query: str, streamlit_mode: bool = False) -> dict:
         """Run the ReAct agent loop for a user query.
 
         Args:
@@ -194,7 +194,24 @@ Rules:
 
     # ── Private — loop ───────────────────────────────────────────────────────
 
-    def _parse_tool_call(self, response_text):
+    def _parse_tool_call(self, response_text: str) -> tuple:
+        """Extract the tool name and argument from a raw LLM response string.
+
+        Tries two patterns in order:
+          1. With parentheses:    TOOL: tool_name(argument)
+          2. Without parentheses: TOOL: tool_name argument
+
+        Pattern 1 is preferred — it preserves nested parentheses in expressions
+        like "calculator(7+(9+8)-2*6)". Pattern 2 is a fallback for models that
+        omit the parentheses.
+
+        Args:
+            response_text: The raw string from the language model.
+
+        Returns:
+            Tuple of (tool_name: str, tool_arg: str), or (None, None) if neither
+            pattern matches — which triggers a bad-format retry in the agent loop.
+        """
         # Greedy (.+) + no DOTALL: captures up to the LAST ')' on the line,
         # so nested parens in expressions like "7+(9+8)-2*6" are preserved.
         match = re.search(r'(?i)TOOL:\s*(\w+)\s*\(\s*(.+)\s*\)', response_text)
@@ -205,9 +222,20 @@ Rules:
             return match.group(1).strip().lower(), match.group(2).strip()
         return None, None
 
-    def _dispatch_tool(self, tool_name, tool_arg):
-        # Routes to the correct private tool method; accumulates rag_search and sentiment
-        # results in collected_context so the final synthesis has everything.
+    def _dispatch_tool(self, tool_name: str, tool_arg: str) -> str:
+        """Route a parsed tool call to the correct private tool method.
+
+        rag_search and sentiment results are also appended to collected_context
+        so the final synthesis at finish-time has the full accumulated evidence,
+        not just the last result.
+
+        Args:
+            tool_name: Lowercase tool name (e.g. 'rag_search', 'calculator').
+            tool_arg:  The argument string extracted by _parse_tool_call.
+
+        Returns:
+            String result from the tool, or an error message for unknown tools.
+        """
         if tool_name == 'rag_search':
             result = self._tool_rag_search(tool_arg)
             self.collected_context.append(f"[Search: {tool_arg}]\n{result}")
@@ -225,7 +253,7 @@ Rules:
                       f"Available: rag_search, calculator, summarise, sentiment, translate, finish")
         return result
 
-    def _synthesize_final_answer(self, query, context):
+    def _synthesize_final_answer(self, query: str, context: str) -> str:
         """Takes the raw retrieved context and asks the LLM to produce a clean answer."""
         prompt = (
             "You are a helpful assistant. Answer the question below using ONLY the "
@@ -245,7 +273,7 @@ Rules:
         except Exception:
             return context
 
-    def _fast_path_summarise(self, query, streamlit_mode=False):
+    def _fast_path_summarise(self, query: str, streamlit_mode: bool = False) -> dict:
         """For summarise queries: 4-term multi-search → synthesize. No agent loop."""
         search_terms = ['work experience', 'education', 'skills projects', 'summary contact']
         fast_steps   = []
@@ -263,7 +291,7 @@ Rules:
                            'arg': answer, 'result': answer})
         return {'answer': answer, 'steps': fast_steps}
 
-    def _fast_path_sentiment(self, query, streamlit_mode=False):
+    def _fast_path_sentiment(self, query: str, streamlit_mode: bool = False) -> dict:
         """For sentiment queries: search then analyse directly."""
         _q_lower = query.lower()
         # Strip sentiment-related words to get the search subject
@@ -293,7 +321,7 @@ Rules:
 
     # ── Private — tools ──────────────────────────────────────────────────────
 
-    def _tool_rag_search(self, query):
+    def _tool_rag_search(self, query: str) -> str:
         """Returns retrieved chunks with source labels for grounded synthesis."""
         queries  = self.store._expand_query(query)
         retrieved = self.store._hybrid_retrieve(queries, top_n=5)
@@ -304,8 +332,22 @@ Rules:
             lines.append(f"- [{e['source']} {label}] {e['text']}")
         return '\n'.join(lines)
 
-    def _tool_calculator(self, expression):
-        # Whitelist of safe characters prevents arbitrary code execution via eval().
+    def _tool_calculator(self, expression: str) -> str:
+        """Safely evaluate a mathematical expression and return the result as a string.
+
+        Only digits, arithmetic operators (+, -, *, /), parentheses, dots, and spaces
+        are allowed. Any other character is rejected to prevent code injection via eval().
+        Percentage expressions are normalised before evaluation:
+          "15% of 85000" → "(15/100*85000)"
+          "15%"          → "(15/100)"
+
+        Args:
+            expression: A mathematical expression string (e.g. "15% of 85000").
+
+        Returns:
+            The numeric result as a string, or an "Error: ..." message if the
+            expression is unsafe, malformed, or causes a runtime error.
+        """
         try:
             # Normalise percentage expressions before safety check
             # "15% of 85000" → "(15/100*85000)"
@@ -324,8 +366,24 @@ Rules:
         except Exception as e:
             return f"Error: {e}"
 
-    def _tool_summarise(self, text):
-        # Adaptive length hint keeps short inputs concise and long inputs thorough.
+    def _tool_summarise(self, text: str) -> str:
+        """Summarise a passage using an adaptive length hint based on word count.
+
+        Shorter passages get a tighter summary (2-3 sentences) to avoid padding;
+        longer passages get a fuller treatment (6-8 sentences) so key points
+        are not dropped.
+
+        Length thresholds:
+            < 100 words  → "2-3 sentences"
+            100-299 words → "4-5 sentences"
+            300+ words   → "6-8 sentences covering all key points"
+
+        Args:
+            text: The passage to summarise.
+
+        Returns:
+            A summary string produced by the language model.
+        """
         word_count = len(text.split())
         if word_count < 100:
             length_hint = "2-3 sentences"
@@ -340,11 +398,25 @@ Rules:
         )
         return resp['message']['content'].strip()
 
-    def _tool_sentiment(self, text_or_query):
-        """
-        Analyses the sentiment/tone of a passage.
-        If the input is a short keyword/query (< 10 words), searches the knowledge base
-        first and analyses the retrieved content. Otherwise analyses the text directly.
+    def _tool_sentiment(self, text_or_query: str) -> str:
+        """Analyse the sentiment and tone of a text passage.
+
+        If the input is a short keyword or query (fewer than 10 words), the
+        knowledge base is searched first and the retrieved content is analysed.
+        This prevents the LLM from hallucinating sentiment for a topic it hasn't
+        retrieved context for.
+
+        Output format (always 4 fields):
+            Sentiment: <Positive / Negative / Neutral / Mixed>
+            Tone: <one short phrase>
+            Key phrases: <2-4 phrases>
+            Explanation: <1-2 sentences>
+
+        Args:
+            text_or_query: Either a full passage to analyse, or a short search query.
+
+        Returns:
+            Structured sentiment analysis string with the 4 fields above.
         """
         if len(text_or_query.split()) < 10:
             retrieved = self._tool_rag_search(text_or_query)

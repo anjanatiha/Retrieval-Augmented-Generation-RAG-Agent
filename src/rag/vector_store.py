@@ -48,7 +48,7 @@ class VectorStore:
 
     # ── Public ──────────────────────────────────────────────────────────────
 
-    def build_or_load(self, chunks):
+    def build_or_load(self, chunks: list) -> None:
         """Load existing ChromaDB collection or embed all chunks and persist to disk.
 
         Args:
@@ -87,7 +87,7 @@ class VectorStore:
         self._local_chunks = list(chunks)   # frozen snapshot — used by clear_added_chunks()
         self.bm25_index    = BM25Okapi([c['text'].lower().split() for c in chunks])
 
-    def add_chunks(self, chunks, id_prefix):
+    def add_chunks(self, chunks: list, id_prefix: str) -> None:
         """Add new chunks (e.g. from URL ingestion) to the live collection."""
         if not chunks:
             return
@@ -101,7 +101,7 @@ class VectorStore:
         self.collection.add(ids=ids, embeddings=embeds, documents=texts, metadatas=metas)
         self.chunks = self.chunks + chunks
 
-    def rebuild_bm25(self, all_chunks):
+    def rebuild_bm25(self, all_chunks: list) -> None:
         """Rebuild the BM25 keyword index from scratch after chunks are added at runtime.
 
         Args:
@@ -109,7 +109,7 @@ class VectorStore:
         """
         self.bm25_index = BM25Okapi([c['text'].lower().split() for c in all_chunks])
 
-    def run_pipeline(self, query, streamlit_mode=False):
+    def run_pipeline(self, query: str, streamlit_mode: bool = False) -> dict:
         """Run the full RAG pipeline for a user query.
 
         Args:
@@ -183,7 +183,7 @@ class VectorStore:
             'reranked':     reranked,
         }
 
-    def stream_response(self, stream):
+    def stream_response(self, stream) -> str:
         """Print a streaming Ollama response to the terminal token by token.
 
         Args:
@@ -233,17 +233,17 @@ class VectorStore:
 
         return len(runtime_ids)
 
-    def clear_conversation(self):
+    def clear_conversation(self) -> None:
         """Reset multi-turn conversation history so the next query starts fresh."""
         self.conversation_history = []
 
     # ── Private — vector/search ──────────────────────────────────────────────
 
-    def _embed(self, text):
+    def _embed(self, text: str) -> list:
         # ['embeddings'][0] — ollama.embed returns a list of embedding vectors; we always send one text.
         return ollama.embed(model=EMBEDDING_MODEL, input=text)['embeddings'][0]
 
-    def _truncate_for_embedding(self, text, max_words=200, max_chars=1200):
+    def _truncate_for_embedding(self, text: str, max_words: int = 200, max_chars: int = 1200) -> str:
         """Truncate to stay within bge-base-en 512 token limit.
         Caps on both word count and character count — whichever is shorter.
         """
@@ -251,14 +251,14 @@ class VectorStore:
         truncated = ' '.join(words[:max_words]) if len(words) > max_words else text
         return truncated[:max_chars] if len(truncated) > max_chars else truncated
 
-    def _cosine_similarity(self, a, b):
+    def _cosine_similarity(self, a: list, b: list) -> float:
         # Manual dot product — avoids a numpy import for this single operation.
         dot = sum(x * y for x, y in zip(a, b))
         na  = sum(x**2 for x in a)**0.5
         nb  = sum(x**2 for x in b)**0.5
         return dot / (na * nb) if na and nb else 0.0
 
-    def _hybrid_retrieve(self, queries, top_n, alpha=0.5):
+    def _hybrid_retrieve(self, queries: list, top_n: int, alpha: float = 0.5) -> list:
         """True hybrid search: fuses BM25 (lexical) + ChromaDB (dense) scores."""
         fused = {}  # doc_text → (entry, best_score)
 
@@ -301,7 +301,7 @@ class VectorStore:
 
         return sorted(fused.values(), key=lambda x: x[1], reverse=True)[:top_n]
 
-    def _rerank(self, query, candidates, top_n):
+    def _rerank(self, query: str, candidates: list, top_n: int) -> list:
         # LLM gives a 1–10 relevance score; divide by 10 to normalise to [0, 1].
         # Falls back to the hybrid similarity score if the LLM call fails.
         scored = []
@@ -324,7 +324,7 @@ class VectorStore:
 
     # ── Private — query ──────────────────────────────────────────────────────
 
-    def _classify_query(self, query):
+    def _classify_query(self, query: str) -> str:
         """Classifies query as summarise / comparison / factual / general."""
         q = query.lower()
         summarise_signals  = ['summarise', 'summarize', 'summary', 'overview',
@@ -343,7 +343,7 @@ class VectorStore:
             return 'factual'
         return 'general'
 
-    def _expand_query(self, query):
+    def _expand_query(self, query: str) -> list:
         """Generates 2 alternative phrasings of the query using the LLM."""
         prompt = (
             "Rewrite the following search query in 2 different ways to improve document retrieval. "
@@ -364,21 +364,22 @@ class VectorStore:
         except Exception:
             return [query]
 
-    def _check_confidence(self, results):
+    def _check_confidence(self, results: list) -> tuple:
         # Skip LLM call entirely when no chunk clears the threshold — prevents hallucination on empty context.
         if not results:
             return False, 0.0
         best = results[0][1]
         return best >= SIMILARITY_THRESHOLD, best
 
-    def _smart_top_n(self, query_type):
-        # Comparison and summarise queries need more candidates to cover multiple aspects.
+    def _smart_top_n(self, query_type: str) -> int:
+        # Budget scales with query complexity — factual queries have a clear correct answer so 5 chunks is enough;
+        # comparison needs both sides of the argument (15); summarise needs the full document scope (TOP_RETRIEVE).
         return {'factual': 5, 'comparison': 15, 'general': 10,
                 'summarise': TOP_RETRIEVE}.get(query_type, TOP_RETRIEVE)
 
     # ── Private — response ───────────────────────────────────────────────────
 
-    def _build_instruction_prompt(self, context, query_type='factual'):
+    def _build_instruction_prompt(self, context: str, query_type: str = 'factual') -> str:
         # Length hints keep answers proportional to query complexity — factual stays short,
         # summarise gets room to cover all key points.
         _length_hints = {
@@ -404,7 +405,7 @@ class VectorStore:
             f"CONTEXT:\n{context}"
         )
 
-    def _source_label(self, entry):
+    def _source_label(self, entry: dict) -> str:
         """Returns a consistent location label for any doc type."""
         t = entry.get('type', 'txt')
         if t == 'pdf':
@@ -418,7 +419,7 @@ class VectorStore:
         else:
             return f"L{entry['start_line']}-{entry['end_line']}"
 
-    def _synthesize(self, question, context):
+    def _synthesize(self, question: str, context: str) -> str:
         """Takes raw retrieved context and asks LLM to produce a clean direct answer."""
         prompt = (
             "You are a helpful assistant. Answer the question below using ONLY the "
@@ -438,7 +439,7 @@ class VectorStore:
         except Exception:
             return context
 
-    def _filter_hallucination(self, response):
+    def _filter_hallucination(self, response: str) -> str:
         """Truncate at hallucination pivot if model admitted no-info then hallucinated.
 
         Pattern: model says "there is no information..." then continues with "however, I can..."

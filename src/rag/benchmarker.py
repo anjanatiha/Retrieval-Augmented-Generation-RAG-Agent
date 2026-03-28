@@ -181,7 +181,7 @@ class Benchmarker:
 
     # ── Public ──────────────────────────────────────────────────────────────
 
-    def run(self, test_cases: Optional[List[dict]] = None) -> dict:
+    def run(self, test_cases: Optional[List[dict]] = None) -> List[dict]:
         """Run evaluation on a list of questions and print a full scored report.
 
         For each question the pipeline:

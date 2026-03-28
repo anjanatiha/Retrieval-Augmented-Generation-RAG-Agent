@@ -33,6 +33,8 @@ With RAG:     Question → Search documents → Find relevant passages
                       → Feed passages to LLM → Grounded answer with citations
 ```
 
+**A note on hallucination:** RAG reduces hallucination by grounding answers in retrieved context, but does not eliminate it entirely. The confidence gate (skipping the LLM when no relevant chunk is found) and the hallucination filter (truncating pivot phrases) further reduce but do not guarantee elimination of hallucinated content.
+
 **The three steps:**
 
 1. **Index** — Your documents are split into chunks, converted to numbers (embeddings), and stored in a database. This happens once at startup.
