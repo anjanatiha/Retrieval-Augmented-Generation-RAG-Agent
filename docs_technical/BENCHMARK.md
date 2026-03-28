@@ -32,7 +32,7 @@ python3 main.py --benchmark
 - Results saved to `benchmark_results.json` (full history) and `benchmark_results.csv` (latest run)
 
 **Phase 2 — Agent tool correctness:**
-- 12 deterministic tests: 5 calculator, 4 sentiment, 3 summarise
+- 18 tests: 5 calculator, 4 sentiment, 3 summarise, 3 translate, 3 topic_search
 - Results saved to `tool_benchmark_results.json`
 
 Every run is compared against the previous one with delta indicators (▲ improved / ▼ regressed / ─ unchanged).
@@ -215,15 +215,17 @@ overall = mean(faithfulness, answer_relevancy, ground_truth_match,
 
 The RAG pipeline benchmark tests retrieval and generation quality — it uses the LLM as both the system under test and the judge. The tool benchmark tests deterministic correctness of the agent tools — no LLM-as-judge, direct pass/fail checks.
 
-**The 12 tests:**
+**The 18 tests:**
 
 | Tool | # Tests | What passes |
 |------|---------|-------------|
 | **calculator** | 5 | Arithmetic results match exactly (with tolerance for floats); unsafe characters (letters) are rejected with an error message |
 | **sentiment** | 4 | Output contains all 4 required fields (`Sentiment:`, `Tone:`, `Key phrases:`, `Explanation:`) and a valid label (Positive/Negative/Neutral/Mixed) |
 | **summarise** | 3 | Output is non-empty and contains at least one key term from the input |
+| **translate** | 3 | Output is non-empty; tests cover direct translation (long input ≥15 words) and no-language-prefix default to English |
+| **topic_search** | 3 | Network mocked offline; real chunkers + real `store.add_chunks()` called; verified both fetched > 0 and added > 0 chunks |
 
-**Calculator tests are fully deterministic** — no LLM call, direct eval. Sentiment and summarise tests call the language model once per test.
+**Calculator tests are fully deterministic** — no LLM call, direct eval. Sentiment, summarise, and translate tests call the language model once per test. Topic_search tests mock the network layer and run real chunkers offline.
 
 **Calculator allowed characters:** `0123456789+-*/(). ` — note that `**` (power) passes (two asterisks are both in the allowed set) but `sqrt(4)` fails (letters `s`, `q`, `r`, `t` are not in the allowed set).
 
@@ -284,12 +286,20 @@ The RAG pipeline benchmark tests retrieval and generation quality — it uses th
   10   summarise      PASS    'Python was created by Guido...'          mentions Python or Guido
   11   summarise      PASS    'Machine learning is a subset...'         mentions machine learning
   12   summarise      PASS    'The sky is blue. The sun is yellow.'     non-empty summary
+  13   translate      PASS    'Spanish: The sky is blue and the sun..'  non-empty Spanish translation
+  14   translate      PASS    'French: Python is a high-level progra..'  non-empty French translation
+  15   translate      PASS    'El cielo es azul y el sol brilla...'     default to English, non-empty
+  16   topic_search   PASS    'Python programming language'             fetch>0 chunks / add>0 chunks
+  17   topic_search   PASS    'machine learning algorithms'             fetch>0 chunks / add>0 chunks
+  18   topic_search   PASS    'space exploration NASA'                  fetch>0 chunks / add>0 chunks
 
 ────────────────────────────────────────────────────────────────────────
-  Total: 12/12 passed  (100%)
+  Total: 18/18 passed  (100%)
     calculator      5/5
     sentiment       4/4
     summarise       3/3
+    translate       3/3
+    topic_search    3/3
 
   Saved  → tool_benchmark_results.json
 ════════════════════════════════════════════════════════════════════════

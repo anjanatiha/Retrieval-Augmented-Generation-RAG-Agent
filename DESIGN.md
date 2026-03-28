@@ -35,7 +35,7 @@ Owns the ReAct loop and all 6 tools as private methods. The tools (calculator, s
 ### `Benchmarker`
 Owns all RAG pipeline evaluation orchestration: running the pipeline per test case, printing the report, persisting JSON history, and exporting to CSV. All 7 scoring functions live as stateless module-level functions in `metrics.py` — they have no state of their own and are imported by `Benchmarker`. Takes a `VectorStore` as a dependency so it runs the exact same pipeline the user runs in production.
 
-Agent tool benchmarks (calculator, sentiment, summarise) live in `tool_benchmarks.py` as a module — not a class — because they have no shared state. `run_tool_benchmarks(store)` is a single public function that runs 12 tests across 3 tools and saves results to `tool_benchmark_results.json`.
+Agent tool benchmarks (calculator, sentiment, summarise, translate, topic_search) live in `tool_benchmarks.py` as a module — not a class — because they have no shared state. `run_tool_benchmarks(store)` is a single public function that runs 18 tests across 5 tools and saves results to `tool_benchmark_results.json`.
 
 The 4 terminal print functions (`print_per_query_table`, `print_summary_table`, `print_by_query_type`, `format_run_comparison`) were extracted to `benchmark_report.py` when `benchmarker.py` exceeded the 500-line limit. All 4 functions are stateless — they only use the dicts passed to them — so they belong in a module, not a class.
 
@@ -116,7 +116,7 @@ The benchmark suite has two parts:
 
 **Part 1 — RAG pipeline (15 questions, 4 domains):** 7 metrics per question. Two use the language model as a judge (more reliable but slower); five are computed directly from text and vector scores (fast, no extra LLM call).
 
-**Part 2 — Agent tools (12 tests):** Deterministic correctness for calculator, format compliance for sentiment, keyword coverage for summarise. Results saved to `tool_benchmark_results.json` separately.
+**Part 2 — Agent tools (18 tests):** Deterministic correctness for calculator, format compliance for sentiment, keyword coverage for summarise, non-empty output for translate, mocked-network pipeline for topic_search. Results saved to `tool_benchmark_results.json` separately.
 
 | Metric | Kind | What it measures |
 |--------|------|-----------------|

@@ -77,7 +77,7 @@ Measured against 15 questions across 4 domains (cat facts, Python language, team
 | MRR | **1.000** | Rank of first relevant chunk |
 | **Overall** | **0.808** | Mean across all 7 metrics |
 
-**Agent tool benchmark:** calculator 5/5 · sentiment 4/4 · summarise 3/3
+**Agent tool benchmark:** calculator 5/5 · sentiment 4/4 · summarise 3/3 · translate 3/3 · topic_search 3/3 · **total 18/18**
 
 > For full benchmark methodology, metric formulas, and how to add your own test cases, see [docs_technical/BENCHMARK.md](docs_technical/BENCHMARK.md).
 
