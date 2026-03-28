@@ -3,7 +3,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3110/)
 [![Tests](https://img.shields.io/badge/tests-828%20passing-2ea44f?logo=pytest&logoColor=white)](tests/)
 [![HF Space](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-FF6B35)](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Ollama](https://img.shields.io/badge/LLM-Ollama%20%7C%20LLaMA%203.2-black?logo=ollama)](https://ollama.com)
 [![ChromaDB](https://img.shields.io/badge/Vector%20DB-ChromaDB-orange)](https://www.trychroma.com)
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
@@ -71,20 +71,25 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 
 ## Table of Contents
 
+**Getting started**
+- [Get Started](#get-started) — try the demo or install locally
+- [Quick Start](#quick-start) — 4 commands if you already have Python & Ollama
+- [Installation](#installation) — full setup guide, macOS & Windows, from scratch
+- [Troubleshooting](#troubleshooting)
+
 **Using the system**
-- [Get Started](#get-started) — browser demo or local install, choose your path
-- [Quick Start](#quick-start) — already have Python & Ollama? 4 commands
-- [Installation — full guide](#installation) — macOS & Windows, step by step from scratch
 - [How to Use](#how-to-use)
 - [Supported File Types](#supported-file-types)
 - [Agent Mode](#agent-mode)
-- [Troubleshooting](#troubleshooting)
 - [Streamlit UI](#streamlit-ui)
+
+**What it does**
 - [What it does](#what-it-does)
 - [Features](#features)
+- [Benchmarking](#benchmarking)
 
 **How it works**
-- [How RAG Works](#how-rag-works)
+- [How RAG Works](#how-rag-works) — plain English explanation
 - [Architecture](#architecture)
 - [Algorithms](#how-it-works--algorithms)
   - [Full Pipeline Diagram](#full-pipeline--how-all-algorithms-connect)
@@ -103,11 +108,10 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
   - [13. BM25 Index Rebuild](#13-bm25-index--rebuilding-after-every-upload)
   - [14. Conversation Memory](#14-conversation-memory--multi-turn-context)
 
-**Development**
+**Contributing**
 - [Folder Structure](#folder-structure)
 - [Contributing](#contributing)
 - [Testing](#testing)
-- [Benchmarking](#benchmarking)
 - [Built With](#built-with)
 - [Related](#related)
 
