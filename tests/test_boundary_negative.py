@@ -30,9 +30,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rank_bm25 import BM25Okapi
 
+from src.rag.binary_chunkers import chunk_docx, chunk_xlsx
 from src.rag.chunkers import chunk_csv, chunk_txt
-from src.rag.binary_chunkers import chunk_xlsx, chunk_docx
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -204,7 +203,9 @@ class TestBoundaryVectorStoreSingleChunk:
     def test_single_chunk_pipeline_returns_response(self) -> None:
         """run_pipeline with one chunk in the store returns a dict with 'response'."""
         import uuid
+
         import chromadb
+
         from src.rag.vector_store import VectorStore
 
         chunks = [

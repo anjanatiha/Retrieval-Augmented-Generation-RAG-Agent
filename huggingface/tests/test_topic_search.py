@@ -28,9 +28,9 @@ Mock strategy:
     BeautifulSoup, chunking logic, and BM25 are NOT mocked.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers

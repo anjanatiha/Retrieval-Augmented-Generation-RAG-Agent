@@ -42,9 +42,9 @@ Mock strategy:
 
 import os
 import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 # ── make src importable from huggingface/ ────────────────────────────────────
 HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -52,7 +52,6 @@ if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
 from tests.conftest import sample_chunks
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers

@@ -33,7 +33,7 @@ HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
-from tests.conftest import sample_chunks, make_store_with_chunks
+from tests.conftest import make_store_with_chunks, sample_chunks
 
 # ── Gradio availability guard ─────────────────────────────────────────────────
 try:

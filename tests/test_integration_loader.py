@@ -15,17 +15,14 @@ Reason for split: max 500 lines per file per CLAUDE.md.
 import io
 import os
 import tempfile
-import pytest
 from unittest.mock import MagicMock, patch
 
-# ── Chunker functions are now standalone module-level functions ───────────────
-from src.rag.chunkers import (
-    chunk_txt, chunk_md, chunk_csv, chunk_html, truncate_chunk,
-)
-from src.rag.binary_chunkers import (
-    chunk_pdf, chunk_docx, chunk_xlsx, chunk_xls, chunk_pptx,
-)
+import pytest
 
+from src.rag.binary_chunkers import chunk_docx, chunk_pdf, chunk_pptx, chunk_xls, chunk_xlsx
+
+# ── Chunker functions are now standalone module-level functions ───────────────
+from src.rag.chunkers import chunk_csv, chunk_html, chunk_md, chunk_txt, truncate_chunk
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,6 +48,7 @@ class TestLoadPdf:
     def test_load_pdf(self, tmp_path):
         """PDF with one page of text: at least one chunk of type 'pdf' is returned."""
         import fitz
+
         from src.rag.document_loader import DocumentLoader
         doc  = fitz.open()
         page = doc.new_page()
@@ -82,6 +80,7 @@ class TestLoadDocx:
     def test_load_docx(self, tmp_path):
         """DOCX with two paragraphs: at least one chunk of type 'docx' is returned."""
         from docx import Document
+
         from src.rag.document_loader import DocumentLoader
         doc = Document()
         doc.add_paragraph('Cats sleep sixteen hours a day.')
@@ -95,6 +94,7 @@ class TestLoadDocx:
     def test_docx_table_rows_extracted(self, tmp_path):
         """DOCX with a 2×2 table: table cell text appears in the combined chunk output."""
         from docx import Document
+
         from src.rag.document_loader import DocumentLoader
         doc   = Document()
         table = doc.add_table(rows=2, cols=2)
@@ -111,6 +111,7 @@ class TestLoadDocx:
     def test_docx_merged_cells_deduplicated(self, tmp_path):
         """DOCX with a simulated merged cell: duplicate cell text appears only once."""
         from docx import Document
+
         from src.rag.document_loader import DocumentLoader
         doc   = Document()
         table = doc.add_table(rows=1, cols=3)
@@ -130,6 +131,7 @@ class TestLoadXlsx:
     def test_load_xlsx(self, tmp_path):
         """XLSX with 2 data rows (plus header): exactly 2 chunks of type 'xlsx' are returned."""
         import openpyxl
+
         from src.rag.document_loader import DocumentLoader
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -150,6 +152,7 @@ class TestLoadXls:
     def test_load_xls(self, tmp_path):
         """XLS with 1 data row: exactly 1 chunk of type 'xls' is returned with 'Alice' in text."""
         import xlwt
+
         from src.rag.document_loader import DocumentLoader
         wb = xlwt.Workbook()
         ws = wb.add_sheet('Sheet1')
@@ -169,6 +172,7 @@ class TestLoadPptx:
         """PPTX with one text box: at least one chunk of type 'pptx' containing 'Cats' is returned."""
         from pptx import Presentation
         from pptx.util import Inches
+
         from src.rag.document_loader import DocumentLoader
         prs   = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[5])
@@ -304,6 +308,7 @@ class TestUrlIngestion:
     def test_url_remote_pdf(self):
         """PDF URL (application/pdf content-type): chunk_url returns a list (possibly empty)."""
         import fitz
+
         from src.rag.document_loader import DocumentLoader
         doc  = fitz.open()
         page = doc.new_page()
@@ -316,6 +321,7 @@ class TestUrlIngestion:
     def test_url_remote_docx(self):
         """DOCX URL (wordprocessingml content-type): chunk_url returns a list."""
         from docx import Document
+
         from src.rag.document_loader import DocumentLoader
         doc = Document(); doc.add_paragraph('Remote docx content here.')
         buf = io.BytesIO(); doc.save(buf); docx_bytes = buf.getvalue()
@@ -329,6 +335,7 @@ class TestUrlIngestion:
     def test_url_remote_xlsx(self):
         """XLSX URL (spreadsheetml content-type): chunk_url returns a list."""
         import openpyxl
+
         from src.rag.document_loader import DocumentLoader
         wb = openpyxl.Workbook(); ws = wb.active
         ws.append(['Name', 'Value']); ws.append(['Alice', 42])
@@ -353,6 +360,7 @@ class TestUrlIngestion:
         """PPTX URL (presentationml content-type): chunk_url returns a list."""
         from pptx import Presentation
         from pptx.util import Inches
+
         from src.rag.document_loader import DocumentLoader
         prs   = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[5])

@@ -4,6 +4,7 @@ Owns the ReAct loop and all 5 tools as private methods.
 """
 
 import re
+
 import ollama
 
 from src.rag.config import LANGUAGE_MODEL

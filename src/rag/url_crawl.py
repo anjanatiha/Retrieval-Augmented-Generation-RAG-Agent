@@ -16,10 +16,7 @@ import tempfile
 from typing import Callable, Dict, List, Optional, Set
 
 from src.rag import chunkers
-from src.rag.url_utils import (
-    detect_url_type, build_source_name, extract_links,
-    url_matches_topic, is_same_domain,
-)
+from src.rag.url_utils import build_source_name, detect_url_type, extract_links, is_same_domain, url_matches_topic
 
 __all__ = ['chunk_content', 'crawl_url', 'search_duckduckgo_html']
 

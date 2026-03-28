@@ -9,11 +9,11 @@ Mock strategy:
 Never mock: _parse_tool_call, _tool_calculator, AGENT_SYSTEM_PROMPT structure.
 """
 
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
 from unittest.mock import MagicMock, patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Fixtures

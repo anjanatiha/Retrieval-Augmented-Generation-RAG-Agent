@@ -26,16 +26,11 @@ HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
-# ── Text-based chunker functions ─────────────────────────────────────────────
-from src.rag.chunkers import (
-    chunk_txt, chunk_md, chunk_csv, truncate_chunk,
-)
-
 # ── Binary-format chunker functions (moved to binary_chunkers.py) ─────────────
-from src.rag.binary_chunkers import (
-    chunk_pdf, chunk_docx, chunk_xlsx, chunk_xls, chunk_pptx,
-)
+from src.rag.binary_chunkers import chunk_docx, chunk_pdf, chunk_pptx, chunk_xls, chunk_xlsx
 
+# ── Text-based chunker functions ─────────────────────────────────────────────
+from src.rag.chunkers import chunk_csv, chunk_md, chunk_txt, truncate_chunk
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -356,7 +351,7 @@ class TestDocumentLoaderXls:
     def test_chunk_xls_basic(self):
         """Legacy .xls file is readable via xlrd and produces correct chunks."""
         try:
-            import xlrd   # noqa: F401
+            import xlrd  # noqa: F401
         except ImportError:
             pytest.skip("xlrd not installed")
         try:

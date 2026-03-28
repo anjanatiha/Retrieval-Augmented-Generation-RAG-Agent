@@ -6,16 +6,20 @@ import sys
 from typing import Callable, List, Optional, Set
 from urllib.parse import urlparse
 
+from src.rag import binary_chunkers, chunkers
 from src.rag.config import (
-    DOCS_ROOT, DOC_FOLDERS, EXT_TO_TYPE,
-    TXT_CHUNK_SIZE, TXT_CHUNK_OVERLAP,
-    PDF_CHUNK_SENTENCES, DOCX_CHUNK_PARAS,
-    PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES,
+    DOC_FOLDERS,
+    DOCS_ROOT,
+    DOCX_CHUNK_PARAS,
+    EXT_TO_TYPE,
+    HTML_CHUNK_SENTENCES,
+    PDF_CHUNK_SENTENCES,
+    PPTX_CHUNK_SLIDES,
+    TXT_CHUNK_OVERLAP,
+    TXT_CHUNK_SIZE,
 )
-from src.rag import chunkers
-from src.rag import binary_chunkers
-from src.rag.url_utils import detect_url_type, build_source_name
 from src.rag.url_crawl import chunk_content, crawl_url, search_duckduckgo_html
+from src.rag.url_utils import build_source_name, detect_url_type
 
 __all__ = ['DocumentLoader']
 

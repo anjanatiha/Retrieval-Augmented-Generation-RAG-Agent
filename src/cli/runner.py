@@ -25,7 +25,7 @@ from src.rag.vector_store import VectorStore
 # Module-level logger — replaces bare print() for non-user-facing messages
 logger = logging.getLogger(__name__)
 
-__all__ = ['initialize', 'run_benchmark', 'run_agent', 'run_chat']
+__all__ = ['initialize', 'run_benchmark', 'run_agent', 'run_chat', 'run_ragas']
 
 
 def initialize() -> Tuple[DocumentLoader, VectorStore]:
@@ -125,6 +125,41 @@ def run_agent(store: VectorStore) -> None:
 
         result = agent.run(user_task)
         print(f"\nFinal answer: {result['answer']}\n" + "-" * 60)
+
+
+def run_ragas(store: VectorStore) -> None:
+    """Run RAGAS LLM-as-a-judge evaluation on the RAG pipeline.
+
+    Runs four metrics against the same DEFAULT_TEST_CASES used by the custom
+    benchmarker: Faithfulness, ResponseRelevancy, ContextPrecision, ContextRecall.
+
+    Requires optional dependencies:
+        pip install "ragas>=0.2.0" langchain-ollama datasets
+    Or:
+        pip install -e ".[eval]"
+
+    Prints a scored summary table to the terminal when done.
+
+    Args:
+        store: An already-initialised VectorStore with documents loaded.
+    """
+    try:
+        from src.rag.ragas_eval import print_ragas_results, run_ragas_evaluation
+    except ImportError as error:
+        # Happens if ragas / langchain-ollama / datasets are not installed.
+        print(f"\nCould not import RAGAS evaluation module: {error}")
+        return
+
+    try:
+        result = run_ragas_evaluation(store)
+        print_ragas_results(result)
+    except ImportError as error:
+        # Raised by _check_ragas_dependencies() inside run_ragas_evaluation()
+        # when one or more RAGAS packages are missing.
+        print(str(error))
+    except Exception as error:
+        logger.exception("RAGAS evaluation failed: %s", error)
+        print(f"\nRAGAS evaluation encountered an error: {error}")
 
 
 def run_chat(store: VectorStore) -> None:

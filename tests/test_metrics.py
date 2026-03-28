@@ -5,9 +5,9 @@ score_answer_relevancy_llm) mock ollama.chat so no Ollama instance is needed in 
 All other functions are pure Python and require no mocking.
 """
 
-import pytest
 from unittest.mock import patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers shared across test classes
@@ -279,6 +279,7 @@ class TestScorePrecisionAtK:
     def test_k_limits_chunks_evaluated(self):
         """k=2: only the first 2 chunks are evaluated, not all 5."""
         from src.rag.metrics import score_precision_at_k
+
         # First 2 chunks are irrelevant, next 3 are relevant
         reranked = _make_reranked([
             'dogs bark',

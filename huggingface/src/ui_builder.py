@@ -13,13 +13,10 @@ USAGE:
 """
 
 import gradio as gr
+from src.handlers import chat, clear_added_chunks, clear_chat, fetch_url, fetch_url_recursive, search_topic, upload_file
+from src.theme import CSS
 
 from src.rag.config import URL_CRAWL_MAX_DEPTH, URL_CRAWL_MAX_PAGES
-from src.theme import CSS
-from src.handlers import (
-    chat, upload_file, fetch_url, fetch_url_recursive,
-    search_topic, clear_chat, clear_added_chunks,
-)
 
 __all__ = ['build_demo']
 
@@ -289,6 +286,7 @@ def build_demo():
         def _on_load(progress=None):
             """Eagerly initialise both singletons on page load so the first query is fast."""
             import src.handlers as _h
+
             from src.rag.document_loader import DocumentLoader
             from src.rag.vector_store import VectorStore
 

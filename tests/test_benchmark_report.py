@@ -11,7 +11,6 @@ No mocking needed — all functions are pure output formatters that take plain d
 
 import pytest
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _make_result(question='What is X?', faith=0.8, relev=0.7, gt=0.6, kw=1.0,
@@ -243,6 +242,7 @@ class TestFormatRunComparison:
     def test_old_flat_format_previous_run(self):
         """Previous summary with flat float values (old format) is handled without crashing."""
         from src.rag.benchmark_report import format_run_comparison
+
         # Old format: metrics were plain floats, not nested dicts
         old_format_summary = {
             'faithfulness_llm':     0.75,

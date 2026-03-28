@@ -14,7 +14,6 @@ Mock strategy:
 
 from unittest.mock import MagicMock, patch
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # ui/handlers.py — import contract
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -24,21 +23,15 @@ class TestHandlersImportContract:
 
     def test_all_public_names_are_importable(self):
         """Every name in __all__ can be imported from ui.handlers."""
-        from ui.handlers import __all__ as exported_names
         from ui import handlers
+        from ui.handlers import __all__ as exported_names
         for name in exported_names:
             assert hasattr(handlers, name), f"ui.handlers is missing exported name: {name}"
 
     def test_expected_functions_present(self):
         """The handler functions app.py calls are defined in the right modules."""
-        from ui.handlers import (
-            handle_file_upload, handle_url_ingestion, handle_user_input,
-            render_sidebar,
-        )
-        from ui.renderers import (
-            render_chat_history, render_clear_button, render_header,
-            render_mode_selector,
-        )
+        from ui.handlers import handle_file_upload, handle_url_ingestion, handle_user_input, render_sidebar
+        from ui.renderers import render_chat_history, render_clear_button, render_header, render_mode_selector
         assert callable(render_header)
         assert callable(render_sidebar)
         assert callable(handle_user_input)

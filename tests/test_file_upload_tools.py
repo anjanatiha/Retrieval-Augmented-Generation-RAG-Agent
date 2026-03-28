@@ -13,13 +13,13 @@ Reason for split: max 500 lines per file per CLAUDE.md.
 Chat mode and agent mode file upload tests are in test_file_upload.py.
 """
 
-import uuid
 import os
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
-from unittest.mock import patch, MagicMock
+import uuid
+from unittest.mock import MagicMock, patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Shared helpers (duplicated from test_file_upload.py — each file is standalone)

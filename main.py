@@ -7,11 +7,12 @@ Usage:
     python main.py               # interactive chat mode
     python main.py --agent       # interactive agent mode (tool calling)
     python main.py --benchmark   # run automated benchmark evaluation
+    python main.py --ragas       # run RAGAS LLM-as-a-judge evaluation
 """
 
 import argparse
 
-from src.cli.runner import initialize, run_agent, run_benchmark, run_chat
+from src.cli.runner import initialize, run_agent, run_benchmark, run_chat, run_ragas
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='RAG Agent — Ask your documents')
@@ -25,6 +26,11 @@ if __name__ == '__main__':
         action='store_true',
         help='Start in agent mode (rag_search, calculator, summarise, sentiment tools)',
     )
+    parser.add_argument(
+        '--ragas',
+        action='store_true',
+        help='Run RAGAS LLM-as-a-judge evaluation (requires: pip install -e ".[eval]")',
+    )
     args = parser.parse_args()
 
     loader, store = initialize()
@@ -33,5 +39,7 @@ if __name__ == '__main__':
         run_benchmark(loader, store)
     elif args.agent:
         run_agent(store)
+    elif args.ragas:
+        run_ragas(store)
     else:
         run_chat(store)

@@ -15,8 +15,9 @@ LLM-AS-JUDGE FUNCTIONS:
     word-overlap alone but add one extra LLM call per question per metric.
 """
 
-import ollama
 from typing import List
+
+import ollama
 
 __all__ = [
     'score_faithfulness_llm',

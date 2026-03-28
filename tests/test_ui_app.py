@@ -37,7 +37,6 @@ Note on AppTest form limitation:
 
 from unittest.mock import MagicMock, patch
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared fixture — mock loader and store so no Ollama/ChromaDB is needed
 # ─────────────────────────────────────────────────────────────────────────────

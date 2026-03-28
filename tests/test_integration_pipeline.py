@@ -11,11 +11,11 @@ Mock strategy (per CLAUDE.md):
 Reason for split: max 500 lines per file per CLAUDE.md.
 """
 
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
 from unittest.mock import MagicMock, patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Helpers

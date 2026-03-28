@@ -8,13 +8,18 @@ Replaces Ollama with:
 
 import os
 import re
+
 import chromadb
 from rank_bm25 import BM25Okapi
 
 from src.rag.config import (
-    EMBEDDING_MODEL, LANGUAGE_MODEL, LANGUAGE_MODEL_FALLBACKS,
     CHROMA_COLLECTION,
-    SIMILARITY_THRESHOLD, TOP_RETRIEVE, TOP_RERANK,
+    EMBEDDING_MODEL,
+    LANGUAGE_MODEL,
+    LANGUAGE_MODEL_FALLBACKS,
+    SIMILARITY_THRESHOLD,
+    TOP_RERANK,
+    TOP_RETRIEVE,
 )
 
 __all__ = ['VectorStore']

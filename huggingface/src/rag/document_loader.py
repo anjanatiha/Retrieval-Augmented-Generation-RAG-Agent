@@ -6,18 +6,17 @@ import tempfile
 from typing import Callable, List, Optional, Set
 from urllib.parse import urlparse
 
+from src.rag import binary_chunkers, chunkers
 from src.rag.config import (
+    DOCX_CHUNK_PARAS,
     EXT_TO_TYPE,
-    TXT_CHUNK_SIZE, TXT_CHUNK_OVERLAP,
-    PDF_CHUNK_SENTENCES, DOCX_CHUNK_PARAS,
-    PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES,
+    HTML_CHUNK_SENTENCES,
+    PDF_CHUNK_SENTENCES,
+    PPTX_CHUNK_SLIDES,
+    TXT_CHUNK_OVERLAP,
+    TXT_CHUNK_SIZE,
 )
-from src.rag import chunkers
-from src.rag import binary_chunkers
-from src.rag.url_utils import (
-    detect_url_type, build_source_name, extract_links, url_matches_topic,
-    is_same_domain,
-)
+from src.rag.url_utils import build_source_name, detect_url_type, extract_links, is_same_domain, url_matches_topic
 
 __all__ = ['DocumentLoader']
 

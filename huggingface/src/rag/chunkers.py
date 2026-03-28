@@ -14,10 +14,7 @@ import os
 import re
 from typing import List
 
-from src.rag.config import (
-    TXT_CHUNK_SIZE, TXT_CHUNK_OVERLAP,
-    HTML_CHUNK_SENTENCES,
-)
+from src.rag.config import HTML_CHUNK_SENTENCES, TXT_CHUNK_OVERLAP, TXT_CHUNK_SIZE
 
 __all__ = [
     'chunk_txt', 'chunk_md', 'chunk_csv', 'chunk_html',

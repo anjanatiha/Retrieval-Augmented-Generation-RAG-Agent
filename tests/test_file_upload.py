@@ -10,13 +10,13 @@ All-5-agent-tools tests with real file content are in test_file_upload_tools.py.
 """
 
 import io
-import uuid
 import os
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
-from unittest.mock import patch, MagicMock
+import uuid
+from unittest.mock import MagicMock, patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Shared helpers

@@ -15,7 +15,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "pytest-mock", "xlwt", "pre-commit"]
+dev  = ["pytest", "pytest-cov", "pytest-mock", "xlwt", "pre-commit"]
+eval = ["ragas>=0.2.0", "langchain-ollama", "datasets"]
 
 [project.urls]
 Homepage = "https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent"

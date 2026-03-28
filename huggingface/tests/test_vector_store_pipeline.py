@@ -34,8 +34,7 @@ HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
-from tests.conftest import sample_chunks, make_store_with_chunks
-
+from tests.conftest import make_store_with_chunks, sample_chunks
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Hybrid retrieve (BM25 + dense fusion)
@@ -269,6 +268,7 @@ class TestLlmCallFallback:
         """Empty HF_TOKEN returns an error string without making any HTTP request."""
         with patch.dict(os.environ, {'HF_TOKEN': ''}):
             import importlib
+
             import src.rag.vector_store as vs_module
             result = vs_module._llm_call("test prompt")
         assert "HF_TOKEN not set" in result

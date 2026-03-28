@@ -38,9 +38,9 @@ Mock strategy:
     No real Ollama or network calls are made.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers

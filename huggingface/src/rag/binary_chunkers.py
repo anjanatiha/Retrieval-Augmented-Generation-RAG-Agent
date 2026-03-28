@@ -13,11 +13,7 @@ that one format instead of crashing the whole module on import.
 import re
 from typing import List
 
-from src.rag.config import (
-    PDF_CHUNK_SENTENCES,
-    DOCX_CHUNK_PARAS,
-    PPTX_CHUNK_SLIDES,
-)
+from src.rag.config import DOCX_CHUNK_PARAS, PDF_CHUNK_SENTENCES, PPTX_CHUNK_SLIDES
 
 __all__ = [
     'chunk_pdf',

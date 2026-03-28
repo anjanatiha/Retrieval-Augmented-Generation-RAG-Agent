@@ -34,9 +34,9 @@ Mock strategy:
     All DocumentLoader and VectorStore calls are MagicMock instances.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
+import pytest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared helpers

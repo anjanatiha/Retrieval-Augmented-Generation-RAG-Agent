@@ -1,8 +1,8 @@
 """Unit tests for ui/theme.py and ui/session.py."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # ui/theme.py

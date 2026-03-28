@@ -10,11 +10,11 @@ Chat mode and pipeline feature tests are in test_doc_types_and_modes.py.
 """
 
 import uuid
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Shared helpers

@@ -10,11 +10,11 @@ Mock strategy (per CLAUDE.md):
   Never mock:  BM25Okapi, classification, source label, hallucination filter
 """
 
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
 from unittest.mock import MagicMock, patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Shared helpers (duplicated from test_contracts.py so each file is standalone)

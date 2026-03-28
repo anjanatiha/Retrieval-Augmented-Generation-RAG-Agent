@@ -11,9 +11,9 @@ Tests cover:
 All LLM calls are mocked so these tests run without Ollama running.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +60,7 @@ class TestToolTestCasesStructure:
     def test_tool_names_are_valid(self):
         """Every 'tool' value must be one of the five directly callable tools."""
         from src.rag.tool_benchmarks import TOOL_TEST_CASES
+
         # All five tool names present in the benchmark suite
         valid_tools = {'calculator', 'sentiment', 'summarise', 'translate', 'topic_search'}
         for index, tc in enumerate(TOOL_TEST_CASES):
@@ -229,8 +230,8 @@ class TestInvokeTool:
 
     def test_calculator_calls_agent_tool_calculator(self):
         """_invoke_tool with 'calculator' must call Agent._tool_calculator."""
-        from src.rag.tool_benchmarks import _invoke_tool
         from src.rag.agent import Agent
+        from src.rag.tool_benchmarks import _invoke_tool
 
         mock_agent = MagicMock(spec=Agent)
         mock_agent._tool_calculator.return_value = '42'
@@ -241,8 +242,8 @@ class TestInvokeTool:
 
     def test_sentiment_calls_agent_tool_sentiment(self):
         """_invoke_tool with 'sentiment' must call Agent._tool_sentiment."""
-        from src.rag.tool_benchmarks import _invoke_tool
         from src.rag.agent import Agent
+        from src.rag.tool_benchmarks import _invoke_tool
 
         mock_agent = MagicMock(spec=Agent)
         mock_agent._tool_sentiment.return_value = 'Sentiment: Positive\nTone: happy\nKey phrases: great\nExplanation: Good.'
@@ -253,8 +254,8 @@ class TestInvokeTool:
 
     def test_summarise_calls_agent_tool_summarise(self):
         """_invoke_tool with 'summarise' must call Agent._tool_summarise."""
-        from src.rag.tool_benchmarks import _invoke_tool
         from src.rag.agent import Agent
+        from src.rag.tool_benchmarks import _invoke_tool
 
         mock_agent = MagicMock(spec=Agent)
         mock_agent._tool_summarise.return_value = 'Python is a programming language.'
@@ -265,8 +266,8 @@ class TestInvokeTool:
 
     def test_unknown_tool_raises_value_error(self):
         """_invoke_tool with an unsupported tool name must raise ValueError."""
-        from src.rag.tool_benchmarks import _invoke_tool
         from src.rag.agent import Agent
+        from src.rag.tool_benchmarks import _invoke_tool
 
         mock_agent = MagicMock(spec=Agent)
         with pytest.raises(ValueError, match="unsupported tool"):
@@ -286,6 +287,7 @@ class TestRunToolBenchmarks:
     def test_returns_dict_with_required_keys(self, mock_store):
         """run_tool_benchmarks must return a dict with total, passed, failed, pass_rate, results."""
         from src.rag.tool_benchmarks import run_tool_benchmarks
+
         # Mock ollama.chat to return a passing sentiment/summarise response
         mock_sentiment = (
             "Sentiment: Positive\nTone: enthusiastic\n"
@@ -299,7 +301,7 @@ class TestRunToolBenchmarks:
 
     def test_total_matches_number_of_test_cases(self, mock_store):
         """The 'total' count must equal the number of entries in TOOL_TEST_CASES."""
-        from src.rag.tool_benchmarks import run_tool_benchmarks, TOOL_TEST_CASES
+        from src.rag.tool_benchmarks import TOOL_TEST_CASES, run_tool_benchmarks
         mock_sentiment = (
             "Sentiment: Positive\nTone: enthusiastic\n"
             "Key phrases: great\nExplanation: Good."
@@ -335,7 +337,7 @@ class TestRunToolBenchmarks:
 
     def test_calculator_tests_pass_without_llm(self, mock_store):
         """Calculator tests must pass using only eval() — no LLM call needed."""
-        from src.rag.tool_benchmarks import run_tool_benchmarks, TOOL_TEST_CASES
+        from src.rag.tool_benchmarks import TOOL_TEST_CASES, run_tool_benchmarks
 
         # Only run the calculator test cases to verify they pass without LLM
         calc_cases = [tc for tc in TOOL_TEST_CASES if tc['tool'] == 'calculator']

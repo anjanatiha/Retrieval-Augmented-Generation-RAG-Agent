@@ -25,14 +25,22 @@ class TestConfig:
     def test_all_constants_present(self):
         """All expected constants exist, are the right types, and have sensible values."""
         from src.rag.config import (
-            EMBEDDING_MODEL, LANGUAGE_MODEL, LANGUAGE_MODEL_FALLBACKS,
             CHROMA_COLLECTION,
-            SIMILARITY_THRESHOLD, TOP_RETRIEVE, TOP_RERANK,
-            TXT_CHUNK_SIZE, TXT_CHUNK_OVERLAP,
-            PDF_CHUNK_SENTENCES, DOCX_CHUNK_PARAS,
-            PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES,
+            DOCX_CHUNK_PARAS,
+            EMBEDDING_MODEL,
             EXT_TO_TYPE,
+            HTML_CHUNK_SENTENCES,
+            LANGUAGE_MODEL,
+            LANGUAGE_MODEL_FALLBACKS,
+            PDF_CHUNK_SENTENCES,
+            PPTX_CHUNK_SLIDES,
+            SIMILARITY_THRESHOLD,
+            TOP_RERANK,
+            TOP_RETRIEVE,
+            TXT_CHUNK_OVERLAP,
+            TXT_CHUNK_SIZE,
         )
+
         # Model names must be non-empty strings
         assert isinstance(EMBEDDING_MODEL, str) and EMBEDDING_MODEL
         assert isinstance(LANGUAGE_MODEL, str) and LANGUAGE_MODEL
@@ -62,6 +70,7 @@ class TestConfig:
     def test_fallbacks_list_has_no_gated_models(self):
         """LANGUAGE_MODEL_FALLBACKS contains no gated models that require HF access approval."""
         from src.rag.config import LANGUAGE_MODEL_FALLBACKS
+
         # These prefixes require accepting licence agreements on HF Hub
         gated_prefixes = ['google/gemma', 'meta-llama/Llama-3.2', 'google/gemma-2']
         for model in LANGUAGE_MODEL_FALLBACKS:
@@ -72,15 +81,12 @@ class TestConfig:
 
     def test_top_rerank_le_top_retrieve(self):
         """TOP_RERANK must not exceed TOP_RETRIEVE — reranking more than retrieved is nonsensical."""
-        from src.rag.config import TOP_RETRIEVE, TOP_RERANK
+        from src.rag.config import TOP_RERANK, TOP_RETRIEVE
         assert TOP_RERANK <= TOP_RETRIEVE
 
     def test_chunk_sizes_positive(self):
         """All per-format chunk size constants must be at least 1."""
-        from src.rag.config import (
-            PDF_CHUNK_SENTENCES, DOCX_CHUNK_PARAS,
-            PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES,
-        )
+        from src.rag.config import DOCX_CHUNK_PARAS, HTML_CHUNK_SENTENCES, PDF_CHUNK_SENTENCES, PPTX_CHUNK_SLIDES
         assert PDF_CHUNK_SENTENCES >= 1
         assert DOCX_CHUNK_PARAS >= 1
         assert PPTX_CHUNK_SLIDES >= 1

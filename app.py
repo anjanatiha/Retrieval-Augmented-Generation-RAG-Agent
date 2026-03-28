@@ -3,17 +3,22 @@
 import streamlit as st
 
 from src.ui.handlers import (
+    handle_file_upload,
+    handle_topic_search,
+    handle_url_ingestion,
+    handle_user_input,
     initialize,
-    handle_file_upload, handle_topic_search, handle_url_ingestion,
-    handle_user_input, render_sidebar,
+    render_sidebar,
 )
 from src.ui.renderers import (
-    render_chat_history, render_clear_button,
-    render_footer, render_header, render_mode_selector,
+    render_chat_history,
+    render_clear_button,
+    render_footer,
+    render_header,
+    render_mode_selector,
 )
 from src.ui.session import get_active_bm25, init_session_state
 from src.ui.theme import CSS
-
 
 loader, store = initialize()
 chunks        = store.chunks

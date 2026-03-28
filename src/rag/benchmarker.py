@@ -25,19 +25,13 @@ from typing import List, Optional
 
 import ollama
 
-from src.rag.config import (
-    BENCHMARK_CSV,
-    BENCHMARK_FILE,
-    LANGUAGE_MODEL,
-    TOP_RERANK,
-    TOP_RETRIEVE,
-)
 from src.rag.benchmark_report import (
     format_run_comparison,
     print_by_query_type,
     print_per_query_table,
     print_summary_table,
 )
+from src.rag.config import BENCHMARK_CSV, BENCHMARK_FILE, LANGUAGE_MODEL, TOP_RERANK, TOP_RETRIEVE
 from src.rag.metrics import (
     score_answer_relevancy_llm,
     score_context_relevance,

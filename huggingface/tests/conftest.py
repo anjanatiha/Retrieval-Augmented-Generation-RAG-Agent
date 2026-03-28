@@ -8,9 +8,9 @@ are importable by all four test modules without duplication.
 """
 
 import hashlib
+import os
 import random
 import sys
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest

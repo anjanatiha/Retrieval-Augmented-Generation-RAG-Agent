@@ -24,7 +24,6 @@ if HF_ROOT not in sys.path:
 
 from src.rag.chunkers import truncate_chunk
 
-
 # ---------------------------------------------------------------------------
 # 1. Truncation boundary × parametrize
 # ---------------------------------------------------------------------------

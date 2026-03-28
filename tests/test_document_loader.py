@@ -19,19 +19,15 @@ import json
 import os
 import tempfile
 import textwrap
-import pytest
 from unittest.mock import MagicMock, patch
 
-# ── Text-based chunker functions ─────────────────────────────────────────────
-from src.rag.chunkers import (
-    chunk_txt, chunk_md, chunk_csv, chunk_html, truncate_chunk,
-)
+import pytest
 
 # ── Binary-format chunker functions (moved to binary_chunkers.py) ─────────────
-from src.rag.binary_chunkers import (
-    chunk_pdf, chunk_docx, chunk_xlsx, chunk_xls, chunk_pptx,
-)
+from src.rag.binary_chunkers import chunk_docx, chunk_pdf, chunk_pptx, chunk_xls, chunk_xlsx
 
+# ── Text-based chunker functions ─────────────────────────────────────────────
+from src.rag.chunkers import chunk_csv, chunk_html, chunk_md, chunk_txt, truncate_chunk
 
 # ---------------------------------------------------------------------------
 # Fixture

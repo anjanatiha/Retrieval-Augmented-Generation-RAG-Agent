@@ -22,9 +22,9 @@ Mock strategy:
     BeautifulSoup, BM25Okapi, and chunking logic are NOT mocked.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -222,6 +222,7 @@ class TestUrlMatchesTopic:
     def test_topic_not_checked_against_domain(self):
         """Topic filter only looks at the URL path, not the domain name."""
         from src.rag.url_utils import url_matches_topic
+
         # Domain contains 'python' but path does not — should return False
         assert url_matches_topic('https://python.org/downloads', 'tutorial') is False
 
@@ -297,6 +298,7 @@ class TestIsUtilityUrl:
     def test_keyword_in_hostname_is_matched(self):
         """A utility keyword in a subdomain IS caught — the hostname check covers it."""
         from src.rag.url_utils import is_utility_url
+
         # 'login' is in the subdomain — the hostname keyword check catches this.
         assert is_utility_url('https://login.example.com/article') is True
 

@@ -12,17 +12,14 @@ Mock strategy (per CLAUDE.md):
   Never mock:  BM25Okapi, chunk dicts, _classify_query, _source_label
 """
 
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
 from unittest.mock import MagicMock, patch
 
-from src.rag.chunkers import (
-    chunk_txt, chunk_md, chunk_csv, chunk_html,
-)
-from src.rag.binary_chunkers import (
-    chunk_pdf, chunk_docx, chunk_xlsx, chunk_xls, chunk_pptx,
-)
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
+
+from src.rag.binary_chunkers import chunk_docx, chunk_pdf, chunk_pptx, chunk_xls, chunk_xlsx
+from src.rag.chunkers import chunk_csv, chunk_html, chunk_md, chunk_txt
 
 # ---------------------------------------------------------------------------
 # Chunk-dict contract helper

@@ -18,8 +18,8 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 import chromadb
+import pytest
 from rank_bm25 import BM25Okapi
 
 # ── make src importable from huggingface/ ────────────────────────────────────
@@ -27,15 +27,9 @@ HF_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HF_ROOT not in sys.path:
     sys.path.insert(0, HF_ROOT)
 
-from tests.conftest import sample_chunks, make_store_with_chunks
-
-from src.rag.chunkers import (
-    chunk_txt, chunk_md, chunk_csv, chunk_html,
-)
-from src.rag.binary_chunkers import (
-    chunk_pdf, chunk_docx, chunk_xlsx, chunk_pptx,
-)
-
+from src.rag.binary_chunkers import chunk_docx, chunk_pdf, chunk_pptx, chunk_xlsx
+from src.rag.chunkers import chunk_csv, chunk_html, chunk_md, chunk_txt
+from tests.conftest import make_store_with_chunks, sample_chunks
 
 # ---------------------------------------------------------------------------
 # Chunk-dict contract helper

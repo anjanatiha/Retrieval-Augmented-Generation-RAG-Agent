@@ -21,6 +21,7 @@ Mock strategy:
 
 import os
 import sys
+
 import pytest
 
 # ── make src importable from huggingface/ ────────────────────────────────────
@@ -69,6 +70,7 @@ class TestHallucinationFilterPhrases:
     def _get_source(self) -> str:
         """Return the source of _filter_hallucination from the HF VectorStore module."""
         import inspect
+
         from src.rag import vector_store as vs_module
         return inspect.getsource(vs_module.VectorStore._filter_hallucination)
 
@@ -257,4 +259,3 @@ class TestRerankPromptRegression:
             assert query in prompt, (
                 f"User query not embedded in {doc_type!r} rerank prompt"
             )
-

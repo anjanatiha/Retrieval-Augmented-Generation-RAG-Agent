@@ -22,9 +22,9 @@ Mock strategy:
     BeautifulSoup, BM25Okapi, and chunking logic are NOT mocked.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -195,6 +195,7 @@ class TestExtractLinks:
         a RAG system normally wants one language, not 100+ duplicates.
         """
         from src.rag.url_utils import extract_links
+
         # Page has one content link and two interlanguage (hreflang) links
         html = (
             b'<html><body>'
@@ -248,6 +249,7 @@ class TestUrlMatchesTopic:
     def test_topic_not_checked_against_domain(self):
         """Topic filter only looks at the URL path, not the domain name."""
         from src.rag.url_utils import url_matches_topic
+
         # Domain contains 'python' but path does not — should return False
         assert url_matches_topic('https://python.org/downloads', 'tutorial') is False
 
@@ -327,6 +329,7 @@ class TestIsUtilityUrl:
         utility subdomains even if the path looks like content.
         """
         from src.rag.url_utils import is_utility_url
+
         # 'login' subdomain — this is an authentication server, not a content page
         assert is_utility_url('https://login.example.com/article') is True
         # 'donate' subdomain — fundraising page regardless of path
@@ -378,6 +381,7 @@ class TestIsUtilityUrl:
         crawl on the article the user actually asked for.
         """
         from src.rag.url_utils import is_utility_url
+
         # Wikipedia itself
         assert is_utility_url('https://en.wikipedia.org/wiki/Main_Page') is True
         # Wikimedia sister projects — all link to their own Main_Page in nav sidebars

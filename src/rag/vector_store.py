@@ -3,18 +3,23 @@
 import re
 import sys
 import time
-import ollama
+
 import chromadb
+import ollama
 from rank_bm25 import BM25Okapi
 
-from src.rag.config import (
-    EMBEDDING_MODEL, LANGUAGE_MODEL,
-    CHROMA_DIR, CHROMA_COLLECTION,
-    SIMILARITY_THRESHOLD, TOP_RETRIEVE, TOP_RERANK,
-)
 from src.rag import logger
+from src.rag.config import (
+    CHROMA_COLLECTION,
+    CHROMA_DIR,
+    EMBEDDING_MODEL,
+    LANGUAGE_MODEL,
+    SIMILARITY_THRESHOLD,
+    TOP_RERANK,
+    TOP_RETRIEVE,
+)
+from src.rag.query_utils import build_instruction_prompt, classify_query, smart_top_n
 from src.rag.reranker import rerank_prompt
-from src.rag.query_utils import classify_query, smart_top_n, build_instruction_prompt
 
 
 class VectorStore:

@@ -13,11 +13,11 @@ Chat and agent mode URL ingestion tests are in test_url_ingestion.py.
 
 import io
 import uuid
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Shared helpers

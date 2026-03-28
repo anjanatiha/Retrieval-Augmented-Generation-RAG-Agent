@@ -20,7 +20,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -82,6 +81,7 @@ class TestHallucinationFilterPhrases:
         """
         # We verify by importing the module and reading the source directly
         import inspect
+
         from src.rag import vector_store as vs_module
         src = inspect.getsource(vs_module.VectorStore._filter_hallucination)
         return src
@@ -267,4 +267,3 @@ class TestRerankPromptRegression:
             assert query in prompt, (
                 f"User query not embedded in {doc_type!r} rerank prompt"
             )
-

@@ -10,13 +10,13 @@ Agent mode tests (agent tools, bad format recovery) are in
 test_doc_types_agent.py.
 """
 
-import uuid
 import os
-import pytest
-import chromadb
-from rank_bm25 import BM25Okapi
-from unittest.mock import patch, MagicMock
+import uuid
+from unittest.mock import MagicMock, patch
 
+import chromadb
+import pytest
+from rank_bm25 import BM25Okapi
 
 # ---------------------------------------------------------------------------
 # Shared helpers
