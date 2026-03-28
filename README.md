@@ -38,7 +38,7 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 | **NLP & Information Retrieval** | Hybrid BM25 + dense vector search, query expansion, query classification, type-aware LLM reranking, hallucination filtering |
 | **LLM Application Engineering** | RAG pipeline design, ReAct agent loop with tool calling, prompt engineering across 7 document-type-specific reranker prompts, structured output parsing |
 | **Software Architecture** | 4-class design with strict separation of concerns, stateless module functions vs stateful class methods, no circular dependencies, 500-line file cap |
-| **Testing** | 828 tests across 36 files — unit, integration, contract, regression, boundary, negative, and parametrized combination tests |
+| **Testing** | 913 tests across 38 files — unit, integration, contract, regression, boundary, negative, parametrized combination, and tool benchmark tests |
 | **Deployment** | Local Ollama deployment + Hugging Face Space using InferenceClient, persistent ChromaDB vector store, CI/CD pipeline |
 | **Python Engineering** | Type hints throughout, Google-style docstrings, structured JSON logging, environment variable config, pinned dependency versions |
 | **Data Engineering** | Format-specific chunkers for 9 document types — row-level extraction for XLSX/CSV, table extraction with merged cell deduplication for DOCX |
@@ -52,13 +52,20 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 
 ### Benchmark results
 
-| Metric | Score | What it measures |
-|--------|-------|-----------------|
-| Faithfulness | **0.798** | Response stays grounded in retrieved context |
-| Keyword Recall | **1.000** | All expected facts appear in the answer |
-| Context Relevance | **0.719** | Retrieval found the right chunks |
-| Answer Relevancy | **0.369** | Response directly addresses the question |
-| **Overall** | **0.721** | Mean across all four metrics |
+Measured against 15 questions across 4 domains (cat facts, Python language, team members CSV, machine learning). 2 metrics use the language model as judge; 5 are computed directly.
+
+| Metric | Score | Kind |
+|--------|-------|------|
+| Faithfulness | **0.802** | LLM-as-judge |
+| Answer Relevancy | **0.828** | LLM-as-judge |
+| Ground Truth Match | **0.640** | F1 word overlap vs known correct answer |
+| Keyword Recall | **0.934** | Expected keywords found in response |
+| Context Relevance | **0.700** | Mean cosine similarity of retrieved chunks |
+| Precision@5 | **0.720** | Fraction of top-5 chunks containing a keyword |
+| MRR | **0.900** | Rank of first relevant retrieved chunk |
+| **Overall** | **0.789** | Mean across all 7 metrics |
+
+**Agent tool benchmark:** calculator 5/5, sentiment 4/4, summarise 3/3
 
 ### Deployments
 
@@ -147,7 +154,7 @@ Built from scratch as a production-grade NLP system — not a tutorial or notebo
 | 13 | **URL ingestion** | Paste any public URL — webpage, PDF, DOCX, XLSX, CSV, PPTX — auto-detected and indexed |
 | 14 | **Multi-file upload** | Upload one file or many at once; select all files from a folder with Ctrl+A |
 | 15 | **Agent with tool calling** | ReAct loop with `rag_search`, `calculator`, `summarise`, `sentiment`, and `finish` tools |
-| 16 | **Benchmarking** | 4-metric automated evaluation suite with run-over-run comparison |
+| 16 | **Benchmarking** | Full evaluation suite: 7-metric RAG benchmark (15 questions, 4 domains, 3 file types) + agent tool benchmark (calculator, sentiment, summarise) — LLM-as-judge, P@K, MRR, ground truth match, CSV export, JSON history |
 | 17 | **Logging & analytics** | Every query logged to `rag_logs.json` with similarity scores, query type, and response length |
 | 18 | **Streamlit UI** | Ocean Blue web UI with chat bubbles, agent mode toggle, live pipeline sidebar, confidence badges |
 | 19 | **HF Space deployment** | Same system deployed on Hugging Face using InferenceClient — no Ollama required |
@@ -1198,7 +1205,7 @@ The codebase uses **4 classes** and **4 modules**. Classes own state; modules ow
 | `chunkers` module | 9 stateless format-specific chunker functions |
 | `VectorStore` | ChromaDB, BM25, hybrid retrieval, reranking, response generation |
 | `Agent` | ReAct loop and all 5 tools |
-| `Benchmarker` | 4-metric evaluation and run comparison |
+| `Benchmarker` | 7-metric evaluation, CSV export, and run comparison |
 
 **Pipeline flow:**
 ```
@@ -1244,7 +1251,10 @@ Retrieval-Augmented-Generation-RAG-Agent/
 │   │   ├── document_loader.py      ← DocumentLoader: file scan, URL fetch, chunker dispatch
 │   │   ├── vector_store.py         ← VectorStore: ChromaDB, BM25, retrieval pipeline, generation
 │   │   ├── agent.py                ← Agent: ReAct loop + 5 tools
-│   │   └── benchmarker.py         ← Benchmarker: 4-metric evaluation
+│   │   ├── benchmarker.py         ← Benchmarker: 7-metric evaluation, CSV export
+│   │   ├── benchmark_report.py    ← Module: stateless terminal report formatting
+│   │   ├── metrics.py             ← Module: 7 stateless scoring functions
+│   │   └── tool_benchmarks.py     ← Module: calculator/sentiment/summarise benchmarks
 │   │
 │   ├── ui/                         ← Streamlit UI modules
 │   │   ├── handlers.py             ← Event handlers: chat, file upload, URL fetch, clear
@@ -1259,8 +1269,11 @@ Retrieval-Augmented-Generation-RAG-Agent/
 │   ├── test_vector_store.py        ← BM25, dense retrieval, build logic (unit)
 │   ├── test_vector_store_pipeline.py ← Full pipeline, rerank, classify (unit)
 │   ├── test_agent.py               ← ReAct loop, tools, fast paths (unit)
-│   ├── test_benchmarker.py         ← Scoring metrics (unit)
-│   ├── test_integration_loader.py  ← All 9 formats + URL ingestion (integration)
+│   ├── test_benchmarker.py         ← Benchmarker: run, summary, CSV (unit)
+│   ├── test_metrics.py             ← 7 scoring functions (unit)
+│   ├── test_tool_benchmarks.py     ← Tool benchmark: calculator/sentiment/summarise (unit)
+│   ├── test_benchmark_report.py    ← Report formatting functions (unit)
+│   ├── test_integration_loader.py  ← All 9 formats + URL + chunk_directory (integration)
 │   ├── test_integration_pipeline.py ← Full RAG pipeline end-to-end (integration)
 │   ├── test_combinations.py        ← Chat/Agent × all 8 doc types (parametrized)
 │   ├── test_combinations_url.py    ← URL × all content types (parametrized)
@@ -1304,7 +1317,13 @@ Retrieval-Augmented-Generation-RAG-Agent/
 │
 ├── chroma_db/                      ← Persistent vector index (auto-created, git-ignored)
 ├── rag_logs.json                   ← Query logs (auto-generated)
-├── benchmark_results.json          ← Benchmark history (auto-generated)
+├── benchmark_docs/                 ← Sample documents for self-contained benchmarking
+│   ├── python-language.txt         ← 30 Python language facts (TXT format)
+│   ├── team-members.csv            ← 10-person team data (CSV format)
+│   └── machine-learning.md         ← ML concept guide (Markdown format)
+├── benchmark_results.json          ← RAG pipeline benchmark history (auto-generated)
+├── benchmark_results.csv           ← Latest run per-question export (auto-generated)
+├── tool_benchmark_results.json     ← Tool benchmark history (auto-generated)
 └── .streamlit/
     └── config.toml                 ← Ocean Blue Streamlit theme
 ```
@@ -1316,7 +1335,8 @@ Retrieval-Augmented-Generation-RAG-Agent/
 - `src/ui/` and `src/cli/` are separate so the core system has no UI dependency
 - `huggingface/` is fully self-contained — it can be deployed independently
 - `tests/` mirrors the structure of `src/` — one test file per concern
-- `docs/`, `chroma_db/`, logs, and benchmark files are git-ignored — never committed
+- `benchmark_docs/` is committed to git — sample documents for self-contained benchmarking
+- `docs/`, `chroma_db/`, logs, and auto-generated benchmark output files are git-ignored
 
 ---
 
@@ -1355,7 +1375,10 @@ src/rag/
   document_loader.py  ← ingestion orchestration and URL fetching
   vector_store.py     ← retrieval pipeline and response generation
   agent.py            ← ReAct loop and tools
-  benchmarker.py      ← evaluation metrics
+  benchmarker.py      ← evaluation orchestration and output
+  benchmark_report.py ← stateless terminal report formatting functions
+  metrics.py          ← 7 stateless scoring functions
+  tool_benchmarks.py  ← calculator/sentiment/summarise benchmark module
 src/ui/
   handlers.py         ← Streamlit event handlers
   theme.py            ← CSS and style constants
@@ -1391,7 +1414,7 @@ src/cli/
 
 ## Testing
 
-The project has **566 local tests** and **262 HF Space tests** — 828 total. Every part of the system is covered.
+The project has **675 local tests** and **262 HF Space tests** — 937 total. Every part of the system is covered.
 
 ### One command to run everything
 
@@ -1404,7 +1427,7 @@ That's it. Run this from the project root after activating your virtual environm
 ### Run the tests
 
 ```bash
-# All 566 local tests (recommended before any pull request)
+# All 675 local tests (recommended before any pull request)
 pytest
 
 # With a line-by-line coverage report
@@ -1440,7 +1463,7 @@ cd huggingface && pytest
 
 ### Test files
 
-**Local (`tests/`)** — 566 tests across 23 files:
+**Local (`tests/`)** — 675 tests across 27 files:
 
 | File | Covers |
 |------|--------|
@@ -1448,8 +1471,11 @@ cd huggingface && pytest
 | `test_vector_store.py` | BM25, dense retrieval, build logic (unit) |
 | `test_vector_store_pipeline.py` | Full pipeline, rerank, classify (unit) |
 | `test_agent.py` | ReAct loop, tools, fast paths (unit) |
-| `test_benchmarker.py` | Scoring metrics (unit) |
-| `test_integration_loader.py` | All 9 formats + URL ingestion (integration) |
+| `test_metrics.py` | All 7 scoring functions (unit) |
+| `test_benchmarker.py` | Benchmarker run, summary, CSV export, 15-case defaults (unit) |
+| `test_tool_benchmarks.py` | Calculator/sentiment/summarise check helpers, invoke_tool, run_tool_benchmarks (unit) |
+| `test_benchmark_report.py` | Terminal report formatting: per-query table, summary, by-type, delta comparison (unit) |
+| `test_integration_loader.py` | All 9 formats + URL ingestion + chunk_directory (integration) |
 | `test_integration_pipeline.py` | Full RAG pipeline end-to-end (integration) |
 | `test_combinations.py` | Chat/Agent × all 8 doc types (parametrized) |
 | `test_combinations_url.py` | URL × all content types (parametrized) |
@@ -1475,100 +1501,291 @@ fitz (PyMuPDF), python-docx, openpyxl, python-pptx, beautifulsoup4, BM25Okapi
 
 ## Benchmarking
 
-The benchmarking suite measures four aspects of RAG quality automatically — no human labelling required. It runs a set of test questions against the indexed documents, generates answers, and scores each answer on four metrics.
+The benchmarking suite runs automatically with a single command and tests two things:
+
+1. **RAG pipeline quality** — 15 questions across 4 domains loaded from committed sample files (`benchmark_docs/`). Scores 7 aspects of retrieval and generation quality using a mix of LLM-as-judge and numeric metrics.
+
+2. **Agent tool correctness** — 12 tests covering calculator (5 tests, exact numeric correctness), sentiment (4 tests, 4-field format + valid label), and summarise (3 tests, keyword coverage). Results are saved to `tool_benchmark_results.json`.
+
+> **What the RAG benchmark tests:** the core chat pipeline — document chunking, retrieval, reranking, and answer generation. Run it after indexing documents and whenever you change a model, a config value, or retrieval logic.
+
+### Why 7 metrics — the three quality dimensions
+
+A RAG system can fail in three independent ways. The 7 metrics map to three distinct quality dimensions so you can pinpoint exactly where a failure is occurring:
+
+| Dimension | Metrics | What a low score here means |
+|-----------|---------|----------------------------|
+| **Retrieval quality** | Context Relevance, Precision@5, MRR | The system is fetching the wrong chunks — the answer exists in the documents but was not retrieved |
+| **Generation quality** | Faithfulness, Answer Relevancy | The retrieved context was good but the LLM ignored it, hallucinated, or went off-topic |
+| **Factual accuracy** | Ground Truth Match, Keyword Recall | The answer is roughly correct but missing specific facts, numbers, or expected phrasing |
+
+Using only one or two metrics hides which dimension is failing. For example, a high faithfulness score with a low MRR means the LLM is faithfully quoting whatever it retrieved — but it retrieved the wrong chunks. You cannot see this with faithfulness alone.
+
+### Why LLM-as-judge for some metrics, not all
+
+The two LLM-as-judge metrics (Faithfulness and Answer Relevancy) use the language model to read the answer and rate it 1–5. This is more reliable than word-overlap for these metrics because:
+
+- A fluent paraphrase (*"Felines typically rest 12–16 hours daily"*) is faithful to a source that says *"cats sleep 16 hours"* — but word-overlap scores it near zero.
+- An on-topic answer that uses different words still gets a high relevancy score from a judge but scores low on F1 overlap.
+
+The five numeric metrics (Ground Truth Match, Keyword Recall, Context Relevance, Precision@5, MRR) do not need LLM judgment — they measure structural properties (cosine similarity, keyword presence, chunk rank) that are objective and fast to compute.
+
+The trade-off: each LLM-as-judge call is one extra Ollama inference per metric per question. For 5 questions × 2 judge metrics = 10 extra LLM calls on top of the 5 answer generation calls.
+
+### How to read the summary statistics (Mean / Std / Min / Max)
+
+- **Mean** — the average across all test questions. This is the headline score.
+- **Std** (standard deviation) — how consistent the score is. A high Std means the pipeline performs very differently on different questions — some are answered well, others poorly. Low Std with high Mean is the ideal.
+- **Min / Max** — the worst and best individual question scores. A large gap between Min and Max confirms the inconsistency the Std hints at.
+- **latency_ms** — end-to-end wall-clock time per question, from query expansion through to the last generated token. Does not include LLM-as-judge scoring (that is evaluation overhead, not pipeline latency).
+
+### Why both Precision@5 and MRR
+
+These two retrieval metrics measure different things and catch different failure modes:
+
+- **Precision@5** answers: *"of the 5 chunks I retrieved, how many were useful?"* — measures coverage. A score of 0.8 means 4 of the 5 chunks contained relevant information.
+- **MRR** answers: *"how far down did I have to look to find the first useful chunk?"* — measures ranking quality. A score of 0.50 means the first useful chunk was in position 2.
+
+A system can have high Precision@5 but low MRR if it retrieves many relevant chunks but buries them behind irrelevant ones. The reranker is specifically designed to fix this — a reranking improvement shows up as an MRR increase before it shows up in Precision@5.
 
 ### How to run
 
 ```bash
-# Add documents to ./docs/ first, then:
+# No extra setup needed — benchmark_docs/ is included in the repo:
 python3 main.py --benchmark
 ```
 
-Results print to the terminal and are saved to `benchmark_results.json`. Every run is compared against the previous run with delta indicators (▲ improved / ▼ regressed / ─ unchanged).
+The benchmark runs in two phases automatically:
+1. Loads `benchmark_docs/` (python-language.txt, team-members.csv, machine-learning.md) into the live vector index
+2. Runs 15 RAG pipeline questions → prints per-question scores, summary table, and run-over-run comparison
+3. Runs 12 agent tool tests (calculator, sentiment, summarise) → prints pass/fail report
+
+**Output files:**
+- `benchmark_results.json` — full RAG pipeline history (every run appended)
+- `benchmark_results.csv` — latest RAG run, per-question, spreadsheet-friendly
+- `tool_benchmark_results.json` — full tool benchmark history (every run appended)
+
+Every run is compared against the previous one with delta indicators (▲ improved / ▼ regressed / ─ unchanged).
+
+---
 
 ### Current scores
 
-These scores were measured against the built-in `cat-facts.txt` test set (5 questions, included by default):
+Measured on 15 questions across 4 domains: cat facts (5), Python language (4), team members CSV (3), machine learning (3):
 
-| Metric | Score | What "good" looks like |
-|--------|-------|------------------------|
-| Faithfulness | 0.798 | > 0.70 — model is staying grounded in retrieved text |
-| Answer Relevancy | 0.369 | > 0.40 — model is directly addressing the question |
-| Keyword Recall | 1.000 | > 0.80 — all expected facts appear in the answer |
-| Context Relevance | 0.719 | > 0.60 — retrieval is finding the right chunks |
-| **Overall** | **0.721** | **> 0.65 — pipeline is working well** |
+| Metric | Score | Good threshold | Kind |
+|--------|-------|---------------|------|
+| Faithfulness | **0.802** | > 0.70 | LLM-as-judge |
+| Answer Relevancy | **0.828** | > 0.75 | LLM-as-judge |
+| Ground Truth Match | **0.640** | > 0.55 | F1 word overlap |
+| Keyword Recall | **0.934** | > 0.80 | Fraction found |
+| Context Relevance | **0.700** | > 0.60 | Mean cosine similarity |
+| Precision@5 | **0.720** | > 0.60 | Retrieval precision |
+| MRR | **0.900** | > 0.70 | Retrieval ranking |
+| **Overall** | **0.789** | **> 0.70** | Mean of all 7 |
 
-> **Why is Answer Relevancy lower than the others?** Answer Relevancy measures keyword overlap between the question and the answer. A fluent answer like *"Cats typically sleep between 12 and 16 hours per day"* overlaps less with *"How many hours do cats sleep?"* than a blunt answer like *"Cats sleep 16 hours"* — even though the fluent answer is better. This metric penalises natural sentence construction.
+---
+
+### Sample terminal output
+
+```
+════════════════════════════════════════════════════════════════════════
+  RAG PIPELINE BENCHMARK  ·  2026-03-27 14:32:01  ·  5 questions
+════════════════════════════════════════════════════════════════════════
+
+  [1/5] How many hours do cats sleep per day?
+         faith=0.75  relev=0.88  gt=0.68  kw=1.00  ctx=0.71  p@5=0.80  mrr=1.00  1243ms
+  [2/5] Can cats see in dim light?
+         faith=0.88  relev=0.75  gt=0.55  kw=0.67  ctx=0.69  p@5=0.60  mrr=0.50  1187ms
+  [3/5] How many toes do cats have on their front paws?
+         faith=0.75  relev=0.88  gt=0.72  kw=1.00  ctx=0.72  p@5=0.80  mrr=1.00  1098ms
+  [4/5] How many whiskers does a cat have?
+         faith=0.88  relev=0.88  gt=0.65  kw=1.00  ctx=0.68  p@5=0.60  mrr=1.00  1156ms
+  [5/5] Can cats taste sweet food?
+         faith=0.75  relev=0.75  gt=0.60  kw=1.00  ctx=0.70  p@5=0.80  mrr=1.00  1089ms
+
+════════════════════════════════════════════════════════════════════════
+  PER-QUESTION RESULTS
+════════════════════════════════════════════════════════════════════════
+
+  #    Question                                   Faith  Relev    GT  KwRec    Ctx   P@5    MRR      ms
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────
+  1    How many hours do cats sleep per day?       0.75   0.88  0.68   1.00   0.71  0.80   1.00    1243
+  2    Can cats see in dim light?                  0.88   0.75  0.55   0.67   0.69  0.60   0.50    1187
+  3    How many toes do cats have on their fron..  0.75   0.88  0.72   1.00   0.72  0.80   1.00    1098
+  4    How many whiskers does a cat have?          0.88   0.88  0.65   1.00   0.68  0.60   1.00    1156
+  5    Can cats taste sweet food?                  0.75   0.75  0.60   1.00   0.70  0.80   1.00    1089
+
+════════════════════════════════════════════════════════════════════════
+  SUMMARY
+════════════════════════════════════════════════════════════════════════
+
+  Metric                    Mean    Std    Min    Max  Bar
+  ──────────────────────────────────────────────────────────────────
+  faithfulness (LLM)       0.802  0.068  0.750  0.880  [████████████████░░░░]
+  answer_relevancy (LLM)   0.828  0.068  0.750  0.880  [████████████████░░░░]
+  ground_truth_match       0.640  0.063  0.550  0.720  [████████████░░░░░░░░]
+  keyword_recall           0.934  0.149  0.670  1.000  [██████████████████░░]
+  context_relevance        0.700  0.015  0.680  0.720  [██████████████░░░░░░]
+  precision_at_5           0.720  0.110  0.600  0.800  [██████████████░░░░░░]
+  mrr                      0.900  0.224  0.500  1.000  [██████████████████░░]
+
+  latency_ms               1155     62   1089   1243  ms
+  ──────────────────────────────────────────────────────────────────
+  overall                  0.789  0.039  0.747  0.841  [███████████████░░░░░]
+
+════════════════════════════════════════════════════════════════════════
+  BY QUERY TYPE
+════════════════════════════════════════════════════════════════════════
+  factual              (5 questions)   overall 0.789  [███████████████░░░░░]
+
+════════════════════════════════════════════════════════════════════════
+  vs PREVIOUS RUN
+════════════════════════════════════════════════════════════════════════
+  faithfulness_llm          0.741 → 0.802  ▲0.061
+  answer_relevancy_llm      0.781 → 0.828  ▲0.047
+  ground_truth_match        0.591 → 0.640  ▲0.049
+  keyword_recall            0.867 → 0.934  ▲0.067
+  context_relevance         0.681 → 0.700  ▲0.019
+  precision_at_5            0.680 → 0.720  ▲0.040
+  mrr                       0.860 → 0.900  ▲0.040
+  overall                   0.743 → 0.789  ▲0.046
+
+  Saved  → benchmark_results.json
+  Export → benchmark_results.csv
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+  AGENT TOOL BENCHMARK
+════════════════════════════════════════════════════════════════════════
+  #    Tool           Status  Input (truncated)                         Note
+  ────────────────────────────────────────────────────────────────────────
+  1    calculator     PASS    '6 * 7'                                   6 * 7 = 42
+  2    calculator     PASS    '(100 + 50) / 3'                          (100 + 50) / 3 ≈ 50.0
+  3    calculator     PASS    'sqrt(4)'                                 letter chars not allowed — must return an error message
+  4    calculator     PASS    '365 * 24'                                365 * 24 = 8760
+  5    calculator     PASS    '15% of 85000'                            15% of 85000 = 12750.0
+  6    sentiment      PASS    'I absolutely love this product. It wo..' must contain Sentiment, Tone, Key phrases, Explanation fields
+  7    sentiment      PASS    'This is a terrible experience. Nothin..' must contain Sentiment, Tone, Key phrases, Explanation fields
+  8    sentiment      PASS    'Water boils at 100 degrees Celsius at..' must contain Sentiment, Tone, Key phrases, Explanation fields
+  9    sentiment      PASS    'I absolutely love this product. It wo..' must contain a valid label (Positive/Negative/Neutral/Mixed)
+  10   summarise      PASS    'Python was created by Guido van Rossum..' summary must mention Python or Guido
+  11   summarise      PASS    'Machine learning is a subset of artifi..' summary must mention machine learning or learning
+  12   summarise      PASS    'The sky is blue. The sun is yellow.'      must return a non-empty summary for short input
+
+────────────────────────────────────────────────────────────────────────
+  Total: 12/12 passed  (100%)
+    calculator      5/5
+    sentiment       4/4
+    summarise       3/3
+
+  Saved  → tool_benchmark_results.json
+════════════════════════════════════════════════════════════════════════
+```
+
+### Tool benchmark — what each test checks
+
+| Tool | # Tests | What passes |
+|------|---------|-------------|
+| **calculator** | 5 | Arithmetic results match exactly; unsafe characters (letters) are rejected with an error |
+| **sentiment** | 4 | Output contains all 4 required fields (`Sentiment:`, `Tone:`, `Key phrases:`, `Explanation:`) and a valid label (Positive/Negative/Neutral/Mixed) |
+| **summarise** | 3 | Output is non-empty and contains at least one key term from the input |
+
+Calculator tests are fully deterministic (no LLM call). Sentiment and summarise tests call the language model once per test.
+
+---
 
 ### How each metric is calculated
 
-**Faithfulness** — measures whether the response stays grounded in the retrieved chunks:
+**Faithfulness (LLM-as-judge)** — asks the language model to grade whether every claim in the response is grounded in the retrieved context:
 ```
-faithfulness = number of response words that also appear in retrieved chunks
-               ─────────────────────────────────────────────────────────────
-               total number of words in the response
-               (common stopwords like "the", "is", "a" are excluded)
+LLM rates 1–5 → normalised to 0.0–1.0
+1 = answer invents facts not in the context (hallucination)
+5 = every claim comes directly from the retrieved chunks
 ```
-A high score means the model is answering from the documents. A low score (< 0.50) with a high Context Relevance score means the model is hallucinating despite receiving relevant chunks.
+This is more reliable than word-overlap alone because it catches cases where the model paraphrases content faithfully — which word-overlap penalises as hallucination.
 
 ---
 
-**Answer Relevancy** — measures whether the response addresses the question:
+**Answer Relevancy (LLM-as-judge)** — asks the language model to grade whether the answer directly addresses the question:
 ```
-answer_relevancy = F1 overlap between question keywords and response keywords
-                   (common question words like "what", "how", "can" are excluded)
+LLM rates 1–5 → normalised to 0.0–1.0
+1 = answer ignores the question entirely
+5 = answer completely and directly addresses the question
 ```
-F1 = harmonic mean of precision (response words that are in the question) and recall (question words that appear in the response). A low score means the model answered something adjacent but not the question directly.
 
 ---
 
-**Keyword Recall** — measures factual completeness against expected keywords:
+**Ground Truth Match** — F1 word overlap between the response and the known correct answer:
 ```
-keyword_recall = number of expected keywords found in the response
-                 ───────────────────────────────────────────────────
-                 total number of expected keywords
+precision = words in common / words in response
+recall    = words in common / words in ground truth
+F1        = 2 × precision × recall / (precision + recall)
 ```
-Each test case specifies an `expected_keywords` list. For example, the question *"How many hours do cats sleep?"* expects `['sleep', '16']`. If both words appear in the response, recall = 1.0. If only one does, recall = 0.5.
+Requires a `ground_truth` answer in each test case. Measures lexical similarity to the expected answer — not semantic similarity.
 
 ---
 
-**Context Relevance** — measures whether retrieval found the right chunks:
+**Keyword Recall** — fraction of expected answer keywords found in the response:
 ```
-context_relevance = mean cosine similarity of the top reranked chunks to the query
+keyword_recall = keywords found in response / total expected keywords
 ```
-This score comes directly from the retrieval pipeline — it measures retrieval quality independently of how the LLM uses the context. A low score means the problem is upstream in retrieval, not in generation.
+Each test case supplies an `expected_keywords` list. For *"How many hours do cats sleep?"* the list is `['sleep', '16']`. If both appear in the response, recall = 1.0.
 
 ---
 
-**Overall** — the single headline metric:
+**Context Relevance** — mean cosine similarity of the top reranked chunks to the query:
 ```
-overall = mean(faithfulness, answer_relevancy, keyword_recall, context_relevance)
+context_relevance = mean(cosine_similarity(chunk_embedding, query_embedding))
+                    over the top TOP_RERANK chunks
+```
+Measures retrieval quality independently of the LLM. A low score here means the problem is upstream in retrieval, not in generation.
+
+---
+
+**Precision@5** — fraction of the top-5 retrieved chunks that contain at least one expected keyword:
+```
+precision@5 = relevant chunks in top 5 / 5
+```
+A chunk is "relevant" if it contains at least one expected keyword. Measures whether retrieval fetched chunks that actually contain the answer.
+
+---
+
+**MRR (Mean Reciprocal Rank)** — how high up the list the first relevant chunk appeared:
+```
+MRR = 1 / rank_of_first_relevant_chunk
+```
+MRR = 1.00 → the very first chunk was relevant.
+MRR = 0.50 → the second chunk was the first relevant one.
+MRR = 0.00 → no relevant chunk found.
+
+---
+
+**Overall** — mean of all 7 scored metrics (latency is excluded):
+```
+overall = mean(faithfulness, answer_relevancy, ground_truth_match,
+               keyword_recall, context_relevance, precision_at_5, mrr)
 ```
 
-### How to interpret the run comparison output
+---
 
-After each benchmark run you will see a comparison against the previous run:
+### How to interpret drops in the run comparison
 
-```
-Metric                  Current   Previous  Delta
-──────────────────────────────────────────────────
-faithfulness            0.798     0.741     ▲ +0.057
-answer_relevancy        0.369     0.421     ▼ -0.052
-keyword_recall          1.000     1.000     ─  0.000
-context_relevance       0.719     0.698     ▲ +0.021
-overall                 0.721     0.715     ▲ +0.006
-```
+| Metric drops | What it usually means |
+|---|---|
+| **faithfulness_llm** | LLM is generating content not grounded in documents. Try raising `SIMILARITY_THRESHOLD` (0.40 → 0.50) |
+| **answer_relevancy_llm** | LLM is digressing. Often caused by ambiguous test questions or a recently changed system prompt |
+| **ground_truth_match** | Response wording drifted from expected. The answer may still be correct but phrased differently |
+| **keyword_recall** | Model is omitting expected facts. Check whether the keywords are present in the indexed documents |
+| **context_relevance** | Retrieval is degraded. New documents may have diluted the BM25 index or the embedding model is struggling with a new content type |
+| **precision_at_5** | Retrieved chunks no longer contain the answer. Check whether the right document is indexed |
+| **mrr** | The first relevant chunk is ranking lower. Reranking quality may have dropped — check the reranker model |
 
-**What a drop means:**
-- **Faithfulness drops** — the LLM is generating content not grounded in documents. Check whether `SIMILARITY_THRESHOLD` is too low (try raising from 0.40 to 0.50).
-- **Context Relevance drops** — retrieval is degraded. This can happen if new documents diluted the BM25 index or if the embedding model produces lower-quality vectors for the new content type.
-- **Answer Relevancy drops** — the model is digressing. This often happens when the test question is ambiguous and the LLM interprets it differently.
-- **Keyword Recall drops** — the model is omitting expected facts. Check whether the expected keywords are present in the indexed documents.
+---
 
 ### How to add your own test cases
 
 ```python
-# Run with your own test cases from a Python script
 from src.rag.benchmarker import Benchmarker
 from src.rag.vector_store import VectorStore
 
@@ -1577,24 +1794,29 @@ bench = Benchmarker(store)
 
 my_test_cases = [
     {
-        'question': 'What is the candidate\'s most recent job title?',
-        'expected_keywords': ['engineer', 'developer', 'manager'],
+        'question':          "What is the candidate's most recent job title?",
+        'ground_truth':      'The candidate is a Senior Machine Learning Engineer.',
+        'expected_keywords': ['engineer', 'machine learning', 'senior'],
+        'query_type':        'factual',
     },
     {
-        'question': 'What year did the company reach $1M revenue?',
+        'question':          'What year did the company reach $1M revenue?',
+        'ground_truth':      'The company reached $1 million in revenue in 2022.',
         'expected_keywords': ['2022', 'million', 'revenue'],
+        'query_type':        'factual',
     },
 ]
 
 bench.run(test_cases=my_test_cases)
 ```
 
-Or add them permanently by editing the `DEFAULT_TEST_CASES` list in `src/rag/benchmarker.py`.
+Or add them permanently to `DEFAULT_TEST_CASES` in `src/rag/benchmarker.py`.
 
 **Tips for writing good test cases:**
-- Include the exact words or numbers you expect to see in the answer (not synonyms)
-- Keep `expected_keywords` to 2–4 words — too many keywords punish natural language answers
-- Mix factual questions (precise answers), comparison questions, and summarise questions to get a balanced score
+- `ground_truth` — write the ideal one-sentence answer. Used by ground_truth_match and LLM-as-judge context.
+- `expected_keywords` — include the exact words or numbers you expect (2–4 is ideal). Too many keywords penalise natural phrasing.
+- `query_type` — label as `'factual'`, `'comparison'`, or `'summarise'` to see per-type breakdowns.
+- Mix question types to get a balanced overall score that reflects real usage.
 
 ---
 

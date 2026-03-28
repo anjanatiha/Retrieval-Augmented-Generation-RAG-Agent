@@ -149,19 +149,25 @@ class TestRunnerImportContract:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRunBenchmark:
-    """run_benchmark() should create a Benchmarker and call .run() once."""
+    """run_benchmark() should load benchmark docs, create a Benchmarker, and call .run()."""
 
     def test_calls_benchmarker_run(self):
-        """run_benchmark passes store to Benchmarker and calls .run()."""
+        """run_benchmark passes loader and store; calls Benchmarker(store).run()."""
+        mock_loader            = MagicMock()
         mock_store             = MagicMock()
         mock_benchmarker       = MagicMock()
 
-        with patch('cli.runner.Benchmarker', return_value=mock_benchmarker) as mock_cls:
-            from cli.runner import run_benchmark
-            run_benchmark(mock_store)
+        # chunk_directory returns empty list so the add_chunks branch is skipped
+        mock_loader.chunk_directory.return_value = []
+
+        with patch('src.cli.runner.Benchmarker', return_value=mock_benchmarker) as mock_cls:
+            with patch('src.cli.runner.run_tool_benchmarks') as mock_tool_bench:
+                from src.cli.runner import run_benchmark
+                run_benchmark(mock_loader, mock_store)
 
         mock_cls.assert_called_once_with(mock_store)
         mock_benchmarker.run.assert_called_once()
+        mock_tool_bench.assert_called_once_with(mock_store)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

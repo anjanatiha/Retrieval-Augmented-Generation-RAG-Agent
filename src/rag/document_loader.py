@@ -32,10 +32,11 @@ class DocumentLoader:
         chunk_sizes:  dict of all chunk-size constants (txt, pdf, docx, pptx, html)
 
     Public API:
-        ensure_folders()        — create ./docs subfolders if missing
-        scan_all_files()        — find every file under DOCS_ROOT, flag misplaced ones
-        chunk_all_documents()   — scan + dispatch all files → list of chunk dicts
-        chunk_url(url)          — fetch a URL, detect type, return chunks
+        ensure_folders()            — create ./docs subfolders if missing
+        scan_all_files()            — find every file under DOCS_ROOT, flag misplaced ones
+        chunk_all_documents()       — scan + dispatch all files → list of chunk dicts
+        chunk_directory(directory)  — chunk all files in any given folder (used for benchmarking)
+        chunk_url(url)              — fetch a URL, detect type, return chunks
     """
 
     def __init__(self) -> None:
@@ -145,6 +146,58 @@ class DocumentLoader:
         for t, count in sorted(type_counts.items()):
             print(f"    {t.upper():<8} {count} chunks")
         print(f"  Total: {len(all_chunks)} chunks\n")
+
+        return all_chunks
+
+    def chunk_directory(self, directory: str) -> List[dict]:
+        """Chunk all supported files inside a given directory (flat, one level deep).
+
+        Unlike chunk_all_documents() which is tied to the configured ./docs/ tree,
+        this method accepts any arbitrary folder path. This is used by the benchmark
+        runner to load sample documents from benchmark_docs/ without mixing them into
+        the main document index.
+
+        Files that have no supported extension are silently skipped.
+
+        Args:
+            directory: Absolute or relative path to the folder to scan.
+
+        Returns:
+            Flat list of chunk dicts from every supported file in the directory.
+            Returns an empty list if the directory does not exist or has no files.
+        """
+        all_chunks = []
+
+        if not os.path.isdir(directory):
+            print(f"  [benchmark] Directory not found: {directory}")
+            return all_chunks
+
+        for filename in sorted(os.listdir(directory)):
+            filepath = os.path.join(directory, filename)
+
+            # Skip sub-directories — only process files at the top level
+            if not os.path.isfile(filepath):
+                continue
+
+            extension     = os.path.splitext(filename)[1].lower()
+            detected_type = self.ext_to_type.get(extension)
+
+            # Skip file types we do not support
+            if detected_type is None:
+                continue
+
+            file_info = {
+                'filepath':      filepath,
+                'filename':      filename,
+                'detected_type': detected_type,
+                'found_in':      directory,
+                'canonical_dir': directory,
+                'is_misplaced':  False,
+            }
+
+            chunks = self._dispatch_chunker(file_info)
+            all_chunks.extend(chunks)
+            print(f"  [benchmark/{detected_type.upper()}] '{filename}': {len(chunks)} chunks")
 
         return all_chunks
 

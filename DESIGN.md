@@ -33,7 +33,11 @@ Owns ChromaDB, BM25, hybrid retrieval, reranking, query expansion, query classif
 Owns the ReAct loop and all 5 tools as private methods. The tools (calculator, summarise, sentiment, rag_search) have no independent state — they are pure operations that happen to live inside the agent's context. Making each tool a class would add 5 empty `__init__` methods and 5 objects that exist only to call one function.
 
 ### `Benchmarker`
-Owns all evaluation logic: scoring, run comparison, result persistence. Takes a `VectorStore` as a dependency so it can run the same pipeline the user runs in production.
+Owns all RAG pipeline evaluation orchestration: running the pipeline per test case, printing the report, persisting JSON history, and exporting to CSV. All 7 scoring functions live as stateless module-level functions in `metrics.py` — they have no state of their own and are imported by `Benchmarker`. Takes a `VectorStore` as a dependency so it runs the exact same pipeline the user runs in production.
+
+Agent tool benchmarks (calculator, sentiment, summarise) live in `tool_benchmarks.py` as a module — not a class — because they have no shared state. `run_tool_benchmarks(store)` is a single public function that runs 12 tests across 3 tools and saves results to `tool_benchmark_results.json`.
+
+The 4 terminal print functions (`print_per_query_table`, `print_summary_table`, `print_by_query_type`, `format_run_comparison`) were extracted to `benchmark_report.py` when `benchmarker.py` exceeded the 500-line limit. All 4 functions are stateless — they only use the dicts passed to them — so they belong in a module, not a class.
 
 ---
 
@@ -80,15 +84,30 @@ The type-aware reranker uses 7 different prompts — one per document type — t
 
 ## Benchmark Metrics
 
-| Metric | What it measures |
-|--------|-----------------|
-| `faithfulness` | Word overlap between response and retrieved context — measures whether the model stayed grounded or hallucinated |
-| `answer_relevancy` | F1 overlap between question keywords and response keywords — measures whether the answer addressed the question |
-| `keyword_recall` | Fraction of expected keywords found in the response — measures factual completeness |
-| `context_relevance` | Mean similarity score of the top-reranked chunks — measures whether the retrieval pipeline found relevant content |
-| `overall` | Mean of the four above — single headline metric for pipeline health |
+The benchmark suite has two parts:
 
-A low `faithfulness` with a high `context_relevance` indicates the model is hallucinating despite having good context. A low `context_relevance` with low `faithfulness` indicates the retrieval is broken upstream.
+**Part 1 — RAG pipeline (15 questions, 4 domains):** 7 metrics per question. Two use the language model as a judge (more reliable but slower); five are computed directly from text and vector scores (fast, no extra LLM call).
+
+**Part 2 — Agent tools (12 tests):** Deterministic correctness for calculator, format compliance for sentiment, keyword coverage for summarise. Results saved to `tool_benchmark_results.json` separately.
+
+| Metric | Kind | What it measures |
+|--------|------|-----------------|
+| `faithfulness_llm` | LLM-as-judge (1–5 → 0–1) | Whether every claim in the answer is grounded in the retrieved context |
+| `answer_relevancy_llm` | LLM-as-judge (1–5 → 0–1) | Whether the answer directly addresses the question |
+| `ground_truth_match` | F1 word overlap | How closely the response matches the known correct answer |
+| `keyword_recall` | Fraction found | Whether expected factual keywords appear in the response |
+| `context_relevance` | Mean cosine similarity | Whether the retrieval pipeline fetched relevant chunks |
+| `precision_at_5` | Fraction of top-5 | Whether the top-5 retrieved chunks actually contain relevant information |
+| `mrr` | 1 / rank | How high up the list the first relevant chunk appeared |
+| `overall` | Mean of all 7 | Single headline metric for pipeline health |
+
+**Diagnostic patterns:**
+- Low `faithfulness_llm` + high `context_relevance` → model is hallucinating despite receiving good chunks. Check the system prompt and `SIMILARITY_THRESHOLD`.
+- Low `context_relevance` + low `precision_at_5` → retrieval is broken upstream. Check document indexing and embedding quality.
+- Low `mrr` + adequate `context_relevance` → relevant chunks exist but are ranking low. Reranking quality may have degraded.
+- Low `ground_truth_match` + high `faithfulness_llm` → the answer is correct but phrased differently from the expected answer. May not indicate a real problem.
+
+All scoring functions are stateless module-level functions in `metrics.py`. They take plain Python values and return a float in [0.0, 1.0]. This makes them independently testable and reusable outside the benchmark pipeline.
 
 ---
 
@@ -114,7 +133,7 @@ A low `faithfulness` with a high `context_relevance` indicates the model is hall
 
 - **Streaming in the Streamlit chat**: Currently the full response is collected before display. Token-level streaming would make the UI feel much faster.
 - **Persistent conversation history**: Conversation history lives in memory and resets on restart. A database-backed store (SQLite or Redis) would enable cross-session memory.
-- **Evaluation dataset**: The 5-question cat facts benchmark is a smoke test. A real evaluation dataset with 50-100 domain-specific questions and human-verified ground truth would give meaningful signal on retrieval quality.
+- **Evaluation dataset**: The current 15-question benchmark covers 4 domains (cat facts, Python language, team members CSV, machine learning) using committed sample files. A real production evaluation dataset with 50-100 domain-specific questions, human-verified ground truth answers, and a mix of factual/comparison/summarise query types would give stronger signal. The infrastructure is already in place — `ground_truth`, `query_type`, and `chunk_directory()` — only the domain-specific questions and documents need to be added.
 - **Document update detection**: Currently, if a document changes on disk, the system does not detect it. A file hash comparison at startup would trigger targeted re-embedding of changed files without a full rebuild.
 - **Reranker fine-tuning**: The LLM reranker uses a zero-shot prompt. Fine-tuning a small cross-encoder (e.g. `ms-marco-MiniLM`) on domain-specific relevance pairs would give faster and more accurate reranking than a generative model.
 

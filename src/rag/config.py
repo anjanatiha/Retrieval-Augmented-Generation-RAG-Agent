@@ -21,7 +21,8 @@ import os
 __all__ = [
     'EMBEDDING_MODEL', 'LANGUAGE_MODEL',
     'DOCS_ROOT', 'DOC_FOLDERS', 'EXT_TO_TYPE',
-    'CHROMA_DIR', 'CHROMA_COLLECTION', 'LOG_FILE', 'BENCHMARK_FILE',
+    'CHROMA_DIR', 'CHROMA_COLLECTION', 'LOG_FILE', 'BENCHMARK_FILE', 'BENCHMARK_CSV',
+    'BENCHMARK_DOCS_DIR', 'TOOL_BENCHMARK_FILE',
     'SIMILARITY_THRESHOLD', 'TOP_RETRIEVE', 'TOP_RERANK',
     'TXT_CHUNK_SIZE', 'TXT_CHUNK_OVERLAP', 'PDF_CHUNK_SENTENCES',
     'DOCX_CHUNK_PARAS', 'PPTX_CHUNK_SLIDES', 'HTML_CHUNK_SENTENCES',
@@ -84,6 +85,16 @@ LOG_FILE       = os.environ.get('RAG_LOG_FILE', 'rag_logs.json')
 
 # Benchmark scores from each run are saved here for before/after comparison
 BENCHMARK_FILE = os.environ.get('RAG_BENCHMARK_FILE', 'benchmark_results.json')
+
+# Full per-question results exported as a spreadsheet-friendly CSV after each run
+BENCHMARK_CSV  = os.environ.get('RAG_BENCHMARK_CSV',  'benchmark_results.csv')
+
+# Folder containing sample documents committed to the repo for benchmarking.
+# These are loaded automatically when running python main.py --benchmark.
+BENCHMARK_DOCS_DIR = os.environ.get('RAG_BENCHMARK_DOCS_DIR', './benchmark_docs')
+
+# Tool benchmark results (calculator, sentiment, summarise) saved here as JSON
+TOOL_BENCHMARK_FILE = os.environ.get('RAG_TOOL_BENCHMARK_FILE', 'tool_benchmark_results.json')
 
 # ── Retrieval thresholds ───────────────────────────────────────────────────────
 # Do NOT change these without running a benchmark first — small changes

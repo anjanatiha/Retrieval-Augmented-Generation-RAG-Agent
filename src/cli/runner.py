@@ -17,8 +17,9 @@ from typing import Tuple
 
 from src.rag.agent import Agent
 from src.rag.benchmarker import Benchmarker
-from src.rag.config import CHROMA_DIR, DOC_FOLDERS, DOCS_ROOT, TOP_RERANK
+from src.rag.config import BENCHMARK_DOCS_DIR, CHROMA_DIR, DOC_FOLDERS, DOCS_ROOT, TOP_RERANK
 from src.rag.document_loader import DocumentLoader
+from src.rag.tool_benchmarks import run_tool_benchmarks
 from src.rag.vector_store import VectorStore
 
 # Module-level logger — replaces bare print() for non-user-facing messages
@@ -55,16 +56,45 @@ def initialize() -> Tuple[DocumentLoader, VectorStore]:
     return loader, store
 
 
-def run_benchmark(store: VectorStore) -> None:
-    """Run the automated benchmark and print scores to the terminal.
+def run_benchmark(loader: DocumentLoader, store: VectorStore) -> None:
+    """Run the full automated benchmark suite and print scores to the terminal.
 
-    Uses 5 cat-facts questions by default. Results are saved to
-    benchmark_results.json and compared against the previous run.
+    The benchmark runs in two phases:
+
+    Phase 1 — RAG pipeline benchmark (Benchmarker):
+        Loads sample documents from benchmark_docs/ into the VectorStore, then
+        evaluates retrieval + generation quality on 15 questions spanning 4 domains
+        (cat facts, Python, team members, machine learning) across 3 file types
+        (txt, csv, md). Saves results to benchmark_results.json and benchmark_results.csv.
+
+    Phase 2 — Agent tool benchmark (tool_benchmarks):
+        Tests all 3 direct-call tools in isolation:
+            - calculator: 5 tests, exact numeric correctness
+            - sentiment:  4 tests, 4-field format + valid label
+            - summarise:  3 tests, keyword coverage
 
     Args:
-        store: An already-initialised VectorStore with documents loaded.
+        loader: A DocumentLoader used to chunk benchmark_docs/ sample files.
+        store:  An already-initialised VectorStore with documents loaded.
     """
+    # ── Phase 1 setup: load benchmark sample documents ───────────────────────
+    print(f"\nLoading benchmark sample documents from '{BENCHMARK_DOCS_DIR}/'...")
+    benchmark_chunks = loader.chunk_directory(BENCHMARK_DOCS_DIR)
+
+    if benchmark_chunks:
+        # Add benchmark docs to the live VectorStore so pipeline questions can
+        # retrieve from them.  Use a distinct id_prefix so they can be identified.
+        store.add_chunks(benchmark_chunks, id_prefix='bench')
+        store.rebuild_bm25(store.chunks)
+        print(f"  Added {len(benchmark_chunks)} benchmark chunks to the index.\n")
+    else:
+        print("  No benchmark documents found — running on existing index only.\n")
+
+    # ── Phase 1: RAG pipeline benchmark ─────────────────────────────────────
     Benchmarker(store).run()
+
+    # ── Phase 2: Agent tool benchmark ───────────────────────────────────────
+    run_tool_benchmarks(store)
 
 
 def run_agent(store: VectorStore) -> None:

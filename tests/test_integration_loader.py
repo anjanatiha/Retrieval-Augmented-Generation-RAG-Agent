@@ -413,3 +413,113 @@ class TestUrlIngestion:
             chunks = DocumentLoader().chunk_url(long_url)
         if chunks:
             assert len(chunks[0]['source']) <= 60
+
+
+# ---------------------------------------------------------------------------
+# chunk_directory
+# ---------------------------------------------------------------------------
+
+class TestChunkDirectory:
+    """Integration tests for DocumentLoader.chunk_directory().
+
+    Uses real temporary directories and real files so no mocking is needed.
+    The method must handle: supported files, unsupported files, missing dirs.
+    """
+
+    def test_missing_directory_returns_empty_list(self):
+        """Non-existent directory path: returns an empty list without raising."""
+        from src.rag.document_loader import DocumentLoader
+        chunks = DocumentLoader().chunk_directory('/tmp/this_path_does_not_exist_rag')
+        assert chunks == []
+
+    def test_empty_directory_returns_empty_list(self):
+        """Directory with no files: returns an empty list."""
+        from src.rag.document_loader import DocumentLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            chunks = DocumentLoader().chunk_directory(tmpdir)
+        assert chunks == []
+
+    def test_txt_file_is_chunked(self):
+        """A .txt file in the directory: returns at least one chunk."""
+        from src.rag.document_loader import DocumentLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt_path = os.path.join(tmpdir, 'test.txt')
+            with open(txt_path, 'w') as f:
+                f.write('Line one.\nLine two.\nLine three.\n')
+            chunks = DocumentLoader().chunk_directory(tmpdir)
+        assert len(chunks) > 0
+
+    def test_csv_file_is_chunked(self):
+        """A .csv file in the directory: returns at least one chunk."""
+        from src.rag.document_loader import DocumentLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = os.path.join(tmpdir, 'data.csv')
+            with open(csv_path, 'w', newline='') as f:
+                writer = __import__('csv').DictWriter(f, fieldnames=['Name', 'Role'])
+                writer.writeheader()
+                writer.writerow({'Name': 'Alice', 'Role': 'Engineer'})
+            chunks = DocumentLoader().chunk_directory(tmpdir)
+        assert len(chunks) > 0
+
+    def test_md_file_is_chunked(self):
+        """A .md file in the directory: returns at least one chunk."""
+        from src.rag.document_loader import DocumentLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            md_path = os.path.join(tmpdir, 'notes.md')
+            with open(md_path, 'w') as f:
+                f.write('# Heading\nSome content here.\nMore text.\n')
+            chunks = DocumentLoader().chunk_directory(tmpdir)
+        assert len(chunks) > 0
+
+    def test_unsupported_extension_is_skipped(self):
+        """A .xyz file: skipped silently, returns empty list for that file."""
+        from src.rag.document_loader import DocumentLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_path = os.path.join(tmpdir, 'unknown.xyz')
+            with open(bad_path, 'w') as f:
+                f.write('irrelevant content')
+            chunks = DocumentLoader().chunk_directory(tmpdir)
+        assert chunks == []
+
+    def test_mixed_files_processes_only_supported(self):
+        """Directory with one supported (.txt) and one unsupported (.xyz): only .txt chunked."""
+        from src.rag.document_loader import DocumentLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt_path = os.path.join(tmpdir, 'good.txt')
+            bad_path = os.path.join(tmpdir, 'skip.xyz')
+            with open(txt_path, 'w') as f:
+                f.write('Hello world.\n')
+            with open(bad_path, 'w') as f:
+                f.write('ignored')
+            chunks = DocumentLoader().chunk_directory(tmpdir)
+        assert len(chunks) > 0
+        # All chunks must come from the supported .txt file
+        for chunk in chunks:
+            assert 'good.txt' in chunk['source']
+
+    def test_chunks_have_required_keys(self):
+        """Each chunk returned by chunk_directory has the standard required keys."""
+        from src.rag.document_loader import DocumentLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt_path = os.path.join(tmpdir, 'sample.txt')
+            with open(txt_path, 'w') as f:
+                f.write('First line.\nSecond line.\n')
+            chunks = DocumentLoader().chunk_directory(tmpdir)
+        required_keys = {'text', 'source', 'start_line', 'end_line', 'type'}
+        for chunk in chunks:
+            missing = required_keys - set(chunk.keys())
+            assert not missing, f"Chunk missing keys: {missing}"
+
+    def test_subdirectories_are_skipped(self):
+        """Subdirectories inside the target folder are not recursed into."""
+        from src.rag.document_loader import DocumentLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a file in a subdirectory — should be ignored
+            subdir = os.path.join(tmpdir, 'sub')
+            os.makedirs(subdir)
+            nested_txt = os.path.join(subdir, 'nested.txt')
+            with open(nested_txt, 'w') as f:
+                f.write('nested content')
+            chunks = DocumentLoader().chunk_directory(tmpdir)
+        # No files at the top level → empty result
+        assert chunks == []

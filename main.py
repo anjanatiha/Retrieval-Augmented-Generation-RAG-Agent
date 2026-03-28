@@ -30,7 +30,7 @@ if __name__ == '__main__':
     loader, store = initialize()
 
     if args.benchmark:
-        run_benchmark(store)
+        run_benchmark(loader, store)
     elif args.agent:
         run_agent(store)
     else:
