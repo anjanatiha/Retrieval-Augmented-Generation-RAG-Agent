@@ -47,3 +47,4 @@ docs/
 
 # Test documents — generated locally, not needed in repo
 test_docs/
+*.DS_Store
