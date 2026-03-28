@@ -44,3 +44,6 @@ build/
 
 # Document uploads — don't commit personal documents
 docs/
+
+# Test documents — generated locally, not needed in repo
+test_docs/
