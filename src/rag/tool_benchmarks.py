@@ -1,11 +1,13 @@
-"""tool_benchmarks.py — Stateless functions for benchmarking all 5 agent tools.
+"""tool_benchmarks.py — Stateless functions for benchmarking all 6 agent tools.
 
 WHY THIS FILE EXISTS:
     The Benchmarker class tests the RAG pipeline (retrieval + generation quality).
     Agent tools have different evaluation criteria:
-        - calculator: exact numeric correctness
-        - sentiment:  format compliance + valid label
-        - summarise:  keyword coverage in output
+        - calculator:   exact numeric correctness
+        - sentiment:    format compliance + valid label
+        - summarise:    keyword coverage in output
+        - translate:    non-empty output containing translation
+        - topic_search: chunks returned from DocumentLoader.chunk_topic_search()
 
     These concerns belong in a module (no class state needed) so they do not
     push benchmarker.py over the 500-line file-size limit.
@@ -29,6 +31,7 @@ import json
 import os
 from datetime import datetime
 from typing import List
+from unittest.mock import MagicMock, patch
 
 from src.rag.agent import Agent
 from src.rag.config import TOOL_BENCHMARK_FILE
@@ -185,6 +188,63 @@ TOOL_TEST_CASES: List[dict] = [
         'check': lambda r: len(r.strip()) > 0,
         'note':  'must return a non-empty summary for short input',
     },
+
+    # ── Translate: output must be non-empty and differ from the input ────────
+    # Long input (≥15 words) → translated directly without RAG search.
+    {
+        'tool':  'translate',
+        'input': (
+            'Spanish: The sky is blue and the sun is shining brightly '
+            'over the mountains today in the afternoon.'
+        ),
+        'check': lambda r: len(r.strip()) > 0,
+        'note':  'must return a non-empty Spanish translation',
+    },
+    {
+        'tool':  'translate',
+        'input': (
+            'French: Python is a high-level programming language that emphasizes '
+            'readability and supports multiple programming paradigms including '
+            'object-oriented and functional styles.'
+        ),
+        'check': lambda r: len(r.strip()) > 0,
+        'note':  'must return a non-empty French translation',
+    },
+    {
+        'tool':  'translate',
+        # Input with no colon — should default to English with non-empty output
+        'input': (
+            'El cielo es azul y el sol brilla intensamente sobre las montanas '
+            'en esta hermosa tarde de verano en el campo.'
+        ),
+        'check': lambda r: len(r.strip()) > 0,
+        'note':  'no language prefix — should default to English, non-empty output',
+    },
+
+    # ── Topic search: full pipeline — search → fetch → chunk → add to store ──
+    # Mirrors the URL ingestion test approach: network layer mocked offline,
+    # real DocumentLoader + real chunkers + real VectorStore.add_chunks().
+    # check() receives "<fetched_chunks>/<added_chunks>" so we can verify both.
+    {
+        'tool':  'topic_search',
+        'input': 'Python programming language',
+        # Verify search returned chunks AND they were added to the store
+        'check': lambda r: all(int(n) > 0 for n in r.split('/')),
+        'note':  'fetch>0 chunks / add>0 chunks to store (mocked network)',
+    },
+    {
+        'tool':  'topic_search',
+        'input': 'machine learning algorithms',
+        'check': lambda r: all(int(n) > 0 for n in r.split('/')),
+        'note':  'fetch>0 chunks / add>0 chunks to store (mocked network)',
+    },
+    {
+        'tool':  'topic_search',
+        # depth=1, 1 result — same options as the default UI setting
+        'input': 'space exploration NASA',
+        'check': lambda r: all(int(n) > 0 for n in r.split('/')),
+        'note':  'fetch>0 chunks / add>0 chunks to store (mocked network)',
+    },
 ]
 
 
@@ -328,16 +388,21 @@ def _invoke_tool(agent: Agent, tool_name: str, tool_input: str) -> str:
     deterministic. The private-method call is deliberate and analogous to how
     tests call private methods to verify internal behaviour.
 
+    For topic_search, the network is mocked so the test runs offline.
+    The return value is the number of chunks as a string (checked with int(r) > 0).
+
     Args:
         agent:      A freshly created Agent instance.
-        tool_name:  One of 'calculator', 'sentiment', 'summarise'.
+        tool_name:  One of 'calculator', 'sentiment', 'summarise',
+                    'translate', 'topic_search'.
         tool_input: The argument string to pass to the tool.
 
     Returns:
-        The string output of the tool.
+        The string output of the tool. For topic_search, returns the chunk
+        count as a string so the check lambda can cast it with int().
 
     Raises:
-        ValueError: if tool_name is not one of the three supported direct tools.
+        ValueError: if tool_name is not a recognised tool.
     """
     if tool_name == 'calculator':
         return agent._tool_calculator(tool_input)
@@ -345,7 +410,87 @@ def _invoke_tool(agent: Agent, tool_name: str, tool_input: str) -> str:
         return agent._tool_sentiment(tool_input)
     if tool_name == 'summarise':
         return agent._tool_summarise(tool_input)
+    if tool_name == 'translate':
+        return agent._tool_translate(tool_input)
+    if tool_name == 'topic_search':
+        return _invoke_topic_search(agent.store, tool_input)
     raise ValueError(
         f"_invoke_tool: unsupported tool '{tool_name}'. "
-        "Supported direct-call tools: 'calculator', 'sentiment', 'summarise'."
+        "Supported tools: calculator, sentiment, summarise, translate, topic_search."
     )
+
+
+def _invoke_topic_search(store: VectorStore, query: str) -> str:
+    """Run the full topic search pipeline with a mocked network layer.
+
+    Mirrors the URL ingestion test approach:
+      1. Mock DuckDuckGo to return one fake result URL
+      2. Mock requests.get to return a fake HTML page
+      3. Run real DocumentLoader.chunk_topic_search() — real chunkers
+      4. Run real store.add_chunks() + rebuild_bm25() — real VectorStore
+      5. Return "<fetched>/<added>" so the check can verify both steps
+
+    Network is mocked so the test runs offline and deterministically.
+
+    Args:
+        store: The live VectorStore — add_chunks() is called for real.
+        query: The topic search query string.
+
+    Returns:
+        "<fetched_count>/<added_count>" e.g. "3/3".
+        Returns "0/0" on any exception so the check fails gracefully.
+    """
+    from src.rag.document_loader import DocumentLoader
+
+    # Fake HTML page — long enough to produce at least one chunk after tag stripping.
+    # Five sentences ensures HTML_CHUNK_SENTENCES=5 yields at least one window.
+    fake_html_body = (
+        '<html><body>'
+        '<p>This benchmark page covers the search query topic in detail. '
+        'It contains enough sentences for the chunker to create multiple chunks. '
+        'The topic search pipeline fetches URLs returned by the search engine. '
+        'Each URL is crawled and the content is split into overlapping windows. '
+        'The resulting chunks are embedded and added to the vector store index.</p>'
+        '</body></html>'
+    )
+
+    fake_url = 'https://benchmark-mock.example.com/page'
+
+    # Mock response object — mirrors what requests.get returns for a real URL.
+    # Every attribute that crawl_url accesses must be set explicitly so
+    # MagicMock does not return another MagicMock where a string or int is expected.
+    mock_response                  = MagicMock()
+    mock_response.content          = fake_html_body.encode('utf-8')
+    mock_response.headers          = {'Content-Type': 'text/html; charset=utf-8'}
+    mock_response.encoding         = 'utf-8'
+    mock_response.url              = fake_url   # crawl_url reads response.url for final_url
+    mock_response.raise_for_status = MagicMock()
+
+    try:
+        with patch.object(
+            DocumentLoader,
+            '_search_duckduckgo_html',
+            return_value=[fake_url],
+        ), patch('requests.get', return_value=mock_response):
+            loader       = DocumentLoader()
+            # Step 1 — fetch and chunk (real chunkers, mocked network)
+            new_chunks   = loader.chunk_topic_search(
+                query,
+                num_results=1,
+                depth=1,
+                max_pages_per_result=1,
+            )
+            fetched = len(new_chunks)
+
+            # Step 2 — add to store (real VectorStore, same as UI does it)
+            if new_chunks:
+                store.add_chunks(new_chunks, id_prefix='bench_search')
+                store.rebuild_bm25(store.chunks)
+            added = fetched  # add_chunks adds all or raises, so added == fetched
+
+        return f"{fetched}/{added}"
+
+    except Exception as exc:
+        # "0/0" causes check lambda (int(n) > 0 for both) to fail clearly
+        print(f"    [topic_search bench error] {exc}")
+        return "0/0"
