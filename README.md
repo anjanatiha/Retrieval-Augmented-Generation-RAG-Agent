@@ -1,51 +1,33 @@
 # RAG Agent — Retrieval-Augmented Generation System
 
-A production-grade, fully local RAG system with hybrid search, autonomous agent, and support for 9 document formats. Built end-to-end in Python — no cloud APIs, no external services, everything runs on your machine.
+A fully local, production-grade RAG system. Upload your documents — PDFs, spreadsheets, Word files, presentations, CSVs, web pages — ask questions in plain English, and get accurate, cited answers. Everything runs on your machine with no API keys, no cloud services, and no data leaving your device.
 
-**[► Try the live demo on Hugging Face](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)** — no installation needed.   **[► GitHub Repository](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent)**
+**[► Try the live demo — no installation needed](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)**
 
 ![Hugging Face Demo](assets/huggingface_ragdoll.png)
 
 ---
 
-## Who is this for?
+## Technical Highlights
 
-Jump to the section that fits you:
+Built from scratch as a production-grade NLP system — not a tutorial or notebook. Fully structured, tested, and deployed.
 
-| I am a... | Start here |
-|-----------|-----------|
-| **Recruiter or hiring manager** evaluating the project | [→ Skills & Technical Highlights](#skills--technical-highlights) |
-| **User** who wants to chat with their documents | [→ Try Without Installing](#try-without-installing) or [→ Quick Start](#quick-start) |
-| **Developer** who wants to understand how it works | [→ How RAG Works](#how-rag-works) · [→ Architecture](#architecture) · [→ Algorithms](#how-it-works--algorithms) |
-| **Contributor** who wants to add a feature or fix a bug | [→ Contributing](#contributing) · [→ Testing](#testing) · [→ Folder Structure](#folder-structure) |
-
----
-
-## Skills & Technical Highlights
-
-> This section is for **recruiters and hiring managers** reviewing the project as part of a job application.
-
-This project was designed and built from scratch as a demonstration of production-level NLP engineering. It is not a tutorial follow-along or a notebook experiment — it is a fully structured, tested, and deployed system.
-
-### What it demonstrates
-
-| Skill area | What was built |
-|-----------|---------------|
-| **NLP / Information Retrieval** | Hybrid BM25 + dense vector search, query expansion, query classification, type-aware LLM reranking, hallucination filtering |
-| **LLM Application Engineering** | RAG pipeline design, ReAct agent loop with tool calling, prompt engineering for 7 document-type-specific reranker prompts, structured output parsing |
-| **Software Architecture** | 4-class design with strict separation of concerns, stateless module functions vs stateful class methods, no circular dependencies, 500-line file cap enforced |
+| Area | What was built |
+|------|---------------|
+| **NLP & Information Retrieval** | Hybrid BM25 + dense vector search, query expansion, query classification, type-aware LLM reranking, hallucination filtering |
+| **LLM Application Engineering** | RAG pipeline design, ReAct agent loop with tool calling, prompt engineering across 7 document-type-specific reranker prompts, structured output parsing |
+| **Software Architecture** | 4-class design with strict separation of concerns, stateless module functions vs stateful class methods, no circular dependencies, 500-line file cap |
 | **Testing** | 828 tests across 36 files — unit, integration, contract, regression, boundary, negative, and parametrized combination tests |
-| **MLOps / Deployment** | Fully local Ollama deployment + separate Hugging Face Space deployment using InferenceClient, persistent ChromaDB vector store, CI/CD pipeline |
-| **Python Engineering** | Type hints throughout, Google-style docstrings, structured JSON logging, environment variable config, pinned dependency versions, virtual environment setup |
-| **Data Engineering** | Format-specific chunkers for 9 document types including structured row-level extraction for XLSX/CSV, table extraction with merged cell deduplication for DOCX |
+| **Deployment** | Local Ollama deployment + Hugging Face Space using InferenceClient, persistent ChromaDB vector store, CI/CD pipeline |
+| **Python Engineering** | Type hints throughout, Google-style docstrings, structured JSON logging, environment variable config, pinned dependency versions |
+| **Data Engineering** | Format-specific chunkers for 9 document types — row-level extraction for XLSX/CSV, table extraction with merged cell deduplication for DOCX |
 
-### Key design decisions worth noting
+### Key design decisions
 
-- **Hybrid search over pure dense:** BM25 + dense fusion achieves higher recall than either alone — especially critical for structured documents like spreadsheets where column names must match exactly
-- **Type-aware reranking:** 7 different LLM reranker prompts (one per document type) solve the problem of generic rerankers underscoring structured data — a spreadsheet row gets framed as "a row of structured data", not evaluated as if it were prose
-- **4-class architecture:** All state-carrying logic lives in exactly 4 classes (`DocumentLoader`, `VectorStore`, `Agent`, `Benchmarker`). Stateless operations live in modules. This prevents the circular dependency and indirection problems that come from over-decomposition
-- **Confidence gate before LLM call:** The system checks similarity threshold before calling the language model — skipping the LLM entirely when no relevant chunks exist, rather than letting it hallucinate from irrelevant context
-- **828-test suite:** Tests cover not just happy paths but contract shapes, regression locks on prompt text, boundary conditions, and parametrized matrices of all query modes × all document types
+- **Hybrid search over pure dense retrieval** — BM25 + dense fusion achieves higher recall than either alone, especially for structured documents like spreadsheets where exact column names matter
+- **Type-aware reranking** — 7 different LLM reranker prompts (one per document type) ensure a spreadsheet row is evaluated as structured data, not penalised for not being prose
+- **4-class architecture** — all state-carrying logic lives in exactly 4 classes; stateless operations live in modules, preventing circular dependencies and keeping the codebase navigable
+- **Confidence gate before every LLM call** — the system checks retrieval quality before calling the language model, skipping it entirely when no relevant content exists rather than hallucinating
 
 ### Benchmark results
 
@@ -57,19 +39,19 @@ This project was designed and built from scratch as a demonstration of productio
 | Answer Relevancy | **0.369** | Response directly addresses the question |
 | **Overall** | **0.721** | Mean across all four metrics |
 
-### Live deployment
+### Deployments
 
-| Deployment | URL | Stack |
-|-----------|-----|-------|
+| | URL | Stack |
+|-|-----|-------|
 | Hugging Face Space | [anjanatiha2024/Rag-Agent](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent) | Gradio + InferenceClient |
-| Local (Streamlit) | `streamlit run app.py` | Streamlit + Ollama |
-| Local (CLI) | `python main.py` | argparse + Ollama |
+| Local web UI | `streamlit run app.py` | Streamlit + Ollama |
+| Local terminal | `python main.py` | argparse + Ollama |
 
 ---
 
 ## Table of Contents
 
-**For users**
+**Using the system**
 - [What it does](#what-it-does)
 - [Features](#features)
 - [Try Without Installing](#try-without-installing)
@@ -81,10 +63,10 @@ This project was designed and built from scratch as a demonstration of productio
 - [Troubleshooting](#troubleshooting)
 - [Streamlit UI](#streamlit-ui)
 
-**For engineers & researchers**
+**How it works**
 - [How RAG Works](#how-rag-works)
 - [Architecture](#architecture)
-- [How It Works — Algorithms](#how-it-works--algorithms)
+- [Algorithms](#how-it-works--algorithms)
   - [Full Pipeline Diagram](#full-pipeline--how-all-algorithms-connect)
   - [1. Document Chunking](#1-document-chunking)
   - [2. Embedding](#2-embedding--turning-text-into-numbers)
@@ -101,7 +83,7 @@ This project was designed and built from scratch as a demonstration of productio
   - [13. BM25 Index Rebuild](#13-bm25-index--rebuilding-after-every-upload)
   - [14. Conversation Memory](#14-conversation-memory--multi-turn-context)
 
-**For contributors**
+**Development**
 - [Folder Structure](#folder-structure)
 - [Contributing](#contributing)
 - [Testing](#testing)
