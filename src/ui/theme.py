@@ -367,6 +367,12 @@ hr { border: none !important; border-top: 1px solid var(--gray-200) !important; 
     background: var(--blue-600) !important;
     border-radius: 4px !important;
 }
+/* Progress label text — matches page backgroundColor from config.toml (#ffffff) */
+[data-testid="stProgress"] p,
+[data-testid="stProgress"] span,
+[data-testid="stProgress"] small {
+    background: #ffffff !important;
+}
 
 /* ── Info boxes / notes ─────────────────────────────────────────────────────── */
 /* Used for tips and guidance notes rendered via st.markdown */
