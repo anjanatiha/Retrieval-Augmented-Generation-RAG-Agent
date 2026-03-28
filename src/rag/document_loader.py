@@ -15,7 +15,7 @@ from src.rag.config import (
 )
 from src.rag import chunkers
 from src.rag.url_utils import (
-    detect_url_type, build_source_name, extract_links,
+    detect_url_type, build_source_name, extract_links, url_matches_topic,
 )
 
 __all__ = ['DocumentLoader']
@@ -265,6 +265,7 @@ class DocumentLoader:
         depth: int = 2,
         max_pages: int = 25,
         allowed_types: Optional[Set[str]] = None,
+        topic_filter: str = '',
         progress_callback: Optional[Callable] = None,
     ) -> List[dict]:
         """Crawl a seed URL and all linked pages up to a given depth.
@@ -281,6 +282,10 @@ class DocumentLoader:
             max_pages:         Maximum total pages/documents to fetch and index.
             allowed_types:     Set of type strings to index, e.g. {'html', 'pdf'}.
                                If None, all detected types are indexed.
+            topic_filter:      Optional keyword the URL path must contain to be
+                               crawled (e.g. 'python', 'api'). Empty string means
+                               no filter — all pages on the domain are crawled.
+                               The seed URL itself is always crawled regardless.
             progress_callback: Optional function called after each page is fetched.
                                Signature: callback(url, detected_type, chunk_count).
 
@@ -292,7 +297,8 @@ class DocumentLoader:
 
         self._crawl_url(
             url.strip(), depth, max_pages,
-            allowed_types, visited, all_chunks, progress_callback,
+            allowed_types, topic_filter, visited, all_chunks, progress_callback,
+            is_seed=True,
         )
 
         print(f"\n  [CRAWL] Finished — {len(visited)} pages crawled, "
@@ -411,9 +417,11 @@ class DocumentLoader:
         depth: int,
         max_pages: int,
         allowed_types: Optional[Set[str]],
+        topic_filter: str,
         visited: Set[str],
         all_chunks: List[dict],
         progress_callback: Optional[Callable],
+        is_seed: bool = False,
     ) -> None:
         """Recursively fetch a URL and follow links up to the given depth.
 
@@ -425,6 +433,7 @@ class DocumentLoader:
           - The URL has already been visited
           - The max_pages cap is reached
           - depth reaches 0
+          - The URL does not match the topic filter (unless it is the seed URL)
           - The URL fails to fetch
 
         Document URLs (PDF, DOCX, etc.) are chunked but NOT recursed into —
@@ -435,13 +444,21 @@ class DocumentLoader:
             depth:             Remaining link levels to follow (decrements each call).
             max_pages:         Hard cap on total pages fetched across the whole crawl.
             allowed_types:     If set, only index pages whose detected type is in this set.
+            topic_filter:      Keyword the URL path must contain. Ignored for the seed URL.
             visited:           Shared set of already-fetched URLs (mutated in place).
             all_chunks:        Shared list accumulating all chunk dicts (mutated in place).
             progress_callback: Optional callback called after each page is fetched.
                                Signature: callback(url, detected_type, chunk_count).
+            is_seed:           True only for the very first (user-supplied) URL — the seed
+                               is always fetched regardless of the topic filter.
         """
         # Stop if we have already visited this URL or hit the page cap
         if url in visited or len(visited) >= max_pages:
+            return
+
+        # Apply topic filter to all pages except the seed URL
+        # (the seed is always crawled — the user explicitly chose it)
+        if not is_seed and not url_matches_topic(url, topic_filter):
             return
 
         # Mark as visited before fetching to prevent parallel loops
@@ -505,7 +522,7 @@ class DocumentLoader:
                 break
             self._crawl_url(
                 link, depth - 1, max_pages,
-                allowed_types, visited, all_chunks, progress_callback,
+                allowed_types, topic_filter, visited, all_chunks, progress_callback,
             )
 
     def _dispatch_chunker(self, file_info: dict) -> List[dict]:

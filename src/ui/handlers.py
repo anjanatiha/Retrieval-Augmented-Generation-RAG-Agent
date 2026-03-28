@@ -108,6 +108,7 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
         # ── Crawl settings — visible only when recursive mode is on ────────
         crawl_depth     = URL_CRAWL_MAX_DEPTH
         crawl_max_pages = URL_CRAWL_MAX_PAGES
+        crawl_topic     = ''
         allowed_types   = None
 
         if use_recursive:
@@ -124,6 +125,15 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
                     min_value=1, max_value=50, value=URL_CRAWL_MAX_PAGES,
                     key='crawl_max_pages',
                 )
+
+            # Topic filter — only crawl pages whose URL path contains this word
+            crawl_topic = st.text_input(
+                "Topic filter (optional)",
+                placeholder="e.g. python  or  machine-learning  or  api",
+                help="Only crawl pages whose URL path contains this keyword. "
+                     "Leave empty to crawl all pages on the domain.",
+                key='crawl_topic',
+            )
 
             # Document type filter — choose which types to index during the crawl
             st.caption("Index these document types:")
@@ -153,6 +163,7 @@ def handle_url_ingestion(loader, store: VectorStore) -> bool:
                     depth=int(crawl_depth),
                     max_pages=int(crawl_max_pages),
                     allowed_types=allowed_types,
+                    topic_filter=crawl_topic,
                 )
             else:
                 process_url(url_input.strip(), loader, store)

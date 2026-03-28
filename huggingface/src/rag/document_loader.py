@@ -13,7 +13,7 @@ from src.rag.config import (
     PPTX_CHUNK_SLIDES, HTML_CHUNK_SENTENCES,
 )
 from src.rag import chunkers
-from src.rag.url_utils import detect_url_type, build_source_name, extract_links
+from src.rag.url_utils import detect_url_type, build_source_name, extract_links, url_matches_topic
 
 __all__ = ['DocumentLoader']
 
@@ -223,6 +223,7 @@ class DocumentLoader:
         depth: int = 1,
         max_pages: int = 10,
         allowed_types: Optional[Set[str]] = None,
+        topic_filter: str = '',
         progress_callback: Optional[Callable] = None,
     ) -> List[dict]:
         """Crawl a seed URL and all linked pages up to a given depth.
@@ -236,6 +237,8 @@ class DocumentLoader:
             depth:             How many link-levels deep to follow.
             max_pages:         Maximum total pages/documents to fetch and index.
             allowed_types:     Set of type strings to index, or None for all.
+            topic_filter:      Optional keyword the URL path must contain to be crawled.
+                               Empty string means no filter — crawl everything on the domain.
             progress_callback: Optional callback(url, dtype, chunk_count) after each page.
 
         Returns:
@@ -246,7 +249,8 @@ class DocumentLoader:
 
         self._crawl_url(
             url.strip(), depth, max_pages,
-            allowed_types, visited, all_chunks, progress_callback,
+            allowed_types, topic_filter, visited, all_chunks, progress_callback,
+            is_seed=True,
         )
 
         print(f"\n  [CRAWL] Finished — {len(visited)} pages crawled, "
@@ -261,9 +265,11 @@ class DocumentLoader:
         depth: int,
         max_pages: int,
         allowed_types: Optional[Set[str]],
+        topic_filter: str,
         visited: Set[str],
         all_chunks: List[dict],
         progress_callback: Optional[Callable],
+        is_seed: bool = False,
     ) -> None:
         """Recursively fetch a URL and follow links up to the given depth.
 
@@ -276,11 +282,17 @@ class DocumentLoader:
             depth:             Remaining link levels to follow.
             max_pages:         Hard cap on total pages fetched.
             allowed_types:     If set, only index pages whose type is in this set.
+            topic_filter:      Keyword the URL path must contain. Ignored for seed URL.
             visited:           Shared set of already-fetched URLs (mutated in place).
             all_chunks:        Shared accumulator for all chunks (mutated in place).
             progress_callback: Optional callback after each page.
+            is_seed:           True only for the seed URL — always crawled regardless of filter.
         """
         if url in visited or len(visited) >= max_pages:
+            return
+
+        # Apply topic filter to all pages except the seed URL
+        if not is_seed and not url_matches_topic(url, topic_filter):
             return
 
         visited.add(url)
@@ -337,7 +349,7 @@ class DocumentLoader:
                 break
             self._crawl_url(
                 link, depth - 1, max_pages,
-                allowed_types, visited, all_chunks, progress_callback,
+                allowed_types, topic_filter, visited, all_chunks, progress_callback,
             )
 
     def _dispatch_chunker(self, file_info: dict) -> List[dict]:

@@ -71,6 +71,7 @@ def process_url_recursive(
     depth: int,
     max_pages: int,
     allowed_types: Optional[set],
+    topic_filter: str = '',
 ) -> None:
     """Crawl a seed URL recursively and index all discovered pages.
 
@@ -85,6 +86,8 @@ def process_url_recursive(
         depth:         How many link-levels deep to follow.
         max_pages:     Maximum total pages to fetch.
         allowed_types: Set of type strings to index, or None for all types.
+        topic_filter:  Optional keyword the URL path must contain to be crawled.
+                       Empty string means no filter — crawl everything on the domain.
     """
     try:
         # st.status() shows a live collapsible log during the crawl
@@ -103,6 +106,7 @@ def process_url_recursive(
                 depth=depth,
                 max_pages=max_pages,
                 allowed_types=allowed_types,
+                topic_filter=topic_filter,
                 progress_callback=progress_callback,
             )
 

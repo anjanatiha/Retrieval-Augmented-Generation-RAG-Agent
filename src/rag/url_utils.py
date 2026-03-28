@@ -25,6 +25,7 @@ __all__ = [
     'build_source_name',
     'is_utility_url',
     'is_same_domain',
+    'url_matches_topic',
     'extract_links',
 ]
 
@@ -164,6 +165,35 @@ def is_utility_url(url: str) -> bool:
     path       = urlparse(url).path.lower()
     path_parts = set(re.split(r'[/\-_.]', path))
     return bool(path_parts & _UTILITY_URL_KEYWORDS)
+
+
+def url_matches_topic(url: str, topic: str) -> bool:
+    """Return True if the URL path contains the topic keyword.
+
+    The check is case-insensitive and looks at the full URL path string —
+    not just individual segments — so a topic like 'machine-learning' will
+    match '/docs/machine-learning/intro' even though the hyphen splits it
+    into two path segments.
+
+    The seed URL (the one the user typed) is always considered a match so
+    the crawl always starts. Only linked pages are filtered.
+
+    Args:
+        url:   The URL to check.
+        topic: The keyword the URL path must contain (e.g. 'python', 'api').
+               An empty string or whitespace means no filter — all URLs pass.
+
+    Returns:
+        True if the URL path contains the topic, or topic is empty.
+    """
+    # Empty topic means no filter — all URLs are allowed
+    clean_topic = topic.strip().lower()
+    if not clean_topic:
+        return True
+
+    # Check the path portion of the URL (not the domain or query string)
+    path = urlparse(url).path.lower()
+    return clean_topic in path
 
 
 def is_same_domain(url: str, base_url: str) -> bool:

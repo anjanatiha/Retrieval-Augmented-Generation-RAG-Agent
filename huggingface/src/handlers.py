@@ -295,18 +295,21 @@ def fetch_url(url: str, progress=None):
 
 
 def fetch_url_recursive(url: str, depth: int, max_pages: int,
+                        topic_filter: str,
                         use_html: bool, use_pdf: bool, use_docx: bool,
                         use_xlsx: bool, use_csv: bool, use_pptx: bool,
                         use_md: bool, progress=None):
     """Crawl a seed URL recursively and index all discovered pages.
 
     Args:
-        url:       The seed URL to crawl from.
-        depth:     How many link-levels deep to follow (1–3).
-        max_pages: Maximum total pages to fetch (1–50).
+        url:          The seed URL to crawl from.
+        depth:        How many link-levels deep to follow (1–3).
+        max_pages:    Maximum total pages to fetch (1–50).
+        topic_filter: Optional keyword the URL path must contain to be crawled.
+                      Empty string means no filter — crawl everything on the domain.
         use_html, use_pdf, use_docx, use_xlsx, use_csv, use_pptx, use_md:
-                   Which document types to include in the crawl.
-        progress:  Optional gr.Progress() for a progress bar.
+                      Which document types to include in the crawl.
+        progress:     Optional gr.Progress() for a progress bar.
 
     Returns:
         Tuple of (status_message, chunk_counter_markdown).
@@ -343,6 +346,7 @@ def fetch_url_recursive(url: str, depth: int, max_pages: int,
             depth=int(depth),
             max_pages=int(max_pages),
             allowed_types=allowed_set,
+            topic_filter=topic_filter,
             progress_callback=_progress_callback,
         )
 
@@ -596,6 +600,10 @@ def build_demo():
                             minimum=1, maximum=50, value=URL_CRAWL_MAX_PAGES, step=1,
                             label="Max pages",
                         )
+                    crawl_topic_input = gr.Textbox(
+                        placeholder="e.g. python  or  machine-learning  or  api",
+                        label="Topic filter (optional) — only crawl pages whose URL contains this word",
+                    )
                     gr.Markdown("**Index these types:**")
                     with gr.Row():
                         crawl_html  = gr.Checkbox(value=True,  label="HTML")
@@ -679,11 +687,11 @@ def build_demo():
             outputs=[url_msg, chunk_counter, url_input],
         )
 
-        def _crawl(url, depth, max_pages,
+        def _crawl(url, depth, max_pages, topic,
                    use_html, use_pdf, use_docx, use_xlsx, use_csv, use_pptx, use_md):
             """Wrapper that maps Gradio inputs to fetch_url_recursive and clears the URL box."""
             status, counter = fetch_url_recursive(
-                url, depth, max_pages,
+                url, depth, max_pages, topic,
                 use_html, use_pdf, use_docx, use_xlsx, use_csv, use_pptx, use_md,
             )
             return status, counter, ""   # "" clears the crawl URL input
@@ -691,7 +699,7 @@ def build_demo():
         crawl_btn.click(
             fn=_crawl,
             inputs=[
-                crawl_url_input, crawl_depth, crawl_max_pages,
+                crawl_url_input, crawl_depth, crawl_max_pages, crawl_topic_input,
                 crawl_html, crawl_pdf, crawl_docx,
                 crawl_xlsx, crawl_csv, crawl_pptx, crawl_md,
             ],
