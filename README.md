@@ -1,5 +1,14 @@
 # RAG Agent — Retrieval-Augmented Generation System
 
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3110/)
+[![Tests](https://img.shields.io/badge/tests-828%20passing-2ea44f?logo=pytest&logoColor=white)](tests/)
+[![HF Space](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-FF6B35)](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Ollama](https://img.shields.io/badge/LLM-Ollama%20%7C%20LLaMA%203.2-black?logo=ollama)](https://ollama.com)
+[![ChromaDB](https://img.shields.io/badge/Vector%20DB-ChromaDB-orange)](https://www.trychroma.com)
+[![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
+[![Runs Locally](https://img.shields.io/badge/runs-100%25%20locally-success)](README.md)
+
 Upload your documents. Ask questions in plain English. Get accurate answers with source citations — all running on your machine, no cloud, no API keys, no data leaving your device.
 
 Supports PDF, Word, Excel, PowerPoint, CSV, Markdown, HTML, and plain text. Works with resumes, reports, spreadsheets, codebases, and any mixed folder of documents.
