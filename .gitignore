@@ -57,3 +57,6 @@ obsolete/
 test_docs/
 create_test_docs.py
 *.DS_Store
+
+# Personal writing — not part of the codebase
+BLOG_POST.md
