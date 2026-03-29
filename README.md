@@ -1,5 +1,7 @@
 # RAG Agent
 
+*Built by [Anjana Tiha](https://github.com/anjanatiha) — [LinkedIn](https://www.linkedin.com/in/anjanatiha/) · [Medium](https://medium.com/@anjanatiha/rag-58d2497529d0)*
+
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3110/)
 [![Release](https://img.shields.io/badge/release-v1.3.1-2ea44f)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/releases)
 [![Tests](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/actions/workflows/test.yml/badge.svg)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/actions/workflows/test.yml)
@@ -406,6 +408,8 @@ Features: chat and agent mode · URL ingestion · recursive crawl · topic searc
 ## Built With
 
 `Python 3.11` · `Ollama` · `ChromaDB` · `rank-bm25` · `PyMuPDF` · `python-docx` · `openpyxl` · `xlrd` · `python-pptx` · `BeautifulSoup4` · `lxml` · `requests` · `Streamlit` · `LLaMA 3.2` · `BGE Embeddings` · `Docker` · `pre-commit` · `RAGAS` (optional)
+
+**Author:** [Anjana Tiha](https://github.com/anjanatiha) — [LinkedIn](https://www.linkedin.com/in/anjanatiha/) · [Medium](https://medium.com/@anjanatiha/rag-58d2497529d0)
 
 **Development:** Built with the assistance of [Claude](https://claude.ai) (Anthropic) — used for code generation, architecture review, test writing, and documentation. All design decisions and direction were set by the author.
 

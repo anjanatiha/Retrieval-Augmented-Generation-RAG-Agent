@@ -25,6 +25,8 @@ tags:
 
 A production-grade, fully cloud-hosted RAG (Retrieval-Augmented Generation) chatbot. Upload any document and ask questions in natural language. Supports **PDF, TXT, DOCX, XLSX, PPTX, CSV, Markdown, and HTML**, including structured/tabular formats like resumes and spreadsheets.
 
+**Built by [Anjana Tiha](https://github.com/anjanatiha)** — [LinkedIn](https://www.linkedin.com/in/anjanatiha/) · [Blog Post](https://medium.com/@anjanatiha/rag-58d2497529d0)
+
 **GitHub:** [Retrieval-Augmented-Generation-RAG-Agent](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent)
 
 ---
