@@ -23,6 +23,7 @@ Supports PDF, Word, Excel, PowerPoint, CSV, Markdown, HTML, and plain text.
 |-|--------|------|
 | **[► Try the live demo](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)** | Open in browser, upload a file, ask a question — nothing to install | 30 seconds |
 | **[► Install locally](#installation)** | Run on your own machine with full privacy | ~10 minutes |
+| **[► Read the blog post](https://medium.com/@anjanatiha/rag-58d2497529d0)** | Architecture, benchmarks, and lessons learned — published on Medium | 6 min read |
 
 ![Hugging Face Demo](assets/huggingface_ragdoll.png)
 
