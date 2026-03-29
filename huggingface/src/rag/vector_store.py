@@ -487,7 +487,12 @@ class VectorStore:
             return context
 
     def _filter_hallucination(self, response: str) -> str:
-        """Truncate at hallucination pivot if model admitted no-info then hallucinated."""
+        """Truncate at hallucination pivot if model admitted no-info then hallucinated.
+
+        Also strips instruction-template tokens ([/USER], [/INST], [/ASSIST]) that
+        some instruction-tuned models (e.g. Zephyr, Mistral) leak into their output,
+        causing fake Q&A continuations to appear after the real answer.
+        """
         _no_info_phrases = [
             "there is no information",
             "i couldn't find",
@@ -502,6 +507,19 @@ class VectorStore:
             "however,", "but i can", "but,", "that said,",
             "nevertheless,", "i can tell you", "i can provide",
         ]
+        # Template bleed tokens — instruction-tuned models sometimes continue
+        # generating fake conversation turns using their training format tokens
+        _template_tokens = [
+            "[/USER]", "[/INST]", "[/ASSIST]", "[INST]", "[USER]",
+            "</s>", "<|user|>", "<|assistant|>", "<|im_end|>",
+        ]
+
+        # Truncate at the first template token — everything after is fabricated
+        for token in _template_tokens:
+            idx = response.find(token)
+            if idx != -1:
+                response = response[:idx].strip()
+
         lower_resp = response.lower()
         # Only search for pivots when the model has already admitted it couldn't find info;
         # this avoids false-positive truncation on responses that happen to use pivot words
