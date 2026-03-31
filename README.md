@@ -3,7 +3,7 @@
 *Built by [Anjana Tiha](https://github.com/anjanatiha) — [LinkedIn](https://www.linkedin.com/in/anjanatiha/) · [Medium](https://medium.com/@anjanatiha/rag-58d2497529d0)*
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3110/)
-[![Release](https://img.shields.io/badge/release-v1.4.4-2ea44f)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/releases)
+[![Release](https://img.shields.io/badge/release-v1.4.5-2ea44f)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/releases)
 [![Tests](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/actions/workflows/test.yml/badge.svg)](https://github.com/anjanatiha/Retrieval-Augmented-Generation-RAG-Agent/actions/workflows/test.yml)
 [![HF Space](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-FF6B35)](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
