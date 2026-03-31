@@ -20,6 +20,21 @@ and `requirements.txt`. Follow every instruction exactly.
 
 ---
 
+## Commercial Standard — Always Apply
+
+> **Every file, every feature, every commit must meet the highest commercial software standard.**
+> This applies to code, documentation, repository structure, UI, and tests — always.
+> If something exists, keep it at commercial standard. If something is missing, add it to that standard.
+> Make the minimum change needed to reach and maintain that standard — no more, no less.
+
+- Code is structured, readable, tested, and documented to production grade
+- Repository has SECURITY.md, CHANGELOG.md, issue templates, PR template, and a wiki
+- All MD files (README, CONTRIBUTING, DESIGN, ARCHITECTURE, BENCHMARK, CHANGELOG, wiki) are accurate and up to date
+- UI meets SaaS-quality standard — see UI Standards section below
+- Test suite covers all test types with counts and results visible in README and wiki
+
+---
+
 ## Design philosophy
 
 This refactor uses **4 classes and 4 modules**. This is deliberate.
