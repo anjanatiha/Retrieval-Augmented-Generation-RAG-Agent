@@ -27,7 +27,7 @@ Supports PDF, Word, Excel, Legacy Excel (XLS), PowerPoint, CSV, Markdown, HTML, 
 | **[► Install locally](#installation)** | Run on your own machine with full privacy | ~10 minutes |
 | **[► Read the blog post](https://medium.com/@anjanatiha/rag-58d2497529d0)** | Architecture, benchmarks, and lessons learned — published on Medium | 6 min read |
 
-![Hugging Face Demo](assets/huggingface_ragdoll.png)
+[![Hugging Face Demo](assets/huggingface_ragdoll.png)](https://huggingface.co/spaces/anjanatiha2024/Rag-Agent)
 
 ---
 
