@@ -15,7 +15,7 @@
 
 A fully local, production-grade Retrieval-Augmented Generation system. Upload documents, ask questions in plain English, and get accurate answers with source citations — no cloud, no API keys, no data leaving your machine.
 
-Supports PDF, Word, Excel, PowerPoint, CSV, Markdown, HTML, and plain text.
+Supports PDF, Word, Excel, Legacy Excel (XLS), PowerPoint, CSV, Markdown, HTML, and plain text — 9 formats total.
 
 ---
 

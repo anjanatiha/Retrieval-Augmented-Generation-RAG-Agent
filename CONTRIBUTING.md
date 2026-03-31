@@ -43,7 +43,7 @@ ollama pull hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF
 ## Running the Tests
 
 ```bash
-# All 848 local tests (run this before every pull request)
+# All 859 local tests (run this before every pull request)
 pytest
 
 # With a line-by-line coverage report
@@ -88,7 +88,7 @@ All tests must be green before submitting a pull request.
 
 ## Test Files — Full Breakdown
 
-### Local (`tests/`) — 848 tests across 31+ files
+### Local (`tests/`) — 859 tests across 31+ files
 
 | File | Covers |
 |------|--------|
