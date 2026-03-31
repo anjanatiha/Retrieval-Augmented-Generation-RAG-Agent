@@ -328,6 +328,8 @@ Query → classify → expand → hybrid retrieve → confidence check → reran
 ├── docker-compose.gpu.yml        ← NVIDIA GPU override
 ├── DESIGN.md                     ← Architectural decisions and tradeoffs
 ├── CONTRIBUTING.md               ← Dev setup, code standards, PR guidelines
+├── CHANGELOG.md                  ← Version history and release notes
+├── SECURITY.md                   ← Vulnerability reporting policy
 └── docs/                         ← Your documents go here (git-ignored)
 ```
 
@@ -422,4 +424,6 @@ Features: chat and agent mode · URL ingestion · recursive crawl · topic searc
 - [docs_technical/ARCHITECTURE.md](docs_technical/ARCHITECTURE.md) — full pipeline and algorithm reference
 - [docs_technical/BENCHMARK.md](docs_technical/BENCHMARK.md) — benchmark methodology and metric formulas
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup and contribution guide
+- [CHANGELOG.md](CHANGELOG.md) — version history and release notes
+- [SECURITY.md](SECURITY.md) — how to report vulnerabilities
 - [Based on](https://huggingface.co/blog/ngxson/make-your-own-rag) — significantly extended with hybrid search, type-aware reranking, 9 format support, agent mode, benchmarking, and Streamlit UI

@@ -12,6 +12,7 @@ This guide covers everything needed to contribute to the RAG Agent project.
 - [How to add a new file format](#how-to-add-a-new-file-format)
 - [How to add a new agent tool](#how-to-add-a-new-agent-tool)
 - [Code standards](#code-standards)
+- [Reporting security issues](#reporting-security-issues)
 - [Pull request guidelines](#pull-request-guidelines)
 
 ---
@@ -287,6 +288,13 @@ top_chunks = passing_chunks[:max_results]
 - Do not nest more than 3 levels of indentation. Flatten with early returns.
 - Do not add error handling for things that cannot fail in normal operation. Only validate at system boundaries (user input, external APIs, file I/O).
 - Do not add packages to `requirements.txt` unless genuinely necessary. Dev-only packages go in `pyproject.toml`.
+
+---
+
+## Reporting Security Issues
+
+Do **not** open a public GitHub issue for security vulnerabilities.
+Email **anjanatiha@gmail.com** instead — see [SECURITY.md](SECURITY.md) for details.
 
 ---
 
