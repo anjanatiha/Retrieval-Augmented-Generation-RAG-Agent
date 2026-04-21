@@ -112,7 +112,7 @@ def build_demo():
                 with gr.Accordion("🔍 Search & index a topic", open=False):
                     gr.Markdown(
                         '<div class="note">Search the web for a topic and index the top results. '
-                        'Uses DuckDuckGo — no API key needed.<br/>'
+                        'Uses Tavily when TAVILY_API_KEY is set, otherwise DuckDuckGo (no key needed).<br/>'
                         'Each result URL is crawled to the chosen depth, same as the URL crawl.</div>',
                         sanitize_html=False,
                     )
