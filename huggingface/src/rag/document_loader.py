@@ -1,10 +1,13 @@
 """document_loader.py — DocumentLoader class: owns all ingestion. HF Space version."""
 
+import logging
 import os
 import re
 import tempfile
 from typing import Callable, List, Optional, Set
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 from src.rag import binary_chunkers, chunkers
 from src.rag.config import (
@@ -293,13 +296,10 @@ class DocumentLoader:
         Returns:
             Flat list of all chunk dicts from every crawled result URL.
         """
-        # Search DuckDuckGo via the HTML form endpoint.
-        # This uses a plain POST request (requests + BeautifulSoup) rather than
-        # the duckduckgo-search library, which is subject to aggressive IP-level
-        # rate limiting on the JS API endpoints.  The HTML endpoint is the same
-        # one used by the public website and is not rate-limited in the same way.
+        # Use the web search dispatcher — Tavily when TAVILY_API_KEY is set,
+        # otherwise fall back to DuckDuckGo HTML scraping.
         print(f"\n  [SEARCH] Querying: {query!r}  (top {num_results} results)")
-        urls = self._search_duckduckgo_html(query, num_results)
+        urls = self._search_web(query, num_results)
 
         all_chunks: List[dict] = []
         for i, url in enumerate(urls):
@@ -322,6 +322,61 @@ class DocumentLoader:
         return all_chunks
 
     # ----------------------------------------------------------------- Private
+
+    def _search_web(self, query: str, num_results: int) -> List[str]:
+        """Dispatch web search to Tavily (if TAVILY_API_KEY is set) or DuckDuckGo.
+
+        This is the single entry point for all web searches. It checks for a
+        Tavily API key in the environment and uses it when available, falling
+        back to the free DuckDuckGo HTML scraper otherwise.
+
+        Args:
+            query:       The search query string.
+            num_results: Maximum number of result URLs to return.
+
+        Returns:
+            List of result URLs.
+        """
+        tavily_api_key = os.environ.get('TAVILY_API_KEY', '').strip()
+        if tavily_api_key:
+            return self._search_tavily(query, num_results, tavily_api_key)
+        return self._search_duckduckgo_html(query, num_results)
+
+    def _search_tavily(self, query: str, num_results: int, api_key: str) -> List[str]:
+        """Search the web using the Tavily API and return result URLs.
+
+        Tavily is a search API designed for LLM applications. It returns
+        higher-quality, more relevant results than HTML scraping, and is
+        not subject to the same rate-limiting as DuckDuckGo.
+
+        Args:
+            query:       The search query string.
+            num_results: Maximum number of result URLs to return.
+            api_key:     Tavily API key.
+
+        Returns:
+            List of result URLs. Falls back to DuckDuckGo on error.
+        """
+        try:
+            from tavily import TavilyClient
+        except ImportError:
+            print("  [SEARCH] tavily-python not installed, falling back to DuckDuckGo")
+            return self._search_duckduckgo_html(query, num_results)
+
+        try:
+            client = TavilyClient(api_key=api_key)
+            response = client.search(
+                query=query,
+                max_results=num_results,
+                search_depth="basic",
+                topic="general",
+            )
+            urls = [result['url'] for result in response.get('results', []) if result.get('url')]
+            print(f"  [SEARCH] Tavily returned {len(urls)} result URLs")
+            return urls[:num_results]
+        except Exception as error:
+            print(f"  [SEARCH] Tavily search failed: {error} — falling back to DuckDuckGo")
+            return self._search_duckduckgo_html(query, num_results)
 
     def _search_duckduckgo_html(self, query: str, num_results: int) -> List[str]:
         """Search DuckDuckGo via the public HTML form endpoint and return URLs.
