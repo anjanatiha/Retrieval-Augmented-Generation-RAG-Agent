@@ -27,6 +27,7 @@ __all__ = [
     'TXT_CHUNK_SIZE', 'TXT_CHUNK_OVERLAP', 'PDF_CHUNK_SENTENCES',
     'DOCX_CHUNK_PARAS', 'PPTX_CHUNK_SLIDES', 'HTML_CHUNK_SENTENCES',
     'URL_CRAWL_MAX_DEPTH', 'URL_CRAWL_MAX_PAGES',
+    'TAVILY_API_KEY',
 ]
 
 # ── Models ─────────────────────────────────────────────────────────────────────
@@ -127,6 +128,11 @@ PPTX_CHUNK_SLIDES    = 1
 
 # Number of sentences per sliding window for HTML pages
 HTML_CHUNK_SENTENCES = 5
+
+# ── Tavily search (optional) ──────────────────────────────────────────────────
+# When set, topic search uses Tavily instead of DuckDuckGo HTML scraping.
+# Get a free key at https://app.tavily.com (1 000 credits/month, no card).
+TAVILY_API_KEY = os.environ.get('TAVILY_API_KEY', '')
 
 # ── Recursive URL crawl defaults ──────────────────────────────────────────────
 # These are default values only — the user can override both from the UI

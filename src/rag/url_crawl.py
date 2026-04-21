@@ -18,7 +18,38 @@ from typing import Callable, Dict, List, Optional, Set
 from src.rag import chunkers
 from src.rag.url_utils import build_source_name, detect_url_type, extract_links, is_same_domain, url_matches_topic
 
-__all__ = ['chunk_content', 'crawl_url', 'search_duckduckgo_html']
+__all__ = ['chunk_content', 'crawl_url', 'search_duckduckgo_html', 'search_tavily']
+
+
+def search_tavily(query: str, num_results: int) -> List[str]:
+    """Search the web using the Tavily API and return result URLs.
+
+    Tavily is a search API designed for LLMs. It returns high-quality,
+    relevance-scored results. Requires a valid TAVILY_API_KEY.
+
+    Args:
+        query:       The search query string.
+        num_results: Maximum number of result URLs to return.
+
+    Returns:
+        List of result URLs from Tavily search results.
+
+    Raises:
+        Exception: If the Tavily client cannot be initialised or the search fails.
+    """
+    from tavily import TavilyClient
+    from src.rag.config import TAVILY_API_KEY
+
+    client = TavilyClient(api_key=TAVILY_API_KEY)
+    response = client.search(
+        query=query,
+        max_results=num_results,
+        search_depth="basic",
+    )
+
+    urls = [result['url'] for result in response.get('results', [])]
+    print(f"  [SEARCH] Tavily returned {len(urls)} result URLs")
+    return urls
 
 
 def search_duckduckgo_html(query: str, num_results: int) -> List[str]:
