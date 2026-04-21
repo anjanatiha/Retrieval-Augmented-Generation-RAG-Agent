@@ -224,7 +224,8 @@ def handle_topic_search(loader, store: VectorStore) -> bool:
     with st.expander("🔍 Search & index a topic", expanded=False):
         st.caption("Search the web for a topic and index the top results automatically.")
         st.markdown(
-            '<div class="note">Uses DuckDuckGo — no API key needed.<br/>'
+            '<div class="note">Uses Tavily when <code>TAVILY_API_KEY</code> is set, '
+            'otherwise DuckDuckGo (no API key needed).<br/>'
             'Each result URL is crawled to the chosen depth, same as the URL crawl.</div>',
             unsafe_allow_html=True,
         )

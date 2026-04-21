@@ -18,7 +18,8 @@ from src.rag.config import (
     TXT_CHUNK_OVERLAP,
     TXT_CHUNK_SIZE,
 )
-from src.rag.url_crawl import chunk_content, crawl_url, search_duckduckgo_html
+from src.rag.config import TAVILY_API_KEY
+from src.rag.url_crawl import chunk_content, crawl_url, search_duckduckgo_html, search_tavily
 from src.rag.url_utils import build_source_name, detect_url_type
 
 __all__ = ['DocumentLoader']
@@ -344,13 +345,9 @@ class DocumentLoader:
         Returns:
             Flat list of all chunk dicts from every crawled result URL.
         """
-        # Search DuckDuckGo via the HTML form endpoint.
-        # This uses a plain POST request (requests + BeautifulSoup) rather than
-        # the duckduckgo-search library, which is subject to aggressive IP-level
-        # rate limiting on the JS API endpoints.  The HTML endpoint is the same
-        # one used by the public website and is not rate-limited in the same way.
+        # Use Tavily when TAVILY_API_KEY is set, otherwise fall back to DuckDuckGo.
         print(f"\n  [SEARCH] Querying: {query!r}  (top {num_results} results)")
-        urls = self._search_duckduckgo_html(query, num_results)
+        urls = self._search_web(query, num_results)
 
         # Crawl each result URL and collect all chunks
         all_chunks: List[dict] = []
@@ -375,6 +372,27 @@ class DocumentLoader:
         return all_chunks
 
     # ----------------------------------------------------------------- Private
+
+    def _search_web(self, query: str, num_results: int) -> List[str]:
+        """Select the best available search provider and return result URLs.
+
+        When TAVILY_API_KEY is set, uses Tavily for higher-quality results.
+        Falls back to DuckDuckGo HTML scraping if the key is missing or if
+        the Tavily call fails for any reason.
+
+        Args:
+            query:       The search query string.
+            num_results: Maximum number of result URLs to return.
+
+        Returns:
+            List of result URLs from whichever provider succeeded.
+        """
+        if TAVILY_API_KEY:
+            try:
+                return search_tavily(query, num_results)
+            except Exception as error:
+                print(f"  [SEARCH] Tavily failed, falling back to DuckDuckGo: {error}")
+        return search_duckduckgo_html(query, num_results)
 
     def _search_duckduckgo_html(self, query: str, num_results: int) -> List[str]:
         """Delegate to url_crawl.search_duckduckgo_html — no class state needed.
